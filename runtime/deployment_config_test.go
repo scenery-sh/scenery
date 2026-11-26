@@ -2,9 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 
@@ -47,33 +44,5 @@ func TestDeploymentConfigResolvesTypedValuesAndSecrets(t *testing.T) {
 	}
 	if _, err := ConfigSecretRef("designs.unset").Reveal(); err == nil {
 		t.Fatal("an unconfigured secret revealed")
-	}
-	server, err := newServer("127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorder := httptest.NewRecorder()
-	server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, PublicConfigPath, nil))
-	var document publicConfigDocument
-	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil || recorder.Code != http.StatusOK {
-		t.Fatalf("public configuration = %d %s", recorder.Code, recorder.Body)
-	}
-	if document.Revision != "cfg-1" || len(document.Values) != 1 || string(document.Values["maps.key"]) != `"browser-key"` {
-		t.Fatalf("public configuration exposes %+v", document)
-	}
-	if PublicConfigPath != "/_app/public-config" || document.Kind != "app.public-config" || strings.Contains(strings.ToLower(recorder.Body.String()), "scenery") {
-		t.Fatalf("public configuration exposes framework branding: %s %s", PublicConfigPath, recorder.Body)
-	}
-	request := httptest.NewRequest(http.MethodGet, PublicConfigPath, nil)
-	request.Header.Set("If-None-Match", recorder.Header().Get("ETag"))
-	recorder = httptest.NewRecorder()
-	server.Handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusNotModified {
-		t.Fatalf("unchanged revision = %d", recorder.Code)
-	}
-	recorder = httptest.NewRecorder()
-	server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/__scenery/public-config", nil))
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("retired public configuration path = %d", recorder.Code)
 	}
 }

@@ -55,7 +55,9 @@ func (p *worktreeRuntimeProbe) staleClientRecovery(root string, runtime detached
 	if err := harnessProcessModelWaitLog(p.ctx, runtime.LogPath, unrelated, "build.blocked"); err != nil {
 		return nil, err
 	}
-	if err := harnessAssertWatchBuildCount(p.ctx, runtime.LogPath, unrelated, 0); err != nil {
+	// The host may re-check its declarations, but nothing is built or
+	// published while its clients are stale.
+	if err := harnessAssertHostPublications(p.ctx, runtime.LogPath, unrelated, 0); err != nil {
 		return nil, err
 	}
 	events, err := harnessWatchEvents(runtime.LogPath, unrelated)

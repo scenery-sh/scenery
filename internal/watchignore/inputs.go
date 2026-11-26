@@ -3,11 +3,12 @@ package watchignore
 import (
 	pathpkg "path"
 	filepath "path/filepath"
-	app "scenery.sh/internal/app"
 	strconv "strconv"
 	strings "strings"
 	unicode "unicode"
 	utf8 "unicode/utf8"
+
+	app "scenery.sh/internal/app"
 )
 
 func ParseEmbedPatterns(src string) []string {

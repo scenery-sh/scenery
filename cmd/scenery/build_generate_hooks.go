@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
@@ -24,6 +25,5 @@ func wireBuildGenerateHooks() {
 		},
 		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspaceContext,
 		RuntimeIntegrationPlan:  generate.BuildRuntimeIntegrationPlan,
-		RenderAssistantAssets:   generate.RenderAssistantAssetRegistry,
 	})
 }

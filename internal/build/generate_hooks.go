@@ -8,8 +8,7 @@ import (
 	generateapi "scenery.sh/internal/generate/api"
 )
 
-// GenerateHooks are the generate callbacks used by prepare and assistant
-// asset materialization. Production CLI and build tests wire them; the
+// GenerateHooks are the generate callbacks used by workspace preparation. Production CLI and build tests wire them; the
 // production package does not import internal/generate.
 type GenerateHooks struct {
 	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, compiler.GoBuildTarget) error
@@ -19,7 +18,6 @@ type GenerateHooks struct {
 	SyncCachedTypeScript             func(context.Context, *compiler.Result) ([]string, error)
 	PrepareBuildGoWorkspace          func(context.Context, *compiler.Result) (generateapi.GoWorkspaceProjection, error)
 	RuntimeIntegrationPlan           func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)
-	RenderAssistantAssets            func(*compiler.Result, []generateapi.AssistantAssetInput) (map[string][]byte, error)
 }
 
 var generateHooks GenerateHooks
@@ -33,7 +31,7 @@ func requireGenerateHooks() error {
 	hooks := generateHooks
 	if hooks.ApplyPreparedImplementationCheck == nil ||
 		hooks.SyncCachedTypeScript == nil || hooks.PrepareBuildGoWorkspace == nil ||
-		hooks.RuntimeIntegrationPlan == nil || hooks.RenderAssistantAssets == nil {
+		hooks.RuntimeIntegrationPlan == nil {
 		return fmt.Errorf("build generate hooks are not wired")
 	}
 	return nil

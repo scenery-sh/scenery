@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/devreport"
 	"scenery.sh/runtime/shared"
 )
@@ -30,8 +31,8 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 		},
 	}
 
-	generateCtx, generateSpan := StartSpan(withState(context.Background(), state), "GetEarth.generate")
-	_, fetchSpan := StartSpan(generateCtx, "GetEarth.fetch_mesh")
+	generateCtx, generateSpan := appsdk.StartSpan(withState(context.Background(), state), "GetEarth.generate")
+	_, fetchSpan := appsdk.StartSpan(generateCtx, "GetEarth.fetch_mesh")
 	fetchSpan.End(errors.New("provider unavailable"))
 	generateSpan.End(nil)
 
@@ -77,7 +78,7 @@ func TestApplicationSpanEndIsIdempotent(t *testing.T) {
 		traceEnabled: true,
 		trace:        &traceSpan{traceID: "trace-1", spanID: "request-1", isRoot: true},
 	}
-	_, span := StartSpan(withState(context.Background(), state), "GetEarth.save")
+	_, span := appsdk.StartSpan(withState(context.Background(), state), "GetEarth.save")
 	span.End(nil)
 	span.End(errors.New("late error"))
 
@@ -100,7 +101,7 @@ func TestApplicationSpanWithoutRequestIsNoop(t *testing.T) {
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 
-	ctx, span := StartSpan(context.Background(), "background")
+	ctx, span := appsdk.StartSpan(context.Background(), "background")
 	if ctx == nil || span == nil {
 		t.Fatal("StartSpan returned a nil context or span")
 	}

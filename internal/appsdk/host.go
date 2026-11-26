@@ -2,14 +2,10 @@ package appsdk
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"slices"
 	"sync"
-
-	"scenery.sh/internal/connectionapi"
-	"scenery.sh/internal/runtimeapi"
 )
 
 // Host is the runtime implementation that application-facing packages
@@ -20,11 +16,7 @@ import (
 type Host interface {
 	CurrentAuth() (Auth, bool)
 	WithAuth(context.Context, Auth) context.Context
-	RegisterAuthHandler(AuthHandler)
-	RegisterEndpoint(Endpoint)
 	MarkServiceInitialized(service string, shutdown func(context.Context))
-	DecodeJSON(request *http.Request, target any) error
-	EncodeJSON(status int, value any) (Response, error)
 	TraceHTTPTransport(http.RoundTripper) http.RoundTripper
 	TraceStorageOperation(ctx context.Context, store, operation string) (context.Context, func(int64, error))
 	TraceDBQueryStart(ctx context.Context, query string, argsCount int) context.Context
@@ -34,7 +26,6 @@ type Host interface {
 	// snapshot; the boolean reports whether the environment configured it.
 	FrameworkConfigSecret(key string) ([]byte, bool, error)
 	FrameworkConfigString(key string) (string, bool, error)
-	RegisterConnections([]connectionapi.ProviderConfig, func(context.Context) (*sql.DB, error), func(context.Context) (string, string, error)) error
 	ConnectionToken(context.Context, string, string, []string) (string, error)
 }
 
@@ -42,35 +33,6 @@ type Host interface {
 type Auth struct {
 	UID  string
 	Data any
-}
-
-// AuthHandler authenticates a bearer token for the application.
-type AuthHandler struct {
-	Service      string
-	Name         string
-	Authenticate func(context.Context, string) (Auth, error)
-}
-
-// Endpoint is a framework-owned HTTP endpoint. A non-nil RawHandler serves the
-// request directly; otherwise Decode, Invoke and Encode form a typed contract
-// endpoint.
-type Endpoint struct {
-	Service    string
-	Name       string
-	Access     runtimeapi.Access
-	Path       string
-	Methods    []string
-	RawHandler func(http.ResponseWriter, *http.Request)
-	Decode     func(request *http.Request, pathValues map[string]string) (payload any, pathArgs []any, err error)
-	Invoke     func(ctx context.Context, pathArgs []any, payload any) (any, error)
-	Encode     func(request *http.Request, outcome any) (Response, error)
-}
-
-// Response is an encoded contract answer.
-type Response struct {
-	Status  int
-	Headers http.Header
-	Body    []byte
 }
 
 // ErrNoHost reports a call that needs the runtime in a process that did not

@@ -23,7 +23,7 @@ import (
 const (
 	sharedCompositionKind                   = "scenery.shared-workspace-composition"
 	sharedCompositionSchemaDescriptor       = `{"files":"map<path,bytes>","generator_fingerprint":"digest","key":"digest","kind":"scenery.shared-workspace-composition","payload_sha256":"digest","producer":"producer","schema_revision":"digest","spec_revision":"digest"}`
-	sharedCompositionCacheVersion           = "v1"
+	sharedCompositionCacheVersion           = "v2"
 	sharedCompositionCacheEntries           = 64
 	sharedCompositionCacheBytes       int64 = 32 << 20
 )
@@ -41,10 +41,8 @@ type sharedCompositionKeyInput struct {
 	GeneratorFingerprint string                           `json:"generator_fingerprint"`
 	AppName              string                           `json:"app_name"`
 	Config               app.Config                       `json:"config"`
-	CompositionImport    string                           `json:"composition_import"`
 	ContractRevision     string                           `json:"contract_revision,omitempty"`
 	Services             []generateapi.ServiceProcessPlan `json:"services,omitempty"`
-	HostApplication      []byte                           `json:"host_application,omitempty"`
 	SQLRequirements      compiler.SQLRequirements         `json:"sql_requirements"`
 }
 
@@ -54,7 +52,7 @@ func sharedCompositionKey(appName string, cfg app.Config, plan generateapi.Runti
 	}
 	encoded, err := json.Marshal(sharedCompositionKeyInput{
 		Producer: machine.RuntimeProducer(), GeneratorFingerprint: generatorFingerprint,
-		AppName: appName, Config: cfg, CompositionImport: plan.CompositionImport, ContractRevision: plan.ContractRevision, Services: plan.Services, HostApplication: plan.HostApplication,
+		AppName: appName, Config: cfg, ContractRevision: plan.ContractRevision, Services: plan.Services,
 		SQLRequirements: sql,
 	})
 	if err != nil {

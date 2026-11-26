@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,172 +9,36 @@ import (
 
 const testSourceWaitPoll = 2 * time.Millisecond
 
-func sourceWaitSupervisor(t *testing.T) (*devSupervisor, string) {
+// sourceWaitSupervisor is a supervisor whose host has not started.
+func sourceWaitSupervisor(t *testing.T) *devSupervisor {
 	t.Helper()
 	root := t.TempDir()
 	writeWatchFile(t, root, "app.scn", "app \"source-wait\" {}\n")
-	writeWatchFile(t, root, "service.go", "package app\n")
-	snapshot, err := scanWatchedFiles(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity := &runtimeServingIdentity{Generation: 1, SourceSnapshotDigest: snapshotFingerprint(snapshot)}
-	return &devSupervisor{root: root, servingSnapshot: &snapshot, servingIdentity: identity, sourceWaitPoll: testSourceWaitPoll}, root
+	return &devSupervisor{root: root, sourceWaitPoll: testSourceWaitPoll}
 }
 
-func TestSourceWaitReportsTheServedTargetSnapshot(t *testing.T) {
-	s, root := sourceWaitSupervisor(t)
-	served, err := s.waitForSourceSnapshot(context.Background(), time.Second)
-	if err != nil || served.Outcome != "served" || served.Serving == nil || served.TargetSourceSnapshotDigest != served.Serving.SourceSnapshotDigest {
-		t.Fatalf("current source = %+v, %v", served, err)
+// Before a host serves, a failed or blocked start ends the wait; the running
+// host owns every later answer.
+func TestSourceWaitWithoutHostEndsOnFailureBlockAndTimeout(t *testing.T) {
+	s := sourceWaitSupervisor(t)
+	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || timedOut.OK {
+		t.Fatalf("pending start = %+v, %v", timedOut, err)
 	}
-
-	writeWatchFile(t, root, "service.go", "package app\nvar Edited = true\n")
-	edited, err := scanWatchedFiles(root)
-	if err != nil {
-		t.Fatal(err)
+	s.lastBuild = &devBuildAttempt{Error: "syntax error"}
+	failed, err := s.waitForSourceSnapshot(context.Background(), time.Second)
+	if err != nil || failed.Outcome != "failed" || failed.CompileError != "syntax error" {
+		t.Fatalf("failed start = %+v, %v", failed, err)
 	}
-	target := snapshotFingerprint(edited)
-	go func() {
-		time.Sleep(2 * testSourceWaitPoll)
-		s.mu.Lock()
-		s.servingSnapshot, s.servingIdentity = &edited, &runtimeServingIdentity{Generation: 2, SourceSnapshotDigest: target}
-		s.mu.Unlock()
-	}()
-	published, err := s.waitForSourceSnapshot(context.Background(), 5*time.Second)
-	if err != nil || published.Outcome != "served" || published.Serving.Generation != 2 || published.TargetSourceSnapshotDigest != target {
-		t.Fatalf("published edit = %+v, %v", published, err)
+	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.dev-runtime.wait.schema.json")
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, failed); len(diagnostics) != 0 {
+		t.Fatalf("failed result does not match its schema: %v", diagnostics)
 	}
-}
-
-func TestSourceWaitEndsOnFailureBlockSupersessionAndTimeout(t *testing.T) {
-	s, root := sourceWaitSupervisor(t)
-	writeWatchFile(t, root, "service.go", "package app\nvar Broken = \n")
-	broken, err := scanWatchedFiles(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.lastBuild = &devBuildAttempt{SourceSnapshotDigest: snapshotFingerprint(broken), Error: "syntax error"}
-	if failed, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || failed.Outcome != "failed" || failed.CompileError != "syntax error" {
-		t.Fatalf("failed build = %+v, %v", failed, err)
-	}
-
 	s.lastBuild = nil
-	if _, freshness := s.currentServingState(context.Background()); freshness != "stale" {
-		t.Fatalf("pending source freshness = %q", freshness)
-	}
-	// A deadline may expire during the disk scan, leaving freshness unknown.
-	// The timeout must still retain the captured target and serving identity.
-	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || (timedOut.SourceFreshness != "stale" && timedOut.SourceFreshness != "unknown") || timedOut.Serving == nil || timedOut.TargetSourceSnapshotDigest != snapshotFingerprint(broken) {
-		t.Fatalf("pending build = %+v, %v", timedOut, err)
-	}
-
-	writeWatchFile(t, root, "service.go", "package app\nvar Later = true\n")
-	superseded, err := s.waitForCapturedSource(t.Context(), time.Now(), testSourceWaitPoll, broken, runtimeSourceWait{})
-	if err != nil || superseded.Outcome != "superseded" || superseded.CurrentSourceSnapshotDigest == "" || superseded.CurrentSourceSnapshotDigest == superseded.TargetSourceSnapshotDigest {
-		t.Fatalf("superseding edit = %+v, %v", superseded, err)
-	}
-
 	s.buildBlock = &devBuildBlock{Reason: buildBlockGeneratedClients, Cause: "client check failed"}
 	if blocked, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || blocked.Outcome != "blocked" || blocked.BuildBlock == nil || blocked.BuildBlock.Cause != "client check failed" {
-		t.Fatalf("blocked build = %+v, %v", blocked, err)
+		t.Fatalf("blocked start = %+v, %v", blocked, err)
 	}
-}
-
-func TestSourceWaitResultsMatchTheCheckedSchema(t *testing.T) {
-	s, root := sourceWaitSupervisor(t)
-	s.servingIdentity.PublishedAt = "2026-10-19T00:00:00Z"
-	served, err := s.waitForSourceSnapshot(context.Background(), time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeWatchFile(t, root, "service.go", "package app\nvar Broken = \n")
-	broken, err := scanWatchedFiles(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.lastBuild = &devBuildAttempt{SourceSnapshotDigest: snapshotFingerprint(broken), Error: "syntax error"}
-	failed, err := s.waitForSourceSnapshot(context.Background(), time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.dev-runtime.wait.schema.json")
-	for _, result := range []runtimeSourceWait{served, failed} {
-		if diagnostics := validateHarnessJSONSchemaFile(schemaPath, result); len(diagnostics) != 0 {
-			t.Fatalf("%s result does not match its schema: %v", result.Outcome, diagnostics)
-		}
-	}
-	if !served.OK || failed.OK {
-		t.Fatalf("ok flags = served %t failed %t", served.OK, failed.OK)
-	}
-}
-
-func TestSourceWaitOmitsUncapturedTarget(t *testing.T) {
-	s, root := sourceWaitSupervisor(t)
-	if err := os.Remove(filepath.Join(root, "app.scn")); err != nil {
-		t.Fatal(err)
-	}
-	result, err := s.waitForSourceSnapshot(context.Background(), time.Second)
-	if err != nil || result.Outcome != "source_missing" {
-		t.Fatalf("missing source = %+v, %v", result, err)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(encoded, &fields); err != nil {
-		t.Fatal(err)
-	}
-	if _, present := fields["target_source_snapshot_digest"]; present {
-		t.Fatalf("uncaptured target = %s", encoded)
-	}
-	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.dev-runtime.wait.schema.json")
-	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, result); len(diagnostics) != 0 {
-		t.Fatal(diagnostics)
-	}
-	fields["target_source_snapshot_digest"] = ""
-	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, fields); len(diagnostics) == 0 {
-		t.Fatal("schema accepted an empty target digest")
-	}
-}
-
-// Readiness is announced before the first generation publishes its snapshot.
-// A wait that starts in between must wait for it, not capture a target that
-// no generation can serve.
-func TestSourceWaitStartsOnceTheFirstGenerationHasPublished(t *testing.T) {
-	s, _ := sourceWaitSupervisor(t)
-	snapshot, identity := s.servingSnapshot, s.servingIdentity
-	s.servingSnapshot, s.servingIdentity = nil, nil
-	go func() {
-		time.Sleep(3 * testSourceWaitPoll)
-		s.mu.Lock()
-		s.servingSnapshot, s.servingIdentity = snapshot, identity
-		s.mu.Unlock()
-	}()
-	served, err := s.waitForSourceSnapshot(context.Background(), 5*time.Second)
-	if err != nil || served.Outcome != "served" || served.TargetSourceSnapshotDigest != identity.SourceSnapshotDigest {
-		t.Fatalf("wait across the first publication = %+v, %v", served, err)
-	}
-
-	// Without a generation, the build that failed or is blocked ends the wait.
-	s.mu.Lock()
-	s.servingSnapshot, s.servingIdentity = nil, nil
-	s.lastBuild = &devBuildAttempt{SourceSnapshotDigest: "initial", Error: "syntax error"}
-	s.mu.Unlock()
-	if failed, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || failed.Outcome != "failed" || failed.CompileError != "syntax error" || failed.TargetSourceSnapshotDigest != "" {
-		t.Fatalf("failed first build = %+v, %v", failed, err)
-	}
-	s.mu.Lock()
-	s.lastBuild, s.buildBlock = nil, &devBuildBlock{Reason: buildBlockMigrationPending, Cause: "pending", Since: time.Now()}
-	s.mu.Unlock()
-	if blocked, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || blocked.Outcome != "blocked" || blocked.BuildBlock == nil {
-		t.Fatalf("blocked first build = %+v, %v", blocked, err)
-	}
-	s.mu.Lock()
-	s.buildBlock = nil
-	s.mu.Unlock()
-	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || timedOut.TargetSourceSnapshotDigest != "" {
-		t.Fatalf("no first generation = %+v, %v", timedOut, err)
+	if identity, freshness := s.currentServingState(context.Background()); identity != nil || freshness != "blocked" {
+		t.Fatalf("serving state = %+v, %q", identity, freshness)
 	}
 }

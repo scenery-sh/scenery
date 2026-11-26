@@ -1,50 +1,14 @@
 package generate
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
 	generateapi "scenery.sh/internal/generate/api"
 )
-
-func TestEmptyHTTPResponseDoesNotLeaveOutcomeVariableUnused(t *testing.T) {
-	var source strings.Builder
-	if err := renderHTTPResponseCase(&source, nil, Resource{}, "result.success", "contract.DeleteSuccess", 204, "typed", map[string]any{"$ref": "std.type.unit"}, map[string]any{}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(source.String(), "_ = typed") {
-		t.Fatalf("empty response case did not consume its outcome variable:\n%s", source.String())
-	}
-}
-
-func TestGeneratedHTTPAdapterBindsSchemaDirectedExactScalarCodecs(t *testing.T) {
-	operation := Resource{Address: "house/operation/put_count", Module: "house", Kind: "scenery.operation", Name: "put_count", Spec: map[string]any{"input": map[string]any{"$ref": "int64"}}}
-	binding := Resource{Address: "house/binding/put_count_http", Module: "house", Kind: "scenery.binding", Name: "put_count_http"}
-	httpSpec := map[string]any{
-		"body":          map[string]any{"codec": "json", "to": map[string]any{"$ref": "operation.put_count.input"}},
-		"request_limit": map[string]any{},
-	}
-	schema, err := renderContractRequestSchema(map[string]Resource{}, operation, binding, httpSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, fragment := range []string{`Type: "int64"`, `DecodeValue: func(data []byte, target any) error`, `UnmarshalContractValue(data, target, "int64")`} {
-		if !strings.Contains(schema, fragment) {
-			t.Fatalf("generated request schema missing %q:\n%s", fragment, schema)
-		}
-	}
-	response := renderContractResponseOptions(map[string]any{}, "uint64")
-	for _, fragment := range []string{`TypeExpression: "uint64"`, `MarshalContractValue(value, "uint64")`} {
-		if !strings.Contains(response, fragment) {
-			t.Fatalf("generated response options missing %q:\n%s", fragment, response)
-		}
-	}
-}
 
 func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
@@ -82,10 +46,10 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		"type selfInternalClient struct{}",
-		`InvokeContractBindingCodec(ctx, "house/binding/process_scene_internal", "house", invocation, copied, func(value any) ([]byte, error)`,
-		`return contract.UnmarshalProcessSceneOutcome(data)`,
+		`sceneryruntime.InvokeWorkerBinding(ctx, invocation, "self", false, raw)`,
+		`outcome, err := contract.UnmarshalProcessSceneOutcome(output)`,
 		"input.Clients.Self = selfInternalClient{}",
-		`RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: "house/binding/process_scene_internal"`,
+		`sceneryruntime.RegisterWorkerOperation("house/operation/process_scene"`,
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
@@ -93,7 +57,7 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 	}
 }
 
-func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T) {
+func TestGenerateApplicationDescriptorCoversPageResources(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	result.Manifest.Resources = append(result.Manifest.Resources,
 		Resource{Address: "house/binding/process_scene_internal", Module: "house", Kind: "scenery.binding", Name: "process_scene_internal", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
@@ -111,20 +75,6 @@ func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T)
 	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
-	}
-	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{
-		`DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }`,
-		`EncodeOutput: func(value any) ([]byte, error)`,
-		`RegisterContractPage(sceneryruntime.ContractPageRegistration{Address: "house/page/scene_detail"`,
-		`LoadBinding: "house/binding/process_scene_internal"`,
-		`Actions: map[string]string{"refresh": "house/binding/process_scene_internal"}`,
-		`ImplementationDigest: "sha256:renderer"`,
-		`ConfigJSON: "{\"theme\":\"dark\"}"`,
-	} {
-		if !strings.Contains(adapter, fragment) {
-			t.Fatalf("page adapter missing %q:\n%s", fragment, adapter)
-		}
 	}
 	var descriptor string
 	for _, file := range files {
@@ -173,136 +123,14 @@ func TestGenerateGoInternalClientProjectsCrossPackageContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{`input contract.AuditClientInput`, `InvokeContractBindingWire(ctx, "audit/binding/write_internal", "house"`, `outcome, err := contract.UnmarshalAuditClientOutcome(output)`} {
+	for _, fragment := range []string{`input contract.AuditClientInput`, `sceneryruntime.InvokeWorkerBinding(ctx, invocation, "audit", false, raw)`, `outcome, err := contract.UnmarshalAuditClientOutcome(output)`} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("cross-package adapter missing %q:\n%s", fragment, adapter)
 		}
 	}
 }
 
-func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *testing.T) {
-	result := nativeApplicationGenerationFixture(t.TempDir())
-	result.Manifest.Resources = append(result.Manifest.Resources, Resource{
-		Address: "app/execution_engine/tasks", Module: "app", Kind: "scenery.execution-engine", Name: "tasks", Origin: Origin{Kind: "authored"},
-		Spec: map[string]any{"provider": map[string]any{"$ref": "provider.durable"}, "require_capabilities": []any{"execution.durable/v1"}},
-	})
-	result.Manifest.Resources = append(result.Manifest.Resources, Resource{
-		Address: "house/binding/process_scene_wait", Module: "house", Kind: "scenery.binding", Name: "process_scene_wait", Origin: Origin{Kind: "authored"},
-		Spec: map[string]any{
-			"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_durable"},
-			"protocol": "internal", "delivery": "wait", "exposure": "application",
-			"authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
-			"internal": map[string]any{"visibility": "application", "principal": "inherit"},
-		},
-	})
-	for index := range result.Manifest.Resources {
-		resource := &result.Manifest.Resources[index]
-		switch resource.Kind {
-		case "scenery.execution":
-			resource.Address = "house/execution/process_scene_durable"
-			resource.Name = "process_scene_durable"
-			resource.Spec = map[string]any{
-				"operation": map[string]any{"$ref": "operation.process_scene"}, "mode": "durable",
-				"engine": map[string]any{"$ref": "app/execution_engine/tasks"}, "revision": "3", "timeout": "40m", "lease": "20m", "attempts": "6",
-				"external_name": "house.ProcessScene/v1",
-				"retry":         map[string]any{"strategy": "exponential", "initial": "10s", "factor": "2", "maximum": "2m"},
-				"retention":     map[string]any{"success": "7d", "failure": "30d"},
-				"concurrency":   map[string]any{"key": map[string]any{"$expression": "input.scene_id"}, "limit": "2"},
-				"deduplication": map[string]any{"retention": "24h", "conflict": "return_existing"},
-			}
-		case "scenery.operation":
-			resource.Spec["idempotency"] = map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.scene_id"}}}
-		case "scenery.binding":
-			if resource.Spec["protocol"] != "http" {
-				continue
-			}
-			resource.Spec["execution"] = map[string]any{"$ref": "execution.process_scene_durable"}
-			resource.Spec["delivery"] = "enqueue"
-			httpSpec := resource.Spec["http"].(map[string]any)
-			httpSpec["response"] = []any{
-				map[string]any{"name": "accepted", "when": map[string]any{"$ref": "dispatch.enqueued"}, "status": "202", "body": map[string]any{"codec": "json", "from": map[string]any{"$ref": "dispatch.receipt"}}, "header": map[string]any{"name": "x-execution-id", "from": map[string]any{"$ref": "dispatch.receipt.execution_id"}}},
-				map[string]any{"name": "rejected", "when": map[string]any{"$ref": "dispatch.rejected"}, "status": "503", "body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "dispatch.problem"}}},
-			}
-		}
-	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{
-		`RegisterContractDurableExecution(sceneryruntime.ContractDurableRegistration{`,
-		`Address: "house/execution/process_scene_durable"`,
-		`ExternalName: "house.ProcessScene/v1"`,
-		`EngineAddress: "app/execution_engine/tasks"`,
-		`Revision: 3`,
-		`DefaultTimeout: 2400000000000`,
-		`DefaultLease: 1200000000000`,
-		`MaxAttempts: 6`,
-		`RetryInitial: 10000000000`,
-		`RetryMax: 120000000000`,
-		`RetryBackoff: 2`,
-		`MaxConcurrency: 2`,
-		`DeduplicationRetention: 86400000000000`,
-		`DeduplicationConflict: "return_existing"`,
-		`EncodeContractKeyComponent(input.SceneId, "string")`,
-		`EncodeContractCompositeKey(component0)`,
-		`options.DedupeKey = dedupeKey`,
-		`options.ConcurrencyKey = concurrencyKey`,
-		`DispatchContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
-		`DispatchAndWaitContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
-		`return nil, sceneryruntime.ClassifyContractDurableWaitError(err, 0, 0)`,
-		`contract.UnmarshalProcessSceneOutcome(data)`,
-		`case scenery.ExecutionReceipt:`,
-		`sceneryruntime.EncodeContractRepresentationWithOptions(request, 202, typed, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions`,
-		`sceneryruntime.AddContractResponseHeader(&response, "x-execution-id", typed.ExecutionID, sceneryruntime.ContractResponseValueOptions{Encoding: "repeated"`,
-	} {
-		if !strings.Contains(adapter, fragment) {
-			t.Fatalf("durable adapter missing %q:\n%s", fragment, adapter)
-		}
-	}
-	fset := token.NewFileSet()
-	parsed, err := parser.ParseFile(fset, "adapter.gen.go", adapter, 0)
-	if err != nil {
-		t.Fatalf("parse adapter.gen.go: %v\n%s", err, adapter)
-	}
-	var checkBody func(body *ast.BlockStmt, wantResults int)
-	checkBody = func(body *ast.BlockStmt, wantResults int) {
-		if body == nil || wantResults <= 1 {
-			return
-		}
-		ast.Inspect(body, func(node ast.Node) bool {
-			if nested, ok := node.(*ast.FuncLit); ok {
-				nestedResults := 0
-				if nested.Type != nil && nested.Type.Results != nil {
-					nestedResults = nested.Type.Results.NumFields()
-				}
-				checkBody(nested.Body, nestedResults)
-				return false
-			}
-			ret, ok := node.(*ast.ReturnStmt)
-			if !ok || len(ret.Results) == 0 || len(ret.Results) == wantResults {
-				return true
-			}
-			if _, isCall := ret.Results[0].(*ast.CallExpr); len(ret.Results) == 1 && isCall {
-				return true
-			}
-			t.Fatalf("adapter.gen.go line %d returns %d values inside %d-result function", fset.Position(ret.Pos()).Line, len(ret.Results), wantResults)
-			return false
-		})
-	}
-	for _, decl := range parsed.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Type != nil {
-			results := 0
-			if fn.Type.Results != nil {
-				results = fn.Type.Results.NumFields()
-			}
-			checkBody(fn.Body, results)
-		}
-	}
-}
-
-func TestGenerateApplicationAdapterRegistersSchedules(t *testing.T) {
+func TestServiceProcessCoversItsSchedules(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	result.Manifest.Resources = append(result.Manifest.Resources,
 		Resource{Address: "house/schedule/nightly", Module: "house", Kind: "scenery.schedule", Name: "nightly", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
@@ -310,21 +138,8 @@ func TestGenerateApplicationAdapterRegistersSchedules(t *testing.T) {
 			"invoke": map[string]any{"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_direct"}, "identity": map[string]any{"$ref": "std.workload_identity.scheduler"}, "authorization": map[string]any{"$ref": "std.authorization.scheduled"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "input": map[string]any{"scene_id": "nightly"}},
 		}},
 	)
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{
-		`RegisterContractSchedule(sceneryruntime.ContractScheduleRegistration{`,
-		`TriggerKind: "every", TriggerValue: "24h0m0s"`,
-	} {
-		if !strings.Contains(adapter, fragment) {
-			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
-		}
-	}
-	// In the process model the service's own process registers this adapter,
-	// so it requires, and at activation starts, the service's schedules.
+	// The service's own worker process registers this adapter, so it covers
+	// the service's schedules.
 	plan, err := BuildRuntimeIntegrationPlan(result)
 	if err != nil {
 		t.Fatal(err)
@@ -462,4 +277,15 @@ func nativeApplicationGenerationFixture(root string) *Result {
 		Root: root, ContractStatus: "valid", Manifest: &Manifest{ContractRevision: "sha256:contract", Application: ApplicationIdentity{Name: "clean_tech"}, Resources: []Resource{goModule, module, service, input, output, operation, execution, binding}},
 		Sources: []*Source{{Relative: "house/" + testPackageFilename, Blocks: []*Block{packageBlock}}},
 	}
+}
+
+func moduleResources(resources []Resource, module string) []Resource {
+	var out []Resource
+	for _, resource := range resources {
+		if resource.Module == module {
+			out = append(out, resource)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	return out
 }

@@ -217,16 +217,6 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 }
 
 func readInspectTraceSummaries(ctx context.Context, appRoot string, cfg appcfg.Config, query devdash.TraceQuery) ([]*devdash.TraceSummary, []string, error) {
-	endpoint, found, err := readWorkerDevEndpoint(appRoot)
-	if err != nil {
-		return nil, nil, err
-	}
-	if found && workerSessionMatches(endpoint, query.SessionID) {
-		client := workerControlClient(endpoint.Control)
-		defer client.CloseIdleConnections()
-		snapshot, err := readWorkerTelemetry(ctx, client, endpoint, query.TraceID)
-		return workerTraceSummaries(snapshot.Spans, query), nil, err
-	}
 	store, warnings, err := openObservabilityStore(ctx, appRoot, cfg, query.SessionID)
 	if err != nil {
 		return nil, nil, err
@@ -240,16 +230,6 @@ func readInspectTraceSummaries(ctx context.Context, appRoot string, cfg appcfg.C
 }
 
 func readInspectLogCounts(ctx context.Context, appRoot, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
-	endpoint, found, err := readWorkerDevEndpoint(appRoot)
-	if err != nil {
-		return nil, "", err
-	}
-	if found && workerSessionMatches(endpoint, sessionID) {
-		client := workerControlClient(endpoint.Control)
-		defer client.CloseIdleConnections()
-		snapshot, err := readWorkerTelemetry(ctx, client, endpoint, "")
-		return workerLogCounts(snapshot.Logs, time.Now().UTC().Add(-since)), "", err
-	}
 	return queryVictoriaLogCounts(ctx, appRoot, appID, sessionID, since)
 }
 

@@ -1,7 +1,5 @@
 package main
 
-import "time"
-
 type workerRebuildTiming struct {
 	Generation     uint64   `json:"generation"`
 	Declarations   bool     `json:"declarations"`
@@ -24,8 +22,4 @@ type workerRebuildTiming struct {
 	TotalMS        float64  `json:"total_ms"`
 	EditToReadyMS  float64  `json:"edit_to_ready_ms,omitempty"`
 	TriggerKind    string   `json:"trigger_kind,omitempty"`
-}
-
-func workerMilliseconds(duration time.Duration) float64 {
-	return float64(duration.Microseconds()) / 1000
 }

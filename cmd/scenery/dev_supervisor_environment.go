@@ -12,11 +12,11 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/assistantcontrol"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/netprobe"
-	"scenery.sh/runtime"
 )
 
 func (s *devSupervisor) assistantRuntimeConfigPath() string {
@@ -34,7 +34,7 @@ func (s *devSupervisor) refreshAssistantRuntimeConfig() {
 	if path == "" {
 		return
 	}
-	if err := runtime.WriteAssistantRuntimeConfig(path, s.assistants.RuntimeConfig()); err != nil {
+	if err := assistantcontrol.WriteRuntimeConfig(path, s.assistants.RuntimeConfig()); err != nil {
 		s.eventSink().Emit(context.Background(), devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Role: "assistant-bootstrap", Status: "error"}, "error", "assistant runtime config unavailable", map[string]any{"error": err.Error()})
 	}
 }
@@ -128,33 +128,6 @@ func appWorktreeName(root string) string {
 		return ""
 	}
 	return filepath.Base(root)
-}
-
-func (s *devSupervisor) devReportURL() string {
-	if s != nil && s.agent != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer cancel()
-		if health, err := s.agent.Health(ctx); err == nil {
-			if rawURL := reportURLForBackend(health.DashboardBackend); rawURL != "" {
-				return rawURL
-			}
-		}
-		if session := s.currentAgentSession(); session != nil {
-			if rawURL := reportURLForBackend(session.Backends[localagent.RouteDashboard]); rawURL != "" {
-				return rawURL
-			}
-		}
-	}
-	return "http://" + devdash.ListenAddr() + devdash.ReportPath
-}
-
-func reportURLForBackend(backend localagent.Backend) string {
-	network := strings.TrimSpace(backend.Network)
-	addr := strings.TrimSpace(backend.Addr)
-	if addr == "" || (network != "" && network != "tcp") {
-		return ""
-	}
-	return "http://" + addr + devdash.ReportPath
 }
 
 func (s *devSupervisor) sessionAuthEnv() []string {

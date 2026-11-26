@@ -78,7 +78,7 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 - **Built-in auth & connections** — sessions, organizations, invites, and encrypted OAuth2/OIDC user connections.
 - **Generated TypeScript client** — exact wire types (`bigint`, `decimal`, optional/nullable) plus optional React pages.
 - **First-class telemetry** — logs, traces, and metrics queryable as JSON via `scenery logs`, `traces`, and `metrics`.
-- **Process-per-service live rebuilds** — edits rebuild and swap only touched services while unaffected services keep serving.
+- **One Rust application host** — every app, in development and production, runs on `scenery-host`; edits rebuild and swap only touched workers while unaffected workers keep serving.
 
 ## One command, the whole app
 

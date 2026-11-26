@@ -7,12 +7,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/appconfig"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devprocess"
 	durablestore "scenery.sh/internal/durable/store"
@@ -161,6 +161,8 @@ func parseWorkerDurableJobsArgs(args []string) (workerDurableJobsOptions, error)
 	return opts, nil
 }
 
+// runWorker builds the application's development bundle and runs its host
+// in the foreground, outside a development session.
 func runWorker(opts workerOptions) error {
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
@@ -170,11 +172,28 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.AppForTarget(root, cfg, "")
+	compiled, err := compiler.Compile(root)
 	if err != nil {
 		return err
 	}
-	return startWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Contract.Manifest, result.Binary, opts)
+	if !compiled.Valid() {
+		return invalidGraphError(compiled)
+	}
+	ctx := context.Background()
+	bundle, err := buildWorkerBundle(ctx, compiled, "development", "", false)
+	if err != nil {
+		return err
+	}
+	directory, err := os.MkdirTemp("", "app-bundle-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(directory) }()
+	output := filepath.Join(directory, "bundle")
+	if err := writeWorkerBundle(ctx, bundle, output); err != nil {
+		return err
+	}
+	return startWorkerApp(root, cfg, compiled.SQLRequirements, compiled.Manifest, filepath.Join(output, "scenery-host"), opts)
 }
 
 func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerOptions) (returnErr error) {
@@ -183,8 +202,7 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 
 	cmd := commandTreeContext(ctx, binary)
 	cmd.Dir = root
-	extra := []string{"SCENERY_ROLE=worker"}
-	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
+	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env)
 	if err != nil {
 		return err
 	}

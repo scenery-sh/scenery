@@ -2,9 +2,10 @@ package repoinfo
 
 import (
 	"path/filepath"
-	"scenery.sh/internal/harnessreport"
 	"sort"
 	"strings"
+
+	"scenery.sh/internal/harnessreport"
 )
 
 func PopulateChangedArea(repoRoot string, report *harnessreport.ChangedAreaReport, changes []harnessreport.ChangedFile, packages []PackageInfo, diagnostics []harnessreport.Diagnostic) {
@@ -242,7 +243,7 @@ func AppendUniqueSorted(base []string, values ...string) []string {
 
 // One path classifier is shared by documentation discovery and validation.
 func harnessConnectionPath(path string) bool {
-	for _, prefix := range []string{"auth/", "internal/connectionapi/", "internal/connectionvault/", "internal/connectionruntime/", "internal/authprovider/", "internal/authschema/", "internal/oidc/", "runtime/sdk_connections", "cmd/scenery/config_connections", "internal/appconfig/connection_migration"} {
+	for _, prefix := range []string{"auth/", "internal/connectionapi/", "runtime/sdk_connections", "cmd/scenery/config_connections", "internal/appconfig/connection_migration"} {
 		if strings.HasPrefix(path, prefix) || path == strings.TrimSuffix(prefix, "/") {
 			return true
 		}

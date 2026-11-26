@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -10,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/dirlisting"
 )
@@ -134,78 +132,4 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 		_, _ = h.Write(scratch)
 	}
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
-	// The watcher and compiler maps often name the very same captured buffer.
-	// Clone it once per candidate, while keeping the retained watcher isolated.
-	// Key by backing storage, not an unverified hash that could mask tampering.
-	type capturedBuffer struct {
-		first *byte
-		size  int
-	}
-	cloned := make(map[capturedBuffer][]byte)
-	cloneData := func(data []byte) []byte {
-		if len(data) == 0 {
-			return bytes.Clone(data)
-		}
-		key := capturedBuffer{first: &data[0], size: len(data)}
-		if copy, ok := cloned[key]; ok {
-			return copy
-		}
-		copy := bytes.Clone(data)
-		cloned[key] = copy
-		return copy
-	}
-	convert := func(stamps map[string]fileStamp, implementation map[string]bool) map[string]build.SourceSnapshotFile {
-		files := make(map[string]build.SourceSnapshotFile, len(stamps))
-		for rel, stamp := range stamps {
-			files[rel] = build.SourceSnapshotFile{
-				Size:           stamp.size,
-				ModTimeNano:    stamp.modTime.UnixNano(),
-				Perm:           stamp.mode,
-				Hash:           stamp.hash,
-				Embedded:       stamp.embed,
-				Implementation: implementation[rel],
-				Data:           cloneData(stamp.data),
-			}
-		}
-		return files
-	}
-	implementation := make(map[string]bool, len(snapshot.files))
-	for rel, stamp := range snapshot.files {
-		implementation[rel] = implementationSnapshotFile(rel, stamp)
-	}
-	return &build.SourceSnapshot{
-		Files:                  convert(snapshot.files, implementation),
-		CompilerFiles:          convert(snapshot.compilerFiles, snapshot.compilerImpl),
-		CompilerAbsent:         cloneBoolMap(snapshot.compilerAbsent),
-		ContractFiles:          convert(snapshot.contractFiles, nil),
-		ContractCompilerFiles:  convert(snapshot.contractCompiler, nil),
-		ContractCompilerAbsent: cloneBoolMap(snapshot.contractCompilerAbsent),
-		CompilerCaptureValid:   snapshot.compilerValid,
-		Contract:               snapshot.contract,
-		Generated:              generatedPathSet(snapshot.generated),
-	}
-}
-
-func cloneBoolMap(source map[string]bool) map[string]bool {
-	result := make(map[string]bool, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
-}
-
-// generatedPathSet is the set of managed generated paths a scan excluded, in
-// the form compiler.GeneratedPaths returns it.
-func generatedPathSet(generated map[string]bool) map[string]bool {
-	if generated == nil {
-		return nil
-	}
-	set := make(map[string]bool, len(generated))
-	for rel := range generated {
-		set[rel] = true
-	}
-	return set
 }

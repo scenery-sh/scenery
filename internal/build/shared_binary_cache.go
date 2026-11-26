@@ -2,8 +2,6 @@ package build
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -28,36 +26,6 @@ func sharedBinaryRoot() (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, "build", "shared-binaries", sharedBinaryCacheVersion), nil
-}
-
-func runSharedGoBuildContext(ctx context.Context, result *Result) error {
-	if result == nil || result.Target == nil || result.Target.Role != "development" || result.ProductionAssets {
-		return runGoBuildContext(ctx, result)
-	}
-	return runSharedGoBuildWithInputCheck(ctx, result, func(ctx context.Context) error {
-		return verifySharedBinaryInputs(ctx, result, buildInputManifest)
-	})
-}
-
-// Input discovery is injected at the native tool boundary for in-process tests.
-// Every production caller supplies the complete current Go input check above.
-func runSharedGoBuildWithInputCheck(ctx context.Context, result *Result, checkInputs func(context.Context) error) error {
-	root, err := sharedBinaryRoot()
-	if err != nil {
-		return err
-	}
-	// The executable stays private to this build. Keep the fair link budget;
-	// cancellation owns only this build.
-	digest := sha256.Sum256([]byte(result.Dir))
-	releaseSlot, err := acquireSharedBinarySlotObserved(ctx, root, hex.EncodeToString(digest[:]))
-	if err != nil {
-		return err
-	}
-	defer releaseSlot()
-	if err := runGoBuildContext(ctx, result); err != nil {
-		return err
-	}
-	return observeBuildAction(ctx, "build.shared_input_check", func() error { return checkInputs(ctx) })
 }
 
 func acquireSharedBinarySlotObserved(ctx context.Context, root, key string) (func(), error) {

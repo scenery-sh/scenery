@@ -8,7 +8,6 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/appconfig"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/graph"
 	"scenery.sh/runtime"
 )
@@ -47,12 +46,11 @@ func TestGenerationConfigGivesTheHostAuthAndPublicValues(t *testing.T) {
 	}}
 	cfg := app.Config{Name: "shop", ID: "shop", Auth: app.AuthConfig{Enabled: true}, Envs: map[string]app.EnvConfig{"local": {Default: true}}}
 	env, _ := cfg.ResolveEnv("local")
-	set := &build.DevelopmentProcessSet{Services: []build.DevelopmentProcess{{Service: "maps/service/maps"}, {Service: "shop/service/orders"}}}
-	resolution, err := resolveDevConfig(context.Background(), manifest, cfg, env, store, document, generationConsumers(set), func() (appconfig.SecretBackend, error) { return secrets, nil })
+	resolution, err := resolveDevConfig(context.Background(), manifest, cfg, env, store, document, []string{applicationConsumer}, func() (appconfig.SecretBackend, error) { return secrets, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, consumer := range []string{hostConsumer, "maps/service/maps", "shop/service/orders"} {
+	for _, consumer := range []string{applicationConsumer} {
 		var snapshot runtime.ConfigSnapshot
 		if err := json.Unmarshal(resolution.snapshotFor(consumer).data, &snapshot); err != nil {
 			t.Fatalf("%s: %v", consumer, err)

@@ -8,20 +8,20 @@ import (
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/graph"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
 
 var workerPathParameter = regexp.MustCompile(`\{([a-z][a-z0-9_]*)(\.\.\.)?\}`)
 
-func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, policy *workerruntime.ContractHTTPPolicy) (workerruntime.WorkerHTTPPlan, error) {
+func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, policy *workerplan.ContractHTTPPolicy) (workerplan.WorkerHTTPPlan, error) {
 	spec, _ := binding.Spec["http"].(map[string]any)
 	gateway := p.resources[workerReference(binding, binding.Spec["gateway"], "http_gateway")]
 	if gateway.Address == "" {
-		return workerruntime.WorkerHTTPPlan{}, fmt.Errorf("HTTP gateway is unavailable")
+		return workerplan.WorkerHTTPPlan{}, fmt.Errorf("HTTP gateway is unavailable")
 	}
 	path := strings.TrimRight(cp.StringValue(gateway.Spec["base_path"]), "/") + cp.StringValue(spec["path"])
-	plan := workerruntime.WorkerHTTPPlan{
-		Method: cp.StringValue(spec["method"]), Access: workerruntime.Public, Responses: make(map[string]workerruntime.WorkerResponsePlan),
+	plan := workerplan.WorkerHTTPPlan{
+		Method: cp.StringValue(spec["method"]), Access: workerplan.Public, Responses: make(map[string]workerplan.WorkerResponsePlan),
 		Path: workerPathParameter.ReplaceAllStringFunc(path, func(match string) string {
 			if name, tail := strings.CutSuffix(match[1:len(match)-1], "..."); tail {
 				return "*" + name
@@ -31,16 +31,16 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 	}
 	switch cp.StringValue(binding.Spec["exposure"]) {
 	case "application", "local":
-		plan.Access = workerruntime.Private
+		plan.Access = workerplan.Private
 	default:
 		if workerRefText(binding.Spec["authentication"]) != "std.authentication.none" {
-			plan.Access = workerruntime.Auth
+			plan.Access = workerplan.Auth
 		}
 	}
 	if tails := cp.NamedChildren(spec, "path_tail"); len(tails) == 1 {
 		tail := tails[0]
 		minimum, _ := cp.IntegerValue(tail["minimum_segments"])
-		plan.PathTail = &workerruntime.ContractPathTail{
+		plan.PathTail = &workerplan.ContractPathTail{
 			CanonicalTemplate: path, Name: cp.StringValue(tail["name"]), Target: workerRefText(tail["to"]),
 			Type: cp.StringValue(tail["target_type"]), EmptyCapture: cp.StringValue(tail["empty_capture"]),
 			MinimumSegments: minimum, Decoding: cp.StringValue(tail["decoding"]), Guarantee: cp.StringValue(tail["guarantee"]),
@@ -70,8 +70,8 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 	return plan, nil
 }
 
-func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.Resource) (workerruntime.ContractRequestSchema, error) {
-	var request workerruntime.ContractRequestSchema
+func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.Resource) (workerplan.ContractRequestSchema, error) {
+	var request workerplan.ContractRequestSchema
 	shape := cp.ResolveOperationInputShape(p.resources, operation)
 	fieldTarget := func(raw any) (cp.OperationInputField, bool) {
 		field, ok := strings.CutPrefix(workerRefText(raw), "operation."+operation.Name+".input.")
@@ -79,8 +79,8 @@ func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.R
 		return target, ok && present
 	}
 	for _, source := range []struct{ block, input string }{
-		{"path_parameter", workerruntime.ContractSourcePath}, {"path_tail", workerruntime.ContractSourcePathTail},
-		{"query_parameter", workerruntime.ContractSourceQuery}, {"header", workerruntime.ContractSourceHeader}, {"cookie", workerruntime.ContractSourceCookie},
+		{"path_parameter", workerplan.ContractSourcePath}, {"path_tail", workerplan.ContractSourcePathTail},
+		{"query_parameter", workerplan.ContractSourceQuery}, {"header", workerplan.ContractSourceHeader}, {"cookie", workerplan.ContractSourceCookie},
 	} {
 		for _, mapping := range cp.NamedChildren(spec, source.block) {
 			field, ok := fieldTarget(mapping["to"])
@@ -97,14 +97,14 @@ func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.R
 		if !ok {
 			return request, fmt.Errorf("invalid context mapping")
 		}
-		request.ContextMappings = append(request.ContextMappings, workerruntime.ContractContextMapping{Source: workerRefText(mapping["from"]), Target: field.WireName})
+		request.ContextMappings = append(request.ContextMappings, workerplan.ContractContextMapping{Source: workerRefText(mapping["from"]), Target: field.WireName})
 	}
 	body, _ := spec["body"].(map[string]any)
 	if body == nil {
 		return request, nil
 	}
 	requestLimits, _ := spec["request_limit"].(map[string]any)
-	mapping := &workerruntime.ContractBodyMapping{
+	mapping := &workerplan.ContractBodyMapping{
 		Codec: cp.StringValue(body["codec"]), Type: cp.TypeExpression(operation.Spec["input"]),
 		AcceptedMediaTypes: workerStrings(body["accepted_media_types"]), SupportedContentEncoding: workerStrings(body["content_encodings"]),
 	}
@@ -140,7 +140,7 @@ func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.R
 			if kind == "file" {
 				limit = "multipart_file_part_bytes"
 			}
-			mapping.MultipartParts = append(mapping.MultipartParts, workerruntime.ContractMultipartPart{
+			mapping.MultipartParts = append(mapping.MultipartParts, workerplan.ContractMultipartPart{
 				Name: cp.StringValue(part["name"]), Target: field.WireName, Type: workerInputField(field).Type, Kind: kind,
 				MediaTypes: workerStrings(part["media_types"]), MaxBytes: workerBodyLimit(part, requestLimits, "max_bytes", limit),
 				Multiple: part["multiple"] == true, Optional: field.Optional, RetainFilename: part["retain_filename"] == true,
@@ -154,9 +154,9 @@ func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.R
 // workerInputField maps one input field for the HTTP parameter decoder. Every
 // enum travels as its string wire form; EnumValues constrains a closed enum
 // and stays empty for an open one, which accepts any string.
-func workerInputField(field cp.OperationInputField) workerruntime.ContractInputMapping {
+func workerInputField(field cp.OperationInputField) workerplan.ContractInputMapping {
 	expression := workerEnumType.ReplaceAllString(cp.TypeExpression(field.Type), "string")
-	return workerruntime.ContractInputMapping{Name: field.WireName, Target: field.WireName, Type: expression, Optional: field.Optional, EnumValues: field.EnumValues}
+	return workerplan.ContractInputMapping{Name: field.WireName, Target: field.WireName, Type: expression, Optional: field.Optional, EnumValues: field.EnumValues}
 }
 
 var workerEnumType = regexp.MustCompile(`enum\.[a-z][a-z0-9_]*`)
@@ -210,10 +210,10 @@ func workerStrings(value any) []string {
 	return result
 }
 
-func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, operation graph.Resource, policy *workerruntime.ContractHTTPPolicy, stream bool) (workerruntime.WorkerResponsePlan, error) {
-	result := workerruntime.WorkerResponsePlan{
+func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, operation graph.Resource, policy *workerplan.ContractHTTPPolicy, stream bool) (workerplan.WorkerResponsePlan, error) {
+	result := workerplan.WorkerResponsePlan{
 		Status: int(workerInt(spec["status"])),
-		Options: workerruntime.ContractResponseOptions{
+		Options: workerplan.ContractResponseOptions{
 			MaxBytes: policy.MaxResponseBytes, CompressionAlgorithms: policy.CompressionAlgorithms, CompressionThreshold: policy.CompressionThreshold,
 		},
 	}
@@ -225,7 +225,7 @@ func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, 
 		if err != nil {
 			return result, err
 		}
-		result.Headers = append(result.Headers, workerruntime.WorkerResponseHeader{
+		result.Headers = append(result.Headers, workerplan.WorkerResponseHeader{
 			Name: cp.StringValue(header["name"]), Encoding: cp.StringValue(header["encoding"]), Value: value,
 		})
 	}
@@ -234,7 +234,7 @@ func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, 
 		if err != nil {
 			return result, err
 		}
-		result.Cookies = append(result.Cookies, workerruntime.WorkerResponseCookie{Cookie: workerResponseCookie(cookie), Value: value})
+		result.Cookies = append(result.Cookies, workerplan.WorkerResponseCookie{Cookie: workerResponseCookie(cookie), Value: value})
 	}
 	body, _ := spec["body"].(map[string]any)
 	if body == nil {
@@ -253,7 +253,7 @@ func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, 
 	return result, err
 }
 
-func workerResponseCookie(spec map[string]any) workerruntime.ContractResponseCookie {
+func workerResponseCookie(spec map[string]any) workerplan.ContractResponseCookie {
 	secure, secureSet := spec["secure"].(bool)
 	httpOnly, httpOnlySet := spec["http_only"].(bool)
 	sameSite := http.SameSiteLaxMode
@@ -263,15 +263,15 @@ func workerResponseCookie(spec map[string]any) workerruntime.ContractResponseCoo
 	case "none":
 		sameSite = http.SameSiteNoneMode
 	}
-	return workerruntime.ContractResponseCookie{
+	return workerplan.ContractResponseCookie{
 		Name: cp.StringValue(spec["name"]), Path: cp.StringValue(spec["path"]), Domain: cp.StringValue(spec["domain"]),
 		MaxAge: int(workerInt(spec["max_age"])), Expires: cp.StringValue(spec["expires"]),
 		Secure: secure || !secureSet, HTTPOnly: httpOnly || !httpOnlySet, SameSite: sameSite,
 	}
 }
 
-func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcome, target string) (workerruntime.WorkerResponseValue, error) {
-	var result workerruntime.WorkerResponseValue
+func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcome, target string) (workerplan.WorkerResponseValue, error) {
+	var result workerplan.WorkerResponseValue
 	root := outcome
 	if outcome == "dispatch.enqueued" {
 		root = "dispatch.receipt"
@@ -289,7 +289,7 @@ func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcom
 		case "":
 			return result, nil
 		case "durable_identity", "execution_id", "accepted_revision", "status_url":
-			return workerruntime.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "status_url"}, nil
+			return workerplan.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "status_url"}, nil
 		}
 		return result, fmt.Errorf("response value %s has no receipt wire mapping", target)
 	}
@@ -308,7 +308,7 @@ func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcom
 	if typeExpression == "std.type.problem" {
 		switch path {
 		case "code", "message", "path":
-			return workerruntime.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "path"}, nil
+			return workerplan.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "path"}, nil
 		}
 	}
 	for field := range strings.SplitSeq(path, ".") {
@@ -330,7 +330,7 @@ func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcom
 	return result, nil
 }
 
-func populateWorkerGatewayHTTPPolicy(policy *workerruntime.ContractHTTPPolicy, gateway graph.Resource, spec map[string]any) {
+func populateWorkerGatewayHTTPPolicy(policy *workerplan.ContractHTTPPolicy, gateway graph.Resource, spec map[string]any) {
 	requestLimits, _ := spec["request_limit"].(map[string]any)
 	responseLimits, _ := spec["response_limit"].(map[string]any)
 	timeouts, _ := spec["timeouts"].(map[string]any)

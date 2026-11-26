@@ -14,7 +14,7 @@ import (
 // start re-enters the real dev build pipeline with current checks, persists the
 // same graph and runtime bundle, and links nothing: every process executable of
 // the linked build is reused by its recorded digest.
-func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot string, env []string, linked build.RuntimeBundleDescriptor) (returnErr error) {
+func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot string, env []string, linked harnessServedIdentity) (returnErr error) {
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -48,15 +48,15 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 		if err != nil {
 			return nil, err
 		}
-		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BuildStateExists || manifest.Build.GraphFingerprint == "" || !manifest.Build.MetadataPresent || !manifest.Build.APIEncodingPresent {
+		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BuildStateExists {
 			return nil, fmt.Errorf("public runtime did not persist reusable build state: %+v", manifest)
 		}
-		bundle, err := build.ReadRuntimeBundle(appRoot, "development")
+		served, err := harnessWorktreeServing(ctx, repoRoot, appRoot, env)
 		if err != nil {
 			return nil, err
 		}
-		if bundle.ImplementationRevision != linked.ImplementationRevision || bundle.BuildInput.Digest != linked.BuildInput.Digest {
-			return nil, fmt.Errorf("unchanged public restart changed the runtime bundle identity")
+		if !harnessSameBuild(served, linked) {
+			return nil, fmt.Errorf("unchanged public restart changed the served build identity")
 		}
 		return manifest, nil
 	}

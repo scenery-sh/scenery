@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,21 +69,6 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return err
 	}
-	worker, found, err := readWorkerDevEndpoint(appRoot)
-	if err != nil {
-		return err
-	}
-	if found && workerSessionMatches(worker, opts.Session) {
-		client := workerControlClient(worker.Control)
-		defer client.CloseIdleConnections()
-		return followDevEvents(ctx, stdout, appID, appRoot, worker.SessionID, opts, func(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
-			snapshot, err := readWorkerTelemetry(ctx, client, worker, "")
-			if err != nil {
-				return nil, err
-			}
-			return workerDevEvents(snapshot.Logs, query), nil
-		})
-	}
 	sessionID, err := resolveLogsSessionID(ctx, opts.Session, appRoot)
 	if err != nil {
 		return err
@@ -109,7 +95,47 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return err
 	}
-	return followDevEvents(ctx, stdout, appID, appRoot, sessionID, opts, victoria.ListDevEvents)
+	list := victoria.ListDevEvents
+	if worker, found, err := readWorkerDevEndpoint(appRoot); err == nil && found && worker.SessionID == sessionID {
+		client := workerControlClient(worker.Control)
+		defer client.CloseIdleConnections()
+		list = withHostLogs(list, func(ctx context.Context) ([]workerLogEntry, error) {
+			snapshot, err := readWorkerTelemetry(ctx, client, worker, "")
+			return snapshot.Logs, err
+		})
+	}
+	return followDevEvents(ctx, stdout, appID, appRoot, sessionID, opts, list)
+}
+
+// withHostLogs adds the running host's application logs, which the host
+// records as telemetry rather than process output, to the supervisor's
+// development events in time order. Host log identities stay private to this
+// lister, so a follow cursor advances only through development events.
+func withHostLogs(list func(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error), logs func(context.Context) ([]workerLogEntry, error)) func(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error) {
+	lastHost := int64(0)
+	return func(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
+		events, err := list(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		records, err := logs(ctx)
+		if err != nil {
+			// The host stopped; its development events remain.
+			return events, nil
+		}
+		hostQuery := query
+		hostQuery.AfterID = lastHost
+		for _, event := range workerDevEvents(records, hostQuery) {
+			lastHost = max(lastHost, event.ID)
+			event.ID = 0
+			events = append(events, event)
+		}
+		slices.SortStableFunc(events, func(a, b devdash.DevEvent) int { return a.CreatedAt.Compare(b.CreatedAt) })
+		if query.Limit > 0 && len(events) > query.Limit {
+			events = events[len(events)-query.Limit:]
+		}
+		return events, nil
+	}
 }
 
 // discoverRuntimeAppIdentity prefers the retained worktree record because it
@@ -272,11 +298,6 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	value = strings.TrimSpace(value)
 	if value != "" && value != "current" {
 		return value, nil
-	}
-	if endpoint, found, err := readWorkerDevEndpoint(appRoot); err != nil {
-		return "", err
-	} else if found {
-		return endpoint.SessionID, nil
 	}
 	client, err := commandWorktreeClient(ctx, appRoot)
 	if err != nil {

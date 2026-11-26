@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 )
 
@@ -29,72 +28,6 @@ func TestReloadConfigConsumesCapturedBytes(t *testing.T) {
 	}
 	if cfg.Name != "captured" {
 		t.Fatalf("reloaded mutable config %q instead of captured bytes", cfg.Name)
-	}
-}
-
-func TestCapturedHandlerEditReusesGraphWithoutReadingLaterTreeBytes(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeWatchFile(t, root, "app.scn", "application \"captured\" {}\nworkspace {\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"*.go\", \"go.mod\"]\n  revision_exclude = []\n }\n}\n")
-	writeWatchFile(t, root, "go.mod", "module example.test/captured\n")
-	writeWatchFile(t, root, "handler.go", "package captured\nconst value = 1\n")
-	writeWatchFile(t, root, "handler_test.go", "package captured\n")
-	contract, err := compiler.Compile(root)
-	if err != nil || !contract.Valid() {
-		t.Fatalf("compile: %v", err)
-	}
-	initial, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
-	if err != nil || !initial.compilerValid {
-		t.Fatalf("initial capture: %v", err)
-	}
-	bindSnapshotContract(&initial, contract)
-	if _, ok := initial.compilerFiles["handler_test.go"]; !ok {
-		t.Fatal("complete compiler capture omitted a revision-matched test file")
-	}
-	initialFingerprint := snapshotFingerprint(initial)
-	writeWatchFile(t, root, "added_test.go", "package captured\n")
-	testAdded, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !snapshotsEqual(initial, testAdded) || len(changedPaths(initial, testAdded)) != 0 || snapshotFingerprint(testAdded) != initialFingerprint {
-		t.Fatal("new captured compiler test input independently invalidated the runtime")
-	}
-	if err := os.Remove(filepath.Join(root, "added_test.go")); err != nil {
-		t.Fatal(err)
-	}
-	testRemoved, err := scanWatchedFilesReusing(root, testAdded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !snapshotsEqual(testAdded, testRemoved) || len(changedPaths(testAdded, testRemoved)) != 0 || snapshotFingerprint(testRemoved) != initialFingerprint {
-		t.Fatal("removed captured compiler test input independently invalidated the runtime")
-	}
-	initial = testRemoved
-
-	writeWatchFile(t, root, "handler_test.go", "package captured\n// current test-only bytes\n")
-	testEdited, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !snapshotsEqual(initial, testEdited) || len(changedPaths(initial, testEdited)) != 0 || snapshotFingerprint(testEdited) != initialFingerprint {
-		t.Fatal("captured compiler test input independently invalidated the runtime")
-	}
-	initial = testEdited
-
-	writeWatchFile(t, root, "handler.go", "package captured\nconst value = 2\n")
-	edited, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	captured := buildSourceSnapshot(edited)
-	writeWatchFile(t, root, "handler.go", "package captured\nconst value = 3\n")
-	result, err := build.CompileContractWithSnapshot(root, captured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Sources) == 0 || len(contract.Sources) == 0 || &result.Sources[0].Bytes[0] != &contract.Sources[0].Bytes[0] || result.WorkspaceRevision == contract.WorkspaceRevision {
-		t.Fatalf("handler edit did not reuse the graph with a fresh captured identity: revision=%s", result.WorkspaceRevision)
 	}
 }
 
@@ -127,138 +60,6 @@ func TestAppearingOptionalCompilerInputInvalidatesCapturedGraph(t *testing.T) {
 	}
 }
 
-func TestSuccessfulDeclarationBuildBecomesNextCapturedGraphBaseline(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeWatchFile(t, root, "app.scn", "application \"before\" {}\nworkspace {\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"*.go\", \"go.mod\"]\n  revision_exclude = []\n }\n}\n")
-	writeWatchFile(t, root, "go.mod", "module example.test/captured\n")
-	writeWatchFile(t, root, "handler.go", "package captured\nconst value = 1\n")
-	contract, err := compiler.Compile(root)
-	if err != nil || !contract.Valid() {
-		t.Fatalf("compile initial graph: %v", err)
-	}
-	initial, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
-	if err != nil || !initial.compilerValid {
-		t.Fatalf("capture initial graph: %v", err)
-	}
-	bindSnapshotContract(&initial, contract)
-
-	writeWatchFile(t, root, "app.scn", "application \"after\" {}\nworkspace {\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"*.go\", \"go.mod\"]\n  revision_exclude = []\n }\n}\n")
-	declarationEdit, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(declarationEdit))
-	if err != nil || !updated.Valid() || updated.Manifest.Application.Name != "after" {
-		t.Fatalf("compile declaration edit: graph=%#v err=%v", updated, err)
-	}
-	refreshSnapshotContract(root, &declarationEdit, updated)
-	if declarationEdit.contract != updated {
-		t.Fatal("successful declaration graph was not retained as the next watch baseline")
-	}
-
-	writeWatchFile(t, root, "handler.go", "package captured\nconst value = 2\n")
-	handlerEdit, err := scanWatchedFilesReusing(root, declarationEdit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	captured := buildSourceSnapshot(handlerEdit)
-	writeWatchFile(t, root, "app.scn", "this is not valid scenery source\n")
-	reused, err := build.CompileContractWithSnapshot(root, captured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reused.Valid() || reused.Manifest.Application.Name != "after" || len(reused.Sources) == 0 || &reused.Sources[0].Bytes[0] != &updated.Sources[0].Bytes[0] {
-		t.Fatalf("handler edit reread the later authored tree instead of reusing the promoted graph: %#v", reused)
-	}
-}
-
-func TestDeclarationCompileConsumesCapturedBytesAfterLiveTreeChanges(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeWatchFile(t, root, "app.scn", "application \"before\" {}\n")
-	contract, err := compiler.Compile(root)
-	if err != nil || !contract.Valid() {
-		t.Fatalf("compile initial graph: %v", err)
-	}
-	initial, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
-	if err != nil || !initial.compilerValid {
-		t.Fatalf("capture initial graph: %v", err)
-	}
-	bindSnapshotContract(&initial, contract)
-
-	writeWatchFile(t, root, "app.scn", "application \"captured\" {}\n")
-	declarationEdit, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeWatchFile(t, root, "app.scn", "this later tree content is invalid\n")
-	result, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(declarationEdit))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Valid() || result.Manifest.Application.Name != "captured" || result.Root != root {
-		t.Fatalf("compiled graph did not use captured declaration bytes: root=%q graph=%#v", result.Root, result)
-	}
-	if len(result.Sources) != 1 || result.Sources[0].Path != filepath.Join(root, "app.scn") {
-		t.Fatalf("captured source paths were not rebound to authored root: %#v", result.Sources)
-	}
-}
-
-func TestDeclarationEditRefreshesNewCompilerInputBeforeCapturedCompile(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeWatchFile(t, root, "app.scn", "application \"before\" {}\nworkspace {}\n")
-	writeWatchFile(t, root, "native.input", "captured\n")
-	contract, err := compiler.Compile(root)
-	if err != nil || !contract.Valid() {
-		t.Fatalf("compile initial graph: %v", err)
-	}
-	initial, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
-	if err != nil || !initial.compilerValid {
-		t.Fatalf("capture initial graph: %v", err)
-	}
-	bindSnapshotContract(&initial, contract)
-	if _, ok := initial.compilerFiles["native.input"]; ok {
-		t.Fatal("undeclared arbitrary input was unexpectedly watched")
-	}
-
-	writeWatchFile(t, root, "app.scn", "application \"after\" {}\nworkspace {\n revision_input \"native\" { paths = [\"native.input\"] }\n}\n")
-	declarationEdit, err := scanWatchedFilesReusing(root, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := refreshBuildCompilerMembership(root, &declarationEdit); err != nil {
-		t.Fatal(err)
-	}
-	input, ok := declarationEdit.compilerFiles["native.input"]
-	if !ok || string(input.data) != "captured\n" {
-		t.Fatalf("new declaration input was not captured: %#v", input)
-	}
-	current, err := scanWatchedFilesReusing(root, declarationEdit)
-	if err != nil || !buildInputSnapshotsEqual(declarationEdit, current) {
-		t.Fatalf("freshness rescan lost the discovered compiler membership: %v", err)
-	}
-	writeWatchFile(t, root, "native.input", "later-live\n")
-	result, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(declarationEdit))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Valid() || result.Manifest.Application.Name != "after" {
-		t.Fatalf("captured graph compile failed: %#v", result)
-	}
-	want := *result
-	if err := compiler.BindCapturedWorkspaceRevision(&want, map[string][]byte{"native.input": []byte("captured\n")}); err != nil {
-		t.Fatal(err)
-	}
-	if result.WorkspaceRevision != want.WorkspaceRevision {
-		t.Fatalf("workspace revision did not use captured new input: got %s want %s", result.WorkspaceRevision, want.WorkspaceRevision)
-	}
-}
-
-// Steady-state rescans must reuse prior content hashes for stat-identical
-// files while still detecting real edits, including //go:embed additions
-// whose patterns come from the per-process embed cache.
 func TestScanWatchedFilesReusingDetectsChanges(t *testing.T) {
 	t.Parallel()
 
@@ -335,55 +136,6 @@ func TestScanWatchedFilesReusingDetectsChanges(t *testing.T) {
 // A declaration edit refreshes the snapshot's compiler membership from a
 // provisional graph. Returning the declaration to the accepted bytes must
 // compile the accepted graph again, never the provisional one.
-func TestRefreshedCompilerMembershipNeverBecomesTheSnapshotGraph(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	const accepted = "application \"captured\" {}\n"
-	const edited = "application \"captured\" {}\n\nhttp_gateway \"public_api\" {\n  exposure        = \"internet\"\n  base_path       = \"/\"\n  cors            = std.cors.none\n  trusted_proxies = std.trusted_proxies.none\n  forwarded       = std.forwarded_headers.reject\n}\n"
-	writeWatchFile(t, root, "app.scn", accepted)
-	contract, err := compiler.Compile(root)
-	if err != nil || !contract.Valid() {
-		t.Fatalf("compile: %v", err)
-	}
-	snapshot, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
-	if err != nil || !snapshot.compilerValid {
-		t.Fatalf("initial capture: %v", err)
-	}
-	bindSnapshotContract(&snapshot, contract)
-
-	writeWatchFile(t, root, "app.scn", edited)
-	changed, err := scanWatchedFilesReusing(root, snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := refreshBuildCompilerMembership(root, &changed); err != nil {
-		t.Fatal(err)
-	}
-	provisional, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(changed))
-	if err != nil || !provisional.Valid() {
-		t.Fatalf("compile the edited declaration: %v", err)
-	}
-	if provisional.Manifest.ContractRevision == contract.Manifest.ContractRevision {
-		t.Fatal("the edited declaration did not change the contract revision")
-	}
-
-	writeWatchFile(t, root, "app.scn", accepted)
-	returned, err := scanWatchedFilesReusing(root, changed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(returned))
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile the returned declaration: %v", err)
-	}
-	if result.Manifest.ContractRevision != contract.Manifest.ContractRevision {
-		t.Fatalf("returning the declaration compiled %s, want the accepted %s", result.Manifest.ContractRevision, contract.Manifest.ContractRevision)
-	}
-	if changed.contract != contract || returned.contract != contract {
-		t.Fatal("the provisional membership graph became the snapshot's bound graph")
-	}
-}
-
 func TestRevisionMembershipFromReusedListingsStillSeesEveryMembershipChange(t *testing.T) {
 	settleDirectoryListings(t)
 	root := t.TempDir()

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/stateupgrade"
 )

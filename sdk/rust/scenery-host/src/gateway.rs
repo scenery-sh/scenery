@@ -121,8 +121,10 @@ pub(crate) async fn ingress(
     } else {
         None
     };
-    if private && method == Method::POST && path == "/users/dev-bootstrap" {
-        let mut response = crate::browser_auth::dev_bootstrap(host, request).await;
+    // Development sign-in is public only while the host develops an app; an
+    // identity with explicit claims stays on the private control path.
+    if (private || host.development) && method == Method::POST && path == "/users/dev-bootstrap" {
+        let mut response = crate::browser_auth::dev_bootstrap(host, request, private).await;
         header(response.headers_mut(), "cache-control", "no-store");
         return attest(response, &generation, None);
     }

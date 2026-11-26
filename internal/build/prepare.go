@@ -84,17 +84,6 @@ func (e *ContractError) ExitCode() int {
 	return 3
 }
 
-func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
-	if err := requireGenerateHooks(); err != nil {
-		return nil, err
-	}
-	projection, err := generateHooks.PrepareBuildGoWorkspace(context.Background(), contract)
-	if err != nil {
-		return nil, err
-	}
-	return prepareWithContractTargetContext(context.Background(), appRoot, cfg, snapshot, contract, target, projection)
-}
-
 // The caller publishes public Go projections before implementation checking or
 // target preparation. Keep that transaction outside the shared workspace phase
 // so ordinary development does not publish the same projection twice.

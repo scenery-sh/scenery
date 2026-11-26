@@ -1,34 +1,9 @@
 package auth
 
 import (
-	"context"
-	"fmt"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
-
-type standardSecrets struct {
-	JWTSecret               string
-	GoogleOAuthClientID     string
-	GoogleOAuthClientSecret string
-	PublicAppURL            string
-	APIBaseURL              string
-	AuthCookieDomain        string
-}
-
-var secretsMu sync.RWMutex
-
-// secrets is populated when the standard auth module is registered.
-var secrets standardSecrets
-
-func currentStandardSecrets() standardSecrets {
-	secretsMu.RLock()
-	defer secretsMu.RUnlock()
-	return secrets
-}
 
 // AuthUserID is the unique identifier for a standard-auth user.
 type AuthUserID string
@@ -87,122 +62,6 @@ func (d *AuthData) AuditTenantID() string {
 	return strings.TrimSpace(string(d.TenantID))
 }
 
-// AuthHandler authenticates a user based on a standard-auth JWT token.
-func AuthHandler(ctx context.Context, token string) (UID, *AuthData, error) {
-	data, err := ValidateToken(token)
-	if err != nil {
-		return "", nil, err
-	}
-	// DevBootstrap uses a deliberately sessionless token and may use a
-	// non-database identifier. Standard interactive sessions always carry sid.
-	if strings.TrimSpace(data.SessionID) == "" {
-		return UID(data.UserID), data, nil
-	}
-	svc, err := lifecycleService(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-	if err := requireEnabledAuthUser(ctx, svc, data.UserID); err != nil {
-		return "", nil, err
-	}
-	if data.Impersonating() {
-		if err := requireEnabledAuthUser(ctx, svc, data.ActorUserID); err != nil {
-			return "", nil, err
-		}
-	}
-	if err := requireActiveAuthSession(ctx, svc, data); err != nil {
-		return "", nil, err
-	}
-	return UID(data.UserID), data, nil
-}
-
-func requireEnabledAuthUser(ctx context.Context, svc *Service, userID AuthUserID) error {
-	id, err := lifecycleUserID(userID)
-	if err != nil {
-		return unauthenticated("invalid user id")
-	}
-	_, err = currentUser(ctx, svc, id)
-	return err
-}
-
-// requireActiveAuthSession makes refresh-session revocation invalidate access
-// tokens immediately.
-func requireActiveAuthSession(ctx context.Context, svc *Service, data *AuthData) error {
-	sessionID, err := parseUUID(data.SessionID)
-	if err != nil {
-		return unauthenticated("auth session is invalid")
-	}
-	session, err := svc.query.GetRefreshSessionByID(ctx, sessionID)
-	if err != nil {
-		if isNoRows(err) {
-			return unauthenticated("auth session is invalid")
-		}
-		return err
-	}
-	if session.RevokedAt.Valid || !session.ExpiresAt.After(svc.clock()) {
-		return unauthenticated("auth session is expired")
-	}
-	if uuidString(session.UserID) != strings.TrimSpace(string(data.UserID)) ||
-		uuidString(session.ActiveTenantID) != strings.TrimSpace(string(data.TenantID)) ||
-		uuidString(session.ActorUserID) != strings.TrimSpace(string(data.ActorUserID)) ||
-		uuidString(session.ImpersonationID) != strings.TrimSpace(data.ImpersonationID) {
-		return unauthenticated("auth session does not match token")
-	}
-	return nil
-}
-
-// ValidateToken parses and validates a signed user JWT.
-func ValidateToken(token string) (*AuthData, error) {
-	current := currentStandardSecrets()
-	if strings.TrimSpace(current.JWTSecret) == "" {
-		return nil, fmt.Errorf("JWTSecret is not configured")
-	}
-	claims := &accessTokenClaims{}
-	t, err := jwt.ParseWithClaims(
-		strings.TrimSpace(token),
-		claims,
-		func(t *jwt.Token) (any, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return []byte(current.JWTSecret), nil
-		},
-		jwt.WithExpirationRequired(),
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-	)
-	if err != nil {
-		return nil, unauthenticated("invalid token")
-	}
-	if !t.Valid {
-		return nil, unauthenticated("invalid token")
-	}
-
-	sub := strings.TrimSpace(claims.Subject)
-	if sub == "" {
-		return nil, unauthenticated("token missing subject claim")
-	}
-	tenantID := strings.TrimSpace(claims.TenantID)
-	if tenantID == "" {
-		return nil, unauthenticated("token missing tenant_id claim")
-	}
-
-	return &AuthData{
-		UserID:          AuthUserID(sub),
-		TenantID:        TenantID(tenantID),
-		SessionID:       strings.TrimSpace(claims.SessionID),
-		ActorUserID:     AuthUserID(strings.TrimSpace(claims.ActorSubject)),
-		ImpersonationID: strings.TrimSpace(claims.ImpersonationID),
-	}, nil
-}
-
-type accessTokenClaims struct {
-	TenantID        string `json:"tenant_id"`
-	SessionID       string `json:"sid,omitempty"`
-	ActorSubject    string `json:"actor_sub,omitempty"`
-	ImpersonationID string `json:"impersonation_id,omitempty"`
-	jwt.RegisteredClaims
-}
-
 type AccessTokenOptions struct {
 	UserID          AuthUserID
 	TenantID        TenantID
@@ -211,52 +70,4 @@ type AccessTokenOptions struct {
 	ImpersonationID string
 	ExpiresIn       time.Duration
 	Now             time.Time
-}
-
-// GenerateAccessToken generates a signed first-party access JWT.
-func GenerateAccessToken(options AccessTokenOptions) (string, error) {
-	now := options.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-	expiresIn := options.ExpiresIn
-	if expiresIn == 0 {
-		expiresIn = defaultAccessTokenTTL
-	}
-	current := currentStandardSecrets()
-	if strings.TrimSpace(current.JWTSecret) == "" {
-		return "", fmt.Errorf("JWTSecret is not configured")
-	}
-
-	userID := strings.TrimSpace(string(options.UserID))
-	if userID == "" {
-		return "", fmt.Errorf("user id is required")
-	}
-	tenantID := strings.TrimSpace(string(options.TenantID))
-	if tenantID == "" {
-		return "", fmt.Errorf("tenant id is required")
-	}
-
-	claims := accessTokenClaims{
-		TenantID:        tenantID,
-		SessionID:       strings.TrimSpace(options.SessionID),
-		ActorSubject:    strings.TrimSpace(string(options.ActorUserID)),
-		ImpersonationID: strings.TrimSpace(options.ImpersonationID),
-		Subject:         userID,
-		IssuedAt:        jwt.NewNumericDate(now),
-		ExpiresAt:       jwt.NewNumericDate(now.Add(expiresIn)),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(current.JWTSecret))
-}
-
-// GenerateToken generates a signed JWT token for a user and tenant.
-// It expires after the given duration.
-func GenerateToken(uid AuthUserID, tid TenantID, expiresIn time.Duration) (string, error) {
-	return GenerateAccessToken(AccessTokenOptions{
-		UserID:    uid,
-		TenantID:  tid,
-		ExpiresIn: expiresIn,
-	})
 }

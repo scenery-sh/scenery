@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"scenery.sh/internal/harnessreport"
-	"scenery.sh/internal/machine"
 	"strconv"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/harnessreport"
+	"scenery.sh/internal/machine"
 )
 
 const Kind = "scenery.harness.artifact"

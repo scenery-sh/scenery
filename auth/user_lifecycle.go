@@ -92,7 +92,7 @@ func RevokeUserSessions(ctx context.Context, userID AuthUserID, reason string) e
 }
 
 func lifecycleService(ctx context.Context) (*Service, error) {
-	if !currentStandardConfig().Enabled {
+	if !standardAuthEnabled() {
 		return nil, failedPrecondition("standard auth is not configured")
 	}
 	svc, err := standardAuthService(ctx)

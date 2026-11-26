@@ -451,16 +451,6 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	return append(artifactFiles, generatedFile{Path: paths[2], Bytes: descriptorBytes}), nil
 }
 
-func moduleResources(resources []Resource, module string) []Resource {
-	var out []Resource
-	for _, r := range resources {
-		if r.Module == module {
-			out = append(out, r)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
-	return out
-}
 func resourceAddresses(resources []Resource) []string {
 	out := make([]string, len(resources))
 	for i, r := range resources {

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	appcfg "scenery.sh/internal/app"
 	"strings"
+
+	appcfg "scenery.sh/internal/app"
 )
 
 func DiscoverRoot(start string) (string, error) {

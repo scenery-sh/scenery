@@ -5,9 +5,12 @@ description: Build, run, debug, and validate applications using Scenery's .scn g
 
 # scenery
 
-Scenery runs one supervised runtime per canonical app root. `.scenery.json`
-marks the root; `app.scn` and package-local `package.scn` declare the canonical
-resource graph; Go, Rust, JavaScript, and TypeScript implement generated contracts.
+Scenery runs one supervised runtime per canonical app root: `scenery up`
+supervises the Rust application host, which serves every worker over Worker ABI
+v1 and rebuilds edited workers itself. `.scenery.json` marks the root; `app.scn`
+and package-local `package.scn` declare the canonical resource graph; Go, Rust,
+JavaScript, and TypeScript implement generated contracts. `scenery build`
+writes the deployable host bundle.
 
 Read the consuming app's `AGENTS.md` for app-specific paths, environment names,
 validation profiles, and product invariants. Discover exact CLI grammar anytime

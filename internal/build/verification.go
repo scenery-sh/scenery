@@ -115,19 +115,6 @@ func recordVerifiedImplementation(result *Result, verification *preparedVerifica
 	_ = saveBuildState(result.Dir, state)
 }
 
-// The caller holds the workspace lock and has completed every write-capable
-// preparation step. Both branches consume those same bytes; neither publishes
-// success. A build error still waits for authoritative native diagnostics;
-// verification failure and caller cancellation stop the build branch. Both
-// branches are joined before returning in every case.
-func compileWithPreparedVerification(ctx context.Context, result *Result, compile func(context.Context) error) error {
-	join, err := compileBesidePreparedVerification(ctx, result, compile)
-	if err != nil {
-		return err
-	}
-	return join()
-}
-
 // compileBesidePreparedVerification compiles beside the implementation check
 // and returns the join that installs the checked contract. The caller must
 // call it before using result.Contract, and may prepare the compiled artifacts

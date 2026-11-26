@@ -77,7 +77,7 @@ func membershipScope(ctx context.Context) (*Service, authdb.UUID, authdb.UUID, e
 	if err != nil {
 		return nil, authdb.UUID{}, authdb.UUID{}, unauthenticated("an organization session is required")
 	}
-	if !currentStandardConfig().Enabled {
+	if !standardAuthEnabled() {
 		return nil, authdb.UUID{}, authdb.UUID{}, failedPrecondition("standard auth is not configured")
 	}
 	svc, err := standardAuthService(ctx)

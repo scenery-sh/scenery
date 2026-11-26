@@ -238,12 +238,23 @@ async fn run(mut input: Input) -> Result<()> {
     let development = input.dev.is_some();
     let stop = CancellationToken::new();
     let stop_signal = stop.clone();
+    // A development host stops with the supervisor that started it.
+    let parent = development.then(|| unsafe { libc::getppid() });
     let signals = tokio::spawn(async move {
+        let orphaned = async {
+            let Some(parent) = parent else {
+                return std::future::pending().await;
+            };
+            while unsafe { libc::getppid() } == parent {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        };
         tokio::select! {
             _ = terminate.recv() => {}
             _ = interrupt.recv() => {}
             _ = hangup.recv() => {}
             _ = quit.recv() => {}
+            _ = orphaned => {}
         }
         stop_signal.cancel();
     });
@@ -383,7 +394,9 @@ async fn run(mut input: Input) -> Result<()> {
         }
         // No public socket is bound until the entire initial process set has
         // attested and the supervisor has committed its build identity.
-        let listener = PublicListener::bind(&input.listen).await.context("bind public application listener")?;
+        let listener = PublicListener::bind(&input.listen)
+            .await
+            .with_context(|| format!("bind public application listener {}", input.listen))?;
         let address = listener.address()?;
         if development {
             let mut marker = std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600)

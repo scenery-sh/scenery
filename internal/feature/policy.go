@@ -3,9 +3,10 @@ package feature
 import (
 	"fmt"
 	"path/filepath"
-	"scenery.sh/internal/envpolicy"
 	"slices"
 	"strings"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 // ReadPolicy reads repository-authored argv; an absent policy never waives checks.

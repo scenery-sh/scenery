@@ -17,8 +17,8 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/graph"
 	"scenery.sh/internal/victoria"
 )
 
@@ -27,8 +27,6 @@ type runningApp struct {
 	cmd     *exec.Cmd
 	done    chan error
 	pid     string
-	output  *safeLineTail
-	launch  *appStartPlan
 }
 
 type devSupervisor struct {
@@ -43,6 +41,9 @@ type devSupervisor struct {
 	worktreeControlPaths  *localagent.Paths
 	worktreeRootPaths     *localagent.WorktreePaths
 	victoriaDesiredEnv    []string
+	// victoriaPlanned are the OTLP endpoints, by signal, of the planned
+	// worktree Victoria components.
+	victoriaPlanned       map[string]string
 	storageStartupDone    chan struct{}
 	storageStartupErr     error
 	victoriaStartupDone   chan struct{}
@@ -84,8 +85,11 @@ type devSupervisor struct {
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	current   *runningApp
-	// processes holds the host and service process instances once started.
-	processes          *devProcessModel
+	// host is the running development host generation; hostRestart asks the
+	// watch loop to replace it.
+	host               *devHostGeneration
+	hostRestart        bool
+	restartPending     bool
 	status             devdash.AppRecord
 	pendingDevEvents   []devdash.DevEvent
 	startupReady       <-chan error
@@ -96,9 +100,7 @@ type devSupervisor struct {
 	// resolves (see dev_build_block.go).
 	buildBlock *devBuildBlock
 	// Serving inputs are captured only after successful publication, under mu.
-	servingSnapshot *fileSnapshot
-	servingIdentity *runtimeServingIdentity
-	rebuildTiming   *workerRebuildTiming
+	rebuildTiming *workerRebuildTiming
 	// lastBuild is the outcome of the most recent build request, by the
 	// source snapshot it captured; guarded by mu.
 	lastBuild *devBuildAttempt
@@ -122,18 +124,11 @@ type devSupervisor struct {
 	active *devActiveGeneration
 }
 
-// devActiveGeneration is the published generation a configuration change
-// restarts consumers of. Guarded by lifecycle.
+// devActiveGeneration is the published generation whose configuration a
+// change is resolved against. Guarded by lifecycle.
 type devActiveGeneration struct {
-	result *build.Result
-	set    *build.DevelopmentProcessSet
-	base   []string
+	manifest *graph.Manifest
 }
-
-const (
-	appStartupTimeout      = 30 * time.Second
-	appStartupPollInterval = 2 * time.Millisecond
-)
 
 func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
@@ -317,9 +312,7 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if err := s.closeDevProcesses(); err != nil {
-			errs = append(errs, err)
-		}
+		s.stopHost()
 		for _, frontend := range frontends {
 			if err := frontend.Stop(); err != nil {
 				errs = append(errs, err)
@@ -564,6 +557,9 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 		return
 	}
 	s.current = nil
+	if s.host != nil && s.host.app == app {
+		s.host = nil
+	}
 	s.status.Running = false
 	s.status.Offline = true
 	s.status.PID = ""
@@ -772,14 +768,6 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 		for key, process := range s.assistants.ProcessSnapshot() {
 			processes[key] = process
 		}
-	}
-	for key := range processes {
-		if strings.HasPrefix(key, devProcessSessionPrefix) {
-			delete(processes, key)
-		}
-	}
-	for key, process := range s.sessionServiceProcesses() {
-		processes[key] = process
 	}
 	if len(processes) == 0 {
 		return nil

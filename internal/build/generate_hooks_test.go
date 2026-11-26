@@ -15,6 +15,5 @@ func init() {
 		},
 		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspaceContext,
 		RuntimeIntegrationPlan:  generate.BuildRuntimeIntegrationPlan,
-		RenderAssistantAssets:   generate.RenderAssistantAssetRegistry,
 	})
 }

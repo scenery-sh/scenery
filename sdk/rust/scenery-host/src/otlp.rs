@@ -151,6 +151,7 @@ fn trace(record: &Value, events: &[Value]) -> Message {
         &[
             ("app_id", "scenery.application_id"),
             ("session_id", "scenery.session_id"),
+            ("app_root_hash", "scenery.app_root_hash"),
             ("type", "scenery.trace.type"),
             ("is_root", "scenery.is_root"),
             ("is_error", "scenery.is_error"),
@@ -199,6 +200,7 @@ fn log(record: &Value) -> Message {
         &[
             ("app_id", "scenery.application_id"),
             ("session_id", "scenery.session_id"),
+            ("app_root_hash", "scenery.app_root_hash"),
         ],
     );
     correlation(&mut log, 6, record);
@@ -229,6 +231,7 @@ fn metric(
         &[
             ("app_id", "scenery_app"),
             ("session_id", "scenery_session_id"),
+            ("app_root_hash", "scenery_app_root_hash"),
         ],
     );
     if request_duration {

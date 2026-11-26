@@ -6,12 +6,7 @@
   "required": [
     "kind",
     "schema_revision",
-    "output_path",
-    "descriptor_path",
-    "copied",
-    "candidate_identity",
-    "verification_module_path",
-    "verification_module_digest"
+    "output_path"
   ],
   "additionalProperties": false,
   "properties": {
@@ -19,78 +14,11 @@
       "const": "scenery.build.result"
     },
     "schema_revision": {
-      "const": "sha256:8f2a6000ec184b2759af05987c8d1a1d372d9c9decfc2ac89c4fddb2b24ea48e"
+      "const": "sha256:e56b4787ccf708ba7ca8a0172dfb8a2868e11b3b70a187bb298a043e2f171f1e"
     },
     "output_path": {
       "type": "string",
       "minLength": 1
-    },
-    "descriptor_path": {
-      "type": "string"
-    },
-    "copied": {
-      "type": "boolean"
-    },
-    "candidate_identity": {
-      "anyOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "contractRevision",
-            "implementationRevision",
-            "buildInputDigest",
-            "target",
-            "specRevision",
-            "producer",
-            "frameworkSourceDigest",
-            "frameworkExecutableDigest"
-          ],
-          "properties": {
-            "contractRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "implementationRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "buildInputDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "target": {
-              "type": "string",
-              "minLength": 1
-            },
-            "specRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "producer": {
-              "$ref": "scenery.cli.schema.json#/$defs/producer"
-            },
-            "frameworkSourceDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "frameworkExecutableDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          }
-        }
-      ]
-    },
-    "verification_module_path": {
-      "type": "string"
-    },
-    "verification_module_digest": {
-      "type": "string",
-      "pattern": "^(|sha256:[0-9a-f]{64})$"
     }
   }
 }

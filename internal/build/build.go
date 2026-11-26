@@ -2,11 +2,8 @@ package build
 
 import (
 	"encoding/json"
-	"fmt"
 
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/machine"
 )
 
@@ -39,18 +36,12 @@ type Result struct {
 	CachedTypeScriptStamps    map[string]string
 	ManagedGeneratedPaths     []string
 	GoBuildFlags              []string
-	// RuntimeLinkerMetadata holds the -X linker values injected at go build
-	// time. It stays out of GoBuildFlags so persisted build state keeps only
-	// the configured flags and warm-start cache comparison remains stable.
-	RuntimeLinkerMetadata   map[string]string
-	GoEnvironment           []string
-	Contract                *compiler.Result
-	Target                  *compiler.GoBuildTarget
-	BuildInput              *BuildInputManifest
-	ImplementationRevisions map[string]string
-	AssistantAssets         []generateapi.AssistantAssetDescriptor
-	ProductionAssets        bool
-	OwnedGoModuleSources    []OwnedGoModuleSource
+	GoEnvironment             []string
+	Contract                  *compiler.Result
+	Target                    *compiler.GoBuildTarget
+	BuildInput                *BuildInputManifest
+	ImplementationRevisions   map[string]string
+	OwnedGoModuleSources      []OwnedGoModuleSource
 	// DevelopmentProcessBinaries names, relative to Dir, the executables of the
 	// process-model generation this build produced instead of one application
 	// executable.
@@ -207,46 +198,4 @@ type LatestBuildManifestRecord struct {
 	APIEncodingPresent    bool   `json:"api_encoding_present"`
 	SourceFileCount       int    `json:"source_file_count"`
 	GeneratedFileCount    int    `json:"generated_file_count"`
-}
-
-// AppForTarget prepares and compiles one host-executable app binary from the
-// named go_target, or from the target with role "development" when targetName
-// is empty. Runtime process roles such as SCENERY_ROLE=worker select behavior
-// inside that binary; they are not go_target roles.
-func AppForTarget(appRoot string, cfg app.Config, targetName string) (*Result, error) {
-	return appForTarget(appRoot, cfg, targetName, "development", false)
-}
-
-// BuildArtifactForTarget prepares and compiles one production app binary from
-// the named go_target, or from the target with role "artifact" when targetName
-// is empty. Unlike AppForTarget, it materializes the platform-matched
-// assistant runtime assets before linking the Go binary.
-func BuildArtifactForTarget(appRoot string, cfg app.Config, targetName string) (*Result, error) {
-	return appForTarget(appRoot, cfg, targetName, "artifact", true)
-}
-
-func appForTarget(appRoot string, cfg app.Config, targetName, defaultRole string, productionAssets bool) (*Result, error) {
-	contract, err := compiler.Check(appRoot)
-	if err != nil {
-		return nil, err
-	}
-	if !contract.Valid() {
-		return nil, fmt.Errorf("contract or generated artifacts are invalid")
-	}
-	target, err := compiler.ResolveGoBuildTarget(contract, targetName, defaultRole)
-	if err != nil {
-		return nil, err
-	}
-	if target.Role == "contract" {
-		return nil, fmt.Errorf("go contract target %s does not produce a runtime binary", target.Name)
-	}
-	result, err := prepareWithContractTarget(appRoot, cfg, nil, contract, target)
-	if err != nil {
-		return nil, err
-	}
-	result.ProductionAssets = productionAssets
-	if err := Compile(result); err != nil {
-		return nil, err
-	}
-	return result, nil
 }

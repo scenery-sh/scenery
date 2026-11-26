@@ -2,17 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"scenery.sh/internal/devdash"
 )
-
-func workerSessionMatches(endpoint workerDevEndpoint, session string) bool {
-	return session == "" || session == "current" || session == endpoint.SessionID
-}
 
 func workerDevEvents(records []workerLogEntry, query devdash.DevEventQuery) []devdash.DevEvent {
 	var events []devdash.DevEvent
@@ -60,20 +54,5 @@ func workerTraceSummaries(spans []devdash.TraceSpanDetail, query devdash.TraceQu
 	if query.Limit > 0 && len(items) > query.Limit {
 		items = items[:query.Limit]
 	}
-	return items
-}
-
-func workerLogCounts(logs []workerLogEntry, since time.Time) []devdash.LogLevelCount {
-	counts := map[string]int64{}
-	for _, log := range logs {
-		if !log.Timestamp.Before(since) {
-			counts[log.Level]++
-		}
-	}
-	items := make([]devdash.LogLevelCount, 0, len(counts))
-	for level, count := range counts {
-		items = append(items, devdash.LogLevelCount{Level: level, Count: count})
-	}
-	slices.SortFunc(items, func(a, b devdash.LogLevelCount) int { return strings.Compare(a.Level, b.Level) })
 	return items
 }

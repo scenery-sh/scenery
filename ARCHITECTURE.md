@@ -9,17 +9,22 @@ independent runtime config in `.scenery.json`.
   → internal/app + internal/scn + internal/spec + internal/compiler
   → canonical source / effective / expanded manifests
   → internal/generate + internal/uigen + internal/build
-  → generated workspace + scenery.sh/runtime (process host + per-service processes)
-  → single local server + CLI/inspect/harness/worktree tooling
+  → generated worker entrypoints + Worker ABI adapters (scenery.sh/runtime)
+  → one Rust application host bundle + CLI/inspect/harness/worktree tooling
 ```
 
-For worker bundles, the Rust `scenery-host` owns public ingress, binding
-policy, scoped worker capabilities, durable execution, and worker supervision.
-It binds public ingress after publishing an attested generation. In
-development the Go CLI prepares the initial build and hands over the runtime
-lock. The Host watches source inputs (the files no `.gitignore` excludes),
-rebuilds affected workers, and invokes the
-CLI on demand for declaration and build configuration changes. A production bundle starts directly through `scenery-host`.
+Every application runs on the Rust `scenery-host`. It owns public ingress,
+binding policy, standard auth, scoped worker capabilities, durable execution,
+schedules, assistants, MCP, and worker supervision. It binds public ingress
+after publishing an attested generation. In development `scenery up` keeps the
+worktree platform (agent session, port lease, local router, edge domains,
+Victoria, `/runtime` RPC, frontends, desktop shells, assistant helpers): it
+builds the initial bundle, starts the Host as a supervised child on the
+worktree's API backend, and restarts it only for changes the Host cannot apply
+in place. The Host watches source inputs (the files no `.gitignore` excludes),
+rebuilds affected workers, exports telemetry to the worktree's Victoria, and
+invokes the CLI on demand for declaration and build configuration changes. A
+production bundle (`scenery build`) starts directly through `scenery-host`.
 
 Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
 [Worker ABI v1](docs/spec/WORKER-ABI.md). The Rust Host and SDK share
@@ -103,23 +108,20 @@ static assets to the production bundle.
 - `internal/build`, `internal/workspacetx`, `internal/dirlisting`,
   `internal/filemeta`, `internal/devcache`: transient build workspace,
   content-addressed fingerprints, crash-safe atomic publication, and stock
-  `go build` per-service development linking + single-binary production builds.
+  `go build` linking of per-service Go workers.
 
 ### Runtime, Capabilities & Local Platform
-- `runtime` (`scenery.sh/runtime`): linked into generated app binaries. In dev,
-  runs a stable `ProcessHost` (`runtime/process_host.go`) that pins requests and
-  internal calls (`runtime/process_link.go`) to published generations over
-  private sockets, plus one process per native service. Owns HTTP routing,
-  codecs, auth context, policies, durable workers, schedules, assistants,
-  tracing, and graceful drain.
+- `sdk/rust/scenery-host`: the only application host, in development and
+  production (see above).
+- `runtime` (`scenery.sh/runtime`): the Go Worker ABI adapter linked into each
+  generated Go worker: operation registration, worker-binding calls, request
+  context and auth reads, SQL bindings, tracing, and telemetry to the Host.
 - Public SDK packages: `scenery.sh`, `auth`, `db`, `datasource`, `errs`,
   `object`, `storage` (canonical local filesystem object store).
-- `internal/connectionapi`, `internal/connectionruntime`,
-  `internal/connectionvault`, `internal/authprovider/*`, `internal/oidc`:
-  provider-neutral encrypted OAuth2/OIDC user connections.
-- `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`,
-  `internal/mcpgateway`, `internal/assistant*`: provider-neutral MCP ABI and
-  supervised out-of-process assistant helpers.
+- `internal/connectionapi`: the provider-neutral user connection contract the
+  Host implements.
+- `internal/mcpcontract`, `internal/mcpprojection`, `internal/assistant*`:
+  provider-neutral MCP ABI and supervised out-of-process assistant helpers.
 - `internal/agent`, `internal/devprocess`, `internal/devdash`,
   `internal/localproxy`, `internal/edge`, `internal/desktop`,
   `internal/postgresdb`, `internal/postgresname`, `internal/storagefs`,

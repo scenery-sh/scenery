@@ -190,25 +190,3 @@ const PublicConfigPath = "/_app/public-config"
 
 // PublicConfigKind identifies the public configuration response.
 const PublicConfigKind = "app.public-config"
-
-type publicConfigDocument struct {
-	Kind     string                     `json:"kind"`
-	Revision string                     `json:"revision"`
-	Values   map[string]json.RawMessage `json:"values"`
-}
-
-// publicConfiguration returns this process's public values and revision.
-func publicConfiguration() (publicConfigDocument, error) {
-	document := publicConfigDocument{Kind: PublicConfigKind, Values: map[string]json.RawMessage{}}
-	snapshot, err := LoadConfigSnapshot()
-	if err != nil || snapshot == nil {
-		return document, err
-	}
-	document.Revision = snapshot.Revision
-	for _, key := range snapshot.Public {
-		if value, ok := snapshot.Values[key]; ok && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			document.Values[key] = value
-		}
-	}
-	return document, nil
-}

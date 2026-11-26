@@ -41,6 +41,9 @@ pub(crate) enum DevBootstrap<'a> {
     Email { email: &'a str, tenant: String },
 }
 
+/// DEV_USER is the synthetic user a development sign-in without claims names.
+const DEV_USER: &str = "dev-user";
+
 impl Authentication {
     pub(crate) fn new(plan: Option<&Auth>, config: &Value, development: bool) -> Result<Self> {
         let mut secret = Vec::new();
@@ -111,7 +114,7 @@ impl Authentication {
         }
         let claims = Claims {
             user: if user.is_empty() {
-                "dev-user".into()
+                DEV_USER.into()
             } else {
                 user
             },
@@ -146,9 +149,11 @@ impl Authentication {
             .map(str::trim)
             .or_else(|| cookie(headers, "app_access").map(str::trim))
             .context("authentication required")?;
-        if private
-            && self.dev_tenant.is_some()
+        // Explicit development identities stay private; the default one also
+        // signs in a developing app's browser.
+        if let Some(tenant) = &self.dev_tenant
             && let Ok(claims) = verify(token, self.dev_secret.as_bytes())
+            && (private || claims.user == DEV_USER && &claims.tenant == tenant)
         {
             return Ok(claims);
         }
@@ -260,7 +265,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn development_token_is_only_consumed_privately() {
+    fn explicit_development_identities_are_only_consumed_privately() {
         let auth = Authentication {
             secret: b"prod key".to_vec(),
             dev_secret: "dev key".into(),
@@ -279,6 +284,22 @@ mod tests {
             ("owner", "example")
         );
         assert!(auth.credentials(&headers, false).is_err());
+
+        // Without a configured email the default identity is synthetic.
+        let auth = Authentication {
+            dev_email: String::new(),
+            ..auth
+        };
+        let DevBootstrap::Token(token) = auth.bootstrap(&json!({})).unwrap() else {
+            panic!("the default identity should get a synthetic token");
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let claims = auth.credentials(&headers, false).unwrap();
+        assert_eq!(
+            (claims.user.as_str(), claims.tenant.as_str()),
+            (DEV_USER, "example")
+        );
     }
 
     #[test]

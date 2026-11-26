@@ -2,20 +2,16 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/internal/appsdk"
-	"scenery.sh/internal/authschema"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/runtimeapi"
 )
 
 //go:embed db/gen/schema.sql
@@ -27,157 +23,29 @@ func StandardSchemaSQL() (string, error) {
 	return string(data), err
 }
 
-type StandardConfig struct {
-	Enabled               bool
-	GoogleOAuth           GoogleOAuthConfig
-	Connections           []ConnectionProvider
-	DevBootstrap          DevBootstrapConfig
-	AutoBootstrapDatabase bool
-}
-
-type GoogleOAuthConfig struct {
-	Enabled bool
-}
-
-type DevBootstrapConfig struct {
-	Enabled          bool
-	DefaultUserEmail string
-	DefaultTenantID  string
-	TokenTTL         time.Duration
-}
-
 const standardAuthInitializationTimeout = 30 * time.Second
 
 var standardAuthState struct {
-	mu   sync.Mutex
-	cfg  StandardConfig
-	svc  *Service
-	once sync.Once
-	err  error
+	mu      sync.Mutex
+	enabled bool
+	svc     *Service
+	once    sync.Once
+	err     error
 }
 
-func currentStandardConfig() StandardConfig {
+// UseStandard lets a worker read the records of the host's standard
+// authentication: CurrentUser, CurrentMembership and MembershipOf. The host
+// owns the authentication endpoints, sessions and schema.
+func UseStandard() {
+	standardAuthState.mu.Lock()
+	standardAuthState.enabled = true
+	standardAuthState.mu.Unlock()
+}
+
+func standardAuthEnabled() bool {
 	standardAuthState.mu.Lock()
 	defer standardAuthState.mu.Unlock()
-	return standardAuthState.cfg
-}
-
-func RegisterStandard(config StandardConfig) error {
-	if !config.Enabled {
-		return nil
-	}
-	host := appsdk.CurrentHost()
-	if host == nil {
-		return fmt.Errorf("register standard auth: %w", appsdk.ErrNoHost)
-	}
-	config = normalizeStandardConfig(config)
-	if err := applyStandardSecrets(); err != nil {
-		return err
-	}
-
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = config
-	standardAuthState.mu.Unlock()
-	appsdk.RegisterConfigReloadHook("auth.standard", ReloadStandardSecrets)
-
-	host.RegisterAuthHandler(appsdk.AuthHandler{
-		Service: "auth",
-		Name:    "AuthHandler",
-		Authenticate: func(ctx context.Context, token string) (appsdk.Auth, error) {
-			uid, data, err := AuthHandler(ctx, token)
-			if err != nil {
-				return appsdk.Auth{}, err
-			}
-			return appsdk.Auth{UID: string(uid), Data: data}, nil
-		},
-	})
-	registerStandardAuthEndpoints(host, config)
-	if len(config.Connections) > 0 {
-		return host.RegisterConnections(config.Connections, func(ctx context.Context) (*sql.DB, error) {
-			svc, err := standardAuthService(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return svc.db, nil
-		}, func(ctx context.Context) (string, string, error) {
-			data, ok := currentAuthDataFromContext(ctx)
-			if !ok {
-				return "", "", unauthenticated("connection operation requires standard authentication")
-			}
-			return string(data.UserID), data.SessionID, nil
-		})
-	}
-	return nil
-}
-
-func normalizeStandardConfig(config StandardConfig) StandardConfig {
-	if strings.TrimSpace(config.DevBootstrap.DefaultTenantID) == "" {
-		config.DevBootstrap.DefaultTenantID = "00000000-0000-0000-0000-000000000001"
-	}
-	if config.DevBootstrap.TokenTTL == 0 {
-		config.DevBootstrap.TokenTTL = 24 * time.Hour
-	}
-	return config
-}
-
-// Standard authentication reads its configured values from the process's
-// environment configuration snapshot (auth.* keys); tests replace these.
-var (
-	configuredAuthSecret = func(key string) ([]byte, bool, error) {
-		host := appsdk.CurrentHost()
-		if host == nil {
-			return nil, false, appsdk.ErrNoHost
-		}
-		return host.FrameworkConfigSecret(key)
-	}
-	configuredAuthString = func(key string) (string, bool, error) {
-		host := appsdk.CurrentHost()
-		if host == nil {
-			return "", false, appsdk.ErrNoHost
-		}
-		return host.FrameworkConfigString(key)
-	}
-)
-
-// ReloadStandardSecrets refreshes standard authentication secrets and runtime
-// URLs from the active configuration snapshot when standard auth is enabled.
-func ReloadStandardSecrets() error {
-	if !currentStandardConfig().Enabled {
-		return nil
-	}
-	return applyStandardSecrets()
-}
-
-// applyStandardSecrets loads auth.* configuration. The public URLs are
-// runtime-managed capabilities the supervisor supplies, not configuration.
-func applyStandardSecrets() error {
-	var next standardSecrets
-	jwt, _, err := configuredAuthSecret("auth.jwt_secret")
-	if err != nil {
-		return err
-	}
-	next.JWTSecret = strings.TrimSpace(string(jwt))
-	if next.JWTSecret == "" && isLocalRuntime() {
-		next.JWTSecret = "scenery-local-development-secret"
-	}
-	clientSecret, _, err := configuredAuthSecret("auth.google_client_secret")
-	if err != nil {
-		return err
-	}
-	next.GoogleOAuthClientSecret = strings.TrimSpace(string(clientSecret))
-	for key, target := range map[string]*string{"auth.google_client_id": &next.GoogleOAuthClientID, "auth.cookie_domain": &next.AuthCookieDomain} {
-		value, _, err := configuredAuthString(key)
-		if err != nil {
-			return err
-		}
-		*target = strings.TrimSpace(value)
-	}
-	next.PublicAppURL = strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_APP_URL"))
-	next.APIBaseURL = strings.TrimSpace(envpolicy.Get("SCENERY_API_BASE_URL"))
-	secretsMu.Lock()
-	secrets = next
-	secretsMu.Unlock()
-	return nil
+	return standardAuthState.enabled
 }
 
 func standardAuthService(ctx context.Context) (*Service, error) {
@@ -189,7 +57,6 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 		ctx, cancel := standardAuthInitializationContext(ctx)
 		defer cancel()
 
-		cfg := standardAuthState.cfg
 		databaseURL := strings.TrimSpace(envpolicy.Get("DATABASE_URL"))
 		if strings.TrimSpace(databaseURL) == "" {
 			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (DATABASE_URL)")
@@ -205,13 +72,6 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 			standardAuthState.err = fmt.Errorf("connect standard auth database: %w", err)
 			return
 		}
-		if cfg.AutoBootstrapDatabase {
-			if err := bootstrapStandardAuthSchema(ctx, pool); err != nil {
-				_ = pool.Close()
-				standardAuthState.err = clarifyStandardAuthTenantError(err)
-				return
-			}
-		}
 		standardAuthState.svc = &Service{db: pool, query: authdb.New(pool), now: time.Now}
 		if host := appsdk.CurrentHost(); host != nil {
 			host.MarkServiceInitialized("auth", func(context.Context) {
@@ -224,228 +84,4 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 
 func standardAuthInitializationContext(requestCtx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(requestCtx), standardAuthInitializationTimeout)
-}
-
-func registerStandardAuthEndpoints(host appsdk.Host, config StandardConfig) {
-	registerStandardJSON(host, "auth", "SignupEmail", runtimeapi.Public, "/auth/signup/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailSignupParams) (*EmailSignupResponse, error) {
-		return svc.SignupEmail(ctx, input)
-	})
-	registerStandardJSON(host, "auth", "ConfirmEmailVerification", runtimeapi.Public, "/auth/email-verification/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationConfirmParams) (*AuthSessionResponse, error) {
-		return svc.ConfirmEmailVerification(ctx, input)
-	})
-	registerStandardJSON(host, "auth", "LoginEmail", runtimeapi.Public, "/auth/login/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailLoginParams) (*AuthSessionResponse, error) {
-		return svc.LoginEmail(ctx, input)
-	})
-	registerStandardCookie(host, "auth", "Refresh", runtimeapi.Public, "/auth/refresh", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*AuthSessionResponse, error) {
-		return svc.Refresh(ctx, input)
-	})
-	registerStandardCookie(host, "auth", "Logout", runtimeapi.Public, "/auth/logout", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*LogoutResponse, error) {
-		return svc.Logout(ctx, input)
-	})
-	registerStandardEmpty(host, "auth", "Me", runtimeapi.Auth, "/auth/me", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*AuthBootstrapResponse, error) {
-		return svc.Me(ctx)
-	})
-	registerStandardOrganizations(host)
-	registerStandardImpersonation(host)
-	registerStandardJSONNoService(host, "users", "DevBootstrap", runtimeapi.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthSessionResponse, error) {
-		return DevBootstrap(ctx, input)
-	})
-	if config.GoogleOAuth.Enabled {
-
-		host.RegisterEndpoint(appsdk.Endpoint{
-			Service:    "auth",
-			Name:       "GoogleStart",
-			Access:     runtimeapi.Public,
-			Path:       "/auth/google/start",
-			Methods:    []string{http.MethodGet},
-			RawHandler: GoogleStart,
-		})
-		host.RegisterEndpoint(appsdk.Endpoint{
-			Service:    "auth",
-			Name:       "GoogleCallback",
-			Access:     runtimeapi.Public,
-			Path:       "/auth/google/callback",
-			Methods:    []string{http.MethodGet},
-			RawHandler: GoogleCallback,
-		})
-	}
-}
-
-func registerStandardJSON[I, O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string, *I) (*O, error)) {
-	registerStandardContract(host, service, name, access, path, method,
-		func(request *http.Request) (any, error) {
-			var input I
-			err := host.DecodeJSON(request, &input)
-			return &input, err
-		},
-		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
-			return invoke(ctx, svc, path, input.(*I))
-		},
-	)
-}
-
-func registerStandardCookie[O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string, *RefreshParams) (*O, error)) {
-	registerStandardContract(host, service, name, access, path, method,
-		func(request *http.Request) (any, error) {
-			return &RefreshParams{RefreshToken: resolveRefreshToken(nil, request.Header)}, nil
-		},
-		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
-			return invoke(ctx, svc, path, input.(*RefreshParams))
-		},
-	)
-}
-
-func resolveRefreshToken(params *RefreshParams, headers http.Header) string {
-	if params != nil && strings.TrimSpace(params.RefreshToken) != "" {
-		return strings.TrimSpace(params.RefreshToken)
-	}
-	request := http.Request{Header: headers}
-	if cookie, err := request.Cookie(refreshCookieName()); err == nil {
-		return strings.TrimSpace(cookie.Value)
-	}
-	return ""
-}
-
-func registerStandardEmpty[O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
-	registerStandardContract(host, service, name, access, path, method, func(*http.Request) (any, error) { return nil, nil }, func(ctx context.Context, svc *Service, path []string, _ any) (any, error) {
-		return invoke(ctx, svc, path)
-	})
-}
-
-func registerStandardJSONNoService[I, O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, []string, *I) (*O, error)) {
-	registerStandardContractWithInvoke(host, service, name, access, path, method,
-		func(request *http.Request) (any, error) {
-			var input I
-			err := host.DecodeJSON(request, &input)
-			return &input, err
-		},
-		func(ctx context.Context, path []string, input any) (any, error) { return invoke(ctx, path, input.(*I)) },
-	)
-}
-
-func registerStandardContract(host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, *Service, []string, any) (any, error)) {
-	registerStandardContractWithInvoke(host, service, name, access, path, method, decode, func(ctx context.Context, path []string, input any) (any, error) {
-		svc, err := standardAuthService(ctx)
-		if err != nil {
-			return nil, clarifyStandardAuthTenantError(err)
-		}
-		out, err := invoke(ctx, svc, path, input)
-		return out, clarifyStandardAuthTenantError(err)
-	})
-}
-
-func registerStandardContractWithInvoke(host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, []string, any) (any, error)) {
-	pathNames := standardPathNames(path)
-	host.RegisterEndpoint(appsdk.Endpoint{
-		Service: service, Name: name, Access: access, Path: path, Methods: []string{method},
-		Decode: func(request *http.Request, values map[string]string) (any, []any, error) {
-			input, err := decode(request)
-			path := make([]any, len(pathNames))
-			for i, name := range pathNames {
-				path[i] = values[name]
-			}
-			return input, path, err
-		},
-		Invoke: func(ctx context.Context, path []any, input any) (any, error) {
-			values := make([]string, len(path))
-			for i := range path {
-				values[i], _ = path[i].(string)
-			}
-			return invoke(ctx, values, input)
-		},
-		Encode: func(_ *http.Request, outcome any) (appsdk.Response, error) {
-			return encodeStandardContractOutcome(host, outcome)
-		},
-	})
-}
-
-func encodeStandardContractOutcome(host appsdk.Host, outcome any) (appsdk.Response, error) {
-	response, err := host.EncodeJSON(http.StatusOK, outcome)
-	if err != nil {
-		return response, err
-	}
-	if response.Headers == nil {
-		response.Headers = http.Header{}
-	}
-	switch value := outcome.(type) {
-	case *AuthSessionResponse:
-		if value.SetCookie != "" {
-			response.Headers.Add("Set-Cookie", value.SetCookie)
-		}
-	case *LogoutResponse:
-		if value.SetCookie != "" {
-			response.Headers.Add("Set-Cookie", value.SetCookie)
-		}
-	}
-	return response, nil
-}
-
-func standardPathNames(path string) []string {
-	var names []string
-	for part := range strings.SplitSeq(path, "/") {
-		if name := strings.TrimPrefix(part, ":"); name != part && name != "" {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
-	data, err := StandardSchemaSQL()
-	if err != nil {
-		return fmt.Errorf("read standard auth schema: %w", err)
-	}
-	tx, err := pool.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin standard auth schema bootstrap: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('scenery.standard.auth', 0))`); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("lock standard auth schema bootstrap: %w", err)
-	}
-	if err := authschema.CheckConnectionBootstrap(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	for _, statement := range splitSQLStatements(data) {
-		if strings.TrimSpace(statement) == "" || strings.HasPrefix(strings.TrimSpace(statement), "--") {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			_ = tx.Rollback()
-			return clarifyStandardAuthTenantError(fmt.Errorf("bootstrap standard auth schema: %w", err))
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit standard auth schema bootstrap: %w", err)
-	}
-	return nil
-}
-
-func clarifyStandardAuthTenantError(err error) error {
-	if err == nil {
-		return nil
-	}
-	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "scenery_auth_tenants") || strings.Contains(message, "scenery_auth_tenant") {
-		return fmt.Errorf("%w (standard auth owns framework tenant state in Postgres table scenery.scenery_auth_tenants; this is standard auth state, not an app-local tenants service)", err)
-	}
-	return err
-}
-
-func splitSQLStatements(sql string) []string {
-	parts := strings.Split(sql, ";")
-	statements := make([]string, 0, len(parts))
-	for _, part := range parts {
-		lines := strings.Split(part, "\n")
-		kept := lines[:0]
-		for _, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "--") {
-				continue
-			}
-			kept = append(kept, line)
-		}
-		statements = append(statements, strings.TrimSpace(strings.Join(kept, "\n")))
-	}
-	return statements
 }

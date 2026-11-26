@@ -29,10 +29,9 @@ func workerProcessEnv(inherited []string, runtime string) []string {
 		"SCENERY_LISTEN_ADDR",
 		"SCENERY_PROCESS_LINK",
 		workerruntime.ConfigSnapshotFDEnv,
-		storageconfig.RuntimeConfigEnv,
-		workerruntime.AssistantRuntimeConfigEnv,
-		workerruntime.AssistantTokenKeyEnv,
-		workerruntime.AssistantTokenKeyFileEnv,
+		"SCENERY_ASSISTANT_RUNTIME_CONFIG",
+		assistantTokenKeyEnv,
+		assistantTokenKeyFileEnv,
 		"SCENERY_ASSISTANT_ID",
 		"SCENERY_ASSISTANT_CONTROL_ADDR",
 		"SCENERY_ASSISTANT_CONTROL_TOKEN",
@@ -40,7 +39,9 @@ func workerProcessEnv(inherited []string, runtime string) []string {
 		"SCENERY_MCP_URL",
 	)
 	if runtime != "go" {
-		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, "SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN")
+		// Go services keep ambient scenery.sh/storage access to the app's
+		// configured stores; other workers use declared Host capabilities.
+		env = envWithoutKeys(env, storageconfig.RuntimeConfigEnv, appDatabaseURLEnv, postgresdb.RegistryEnv, "SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN")
 	}
 	return env
 }

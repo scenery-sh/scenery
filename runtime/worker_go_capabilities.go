@@ -138,22 +138,6 @@ func WorkerStorage(name string) storage.Store {
 	return storage.NewWorkerStore(name, workerCapabilitiesKey{})
 }
 
-// WorkerConfigSnapshot reads this worker's scoped deployment configuration.
-// The private startup snapshot also supports constructors before invocations.
-func WorkerConfigSnapshot(ctx context.Context) (*ConfigSnapshot, error) {
-	data, err := callWorkerCapability(ctx, http.MethodGet, "config/snapshot", nil)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeConfigSnapshot(data)
-}
-
-// ReportWorkerTelemetry submits one batch correlated by the Host's scope.
-func ReportWorkerTelemetry(ctx context.Context, records []WorkerTelemetryRecord) error {
-	_, err := callWorkerCapability(ctx, http.MethodPost, "telemetry", records)
-	return err
-}
-
 func workerConnectionToken(ctx context.Context, provider string, scopes []string) (string, error) {
 	data, err := callWorkerCapability(ctx, http.MethodPost, "connections/token", struct {
 		Provider string   `json:"provider"`

@@ -10,7 +10,7 @@ import (
 	"scenery.sh/errs"
 )
 
-func TestPrepareImpersonationTargetAndStartUnverifiedSession(t *testing.T) {
+func TestPrepareImpersonationTargetResolvesUnverifiedTarget(t *testing.T) {
 	user := authdb.SceneryAuthUser{ID: mustParseAuthUUID(t, authSQLUserID), PrimaryEmail: "Target@Example.test", NormalizedPrimaryEmail: "target@example.test"}
 	svc, _ := authSQLService(t,
 		authSQLStep{name: "GetUserByNormalizedEmail", err: sql.ErrNoRows},
@@ -20,7 +20,6 @@ func TestPrepareImpersonationTargetAndStartUnverifiedSession(t *testing.T) {
 			}
 		}},
 		authSQLStep{name: "GetUserByID", rows: [][]driver.Value{authSQLUserRow(user)}},
-		authSQLStep{name: "GetActiveMembership", rows: [][]driver.Value{authSQLMembershipRow()}},
 	)
 	params := PrepareImpersonationTargetParams{Email: "Target@Example.test", DisplayName: "Target"}
 	first, err := resolveImpersonationTarget(t.Context(), svc.query, params, "target@example.test")
@@ -31,10 +30,6 @@ func TestPrepareImpersonationTargetAndStartUnverifiedSession(t *testing.T) {
 	again, err := resolveImpersonationTarget(t.Context(), svc.query, params, "target@example.test")
 	if err != nil || uuidString(again.ID) != uuidString(first.ID) {
 		t.Fatalf("stable identity=%+v err=%v", again, err)
-	}
-	tenant, err := svc.ensureImpersonationTenant(t.Context(), svc.query, again, mustParseAuthUUID(t, authSQLTenantID))
-	if err != nil || uuidString(tenant) != authSQLTenantID {
-		t.Fatalf("unverified tenant=%s err=%v", uuidString(tenant), err)
 	}
 }
 

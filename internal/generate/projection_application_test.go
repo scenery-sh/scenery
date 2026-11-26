@@ -38,17 +38,12 @@ func TestPrivateGoProjectionPreservesGenerationIdentity(t *testing.T) {
 	}
 	result.ImplementationRevisions = map[string]string{"development": "sha256:" + strings.Repeat("a", 64)}
 	implementation := read()
-	composition := generatedSourceWithSuffix(implementation, "composition/composition.gen.go")
-	if !strings.Contains(composition, `RuntimeRevision: "`+result.ImplementationRevisions["development"]+`"`) {
+	descriptor := generatedSourceWithSuffix(implementation, "scenery.generated.json")
+	if !strings.Contains(descriptor, result.ImplementationRevisions["development"]) {
 		t.Fatal("private cache hid a changed implementation identity")
 	}
-	result.WorkspaceRevision = "sha256:" + strings.Repeat("b", 64)
-	workspace := read()
-	if reflect.DeepEqual(implementation, workspace) {
-		t.Fatal("private cache hid a changed assistant MCP workspace identity")
-	}
 	want, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
-	if err != nil || !reflect.DeepEqual(workspace, want) {
+	if err != nil || !reflect.DeepEqual(implementation, want) {
 		t.Fatalf("cached projection differs from fresh rendering: %v", err)
 	}
 }
@@ -82,36 +77,25 @@ func TestRuntimeIntegrationPlanListsEveryRenderedServiceAdapter(t *testing.T) {
 		if service.Address != adapter.Address || service.AdapterImport != adapter.ImportPath || service.Name != strings.TrimSuffix(adapter.RelativeDir, "_adapter") || !slices.Equal(service.RequiredAddresses, adapter.Covered) {
 			t.Fatalf("service process plan %#v differs from rendered adapter %s %s %v", service, adapter.Address, adapter.ImportPath, adapter.Covered)
 		}
+		// Each worker registers a typed adapter for every operation of its
+		// service; the host owns the bindings.
 		source := string(adapter.Source)
-		if registered := strings.Count(source, "sceneryruntime.RegisterEndpointChecked("); registered != len(service.Routes) {
-			t.Fatalf("service process %s plans %d routes, adapter registers %d endpoints", service.Name, len(service.Routes), registered)
-		}
-		for _, route := range service.Routes {
-			_, registration, found := strings.Cut(source, fmt.Sprintf("Path: %q, Methods: []string{%q},", route.Path, route.Methods[0]))
-			registration, _, _ = strings.Cut(registration, "DecodeContractRequest:")
-			if !found || route.PathTail != strings.Contains(registration, "ContractPathTail:") {
-				t.Fatalf("service process %s route %#v is not registered by its adapter", service.Name, route)
+		for _, operation := range compiler.ServiceOperations(result.Manifest.Resources, findResource(result.Manifest.Resources, service.Address)) {
+			if !strings.Contains(source, fmt.Sprintf("sceneryruntime.RegisterWorkerOperation(%q,", operation.Address)) {
+				t.Fatalf("service process %s does not register operation %s", service.Name, operation.Address)
 			}
 		}
 	}
 	if plan.ContractRevision != result.Manifest.ContractRevision {
 		t.Fatalf("plan contract revision = %q", plan.ContractRevision)
 	}
-	host := string(plan.HostApplication)
-	if !strings.Contains(host, "package main") || strings.Contains(host, "RegisterMCPFederationChecked(") || !strings.Contains(host, "func registerApplication(registry scenery.Registry) error") ||
-		strings.Contains(host, "_adapter") || strings.Contains(host, "RegisterMCPTool(") {
-		t.Fatalf("host application registrations link service code or register a federation:\n%s", host)
-	}
-	var tools []string
-	for _, service := range plan.Services {
-		for _, tool := range service.MCPTools {
-			tools = append(tools, service.Name+"="+tool.AssistantAddress+"#"+tool.Name)
-			if !strings.Contains(string(adapters[slices.IndexFunc(adapters, func(adapter applicationAdapter) bool { return adapter.Address == service.Address })].Source), fmt.Sprintf("Name: %q, AssistantAddress: %q", tool.Name, tool.AssistantAddress)) {
-				t.Fatalf("service process %s plans MCP tool %#v its adapter does not register", service.Name, tool)
-			}
+}
+
+func findResource(resources []Resource, address string) Resource {
+	for _, resource := range resources {
+		if resource.Address == address {
+			return resource
 		}
 	}
-	if len(tools) == 0 {
-		t.Fatal("native fixture plan lists no MCP tools")
-	}
+	return Resource{}
 }

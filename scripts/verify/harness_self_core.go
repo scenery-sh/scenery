@@ -88,7 +88,7 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 	}
 	sdkPackages := strings.Fields(string(sdkDeps))
 	for _, dependency := range sdkPackages {
-		if dependency == "scenery.sh/runtime" || strings.HasPrefix(dependency, "scenery.sh/internal/connectionvault") || strings.HasPrefix(dependency, "scenery.sh/internal/authprovider/") || dependency == "scenery.sh/internal/connectionruntime" {
+		if dependency == "scenery.sh/runtime" {
 			return summary, fmt.Errorf("public SDK dependency closure retains connection implementation %s", dependency)
 		}
 	}

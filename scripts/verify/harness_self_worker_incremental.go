@@ -380,9 +380,14 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if err := harnessReplaceInFile(filepath.Join(app, "echo", "package.scn"), `path          = "/echo"`, `path          = "/renamed"`); err != nil {
 		return nil, err
 	}
-	if err := wait(10*time.Second, func() bool {
-		log, err := os.ReadFile(output.Name())
-		return err == nil && bytes.Contains(log, []byte("application contract changed; restart the application"))
+	// A contract change cannot be applied in place: the supervisor restarts the
+	// host, which then serves the renamed route from new workers.
+	previousHost := before["/echo"].Host
+	routes["/renamed"] = routes["/echo"]
+	delete(routes, "/echo")
+	if err := wait(60*time.Second, func() bool {
+		reply, err := call("/renamed", routes["/renamed"])
+		return err == nil && reply.Host != previousHost
 	}); err != nil {
 		return nil, err
 	}
@@ -390,13 +395,8 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	for route, worker := range before {
-		if current := after[route]; worker.PID != current.PID || worker.Generation != current.Generation || worker.Digest != current.Digest {
-			return nil, fmt.Errorf("contract change altered live worker %s", route)
-		}
-	}
-	summary["contract_change_requires_restart"] = true
-	crashed, err := strconv.Atoi(after["/echo"].PID)
+	summary["contract_change_restarts_host"] = true
+	crashed, err := strconv.Atoi(after["/renamed"].PID)
 	if err != nil || !workerPIDs[crashed] {
 		return nil, fmt.Errorf("invalid live worker PID for crash proof")
 	}
@@ -404,8 +404,8 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		return nil, err
 	}
 	if err := wait(10*time.Second, func() bool {
-		reply, err := call("/echo", routes["/echo"])
-		return err == nil && reply.PID != after["/echo"].PID && reply.Generation != after["/echo"].Generation
+		reply, err := call("/renamed", routes["/renamed"])
+		return err == nil && reply.PID != after["/renamed"].PID && reply.Generation != after["/renamed"].Generation
 	}); err != nil {
 		return nil, err
 	}
@@ -415,7 +415,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	}
 	for route, worker := range after {
 		current := recovered[route]
-		if worker.Host != current.Host || (worker.PID != current.PID) != (route == "/echo") ||
+		if worker.Host != current.Host || (worker.PID != current.PID) != (route == "/renamed") ||
 			worker.Binary != current.Binary || worker.Digest != current.Digest {
 			return nil, fmt.Errorf("crash recovery unexpectedly changed worker %s", route)
 		}
@@ -428,7 +428,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 			return nil, fmt.Errorf("worker process group %d survived shutdown: %v", pid, err)
 		}
 	}
-	summary["crash_recovery"] = map[string]any{"before": after["/echo"], "after": recovered["/echo"]}
+	summary["crash_recovery"] = map[string]any{"before": after["/renamed"], "after": recovered["/renamed"]}
 	summary["worker_groups_checked_after_shutdown"] = len(workerPIDs)
 	return summary, nil
 }

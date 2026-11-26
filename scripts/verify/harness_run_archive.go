@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"scenery.sh/internal/repoinfo"
 	"strings"
+
+	"scenery.sh/internal/repoinfo"
 )
 
 // Inventory includes tracked deletions and non-ignored untracked files. Hash

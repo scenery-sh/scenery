@@ -4,8 +4,9 @@ import (
 	fs "io/fs"
 	os "os"
 	filepath "path/filepath"
-	watchignore "scenery.sh/internal/watchignore"
 	strings "strings"
+
+	watchignore "scenery.sh/internal/watchignore"
 )
 
 func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]struct{}, ignore *watchignore.Matcher) error {

@@ -19,7 +19,7 @@ func CurrentUser(ctx context.Context) (UserProfile, error) {
 	if err != nil {
 		return UserProfile{}, unauthenticated("invalid user id")
 	}
-	if !currentStandardConfig().Enabled {
+	if !standardAuthEnabled() {
 		return UserProfile{}, failedPrecondition("standard auth is not configured")
 	}
 	svc, err := standardAuthService(ctx)

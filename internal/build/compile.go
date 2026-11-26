@@ -2,21 +2,12 @@ package build
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"maps"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"scenery.sh/internal/gotarget"
 )
-
-func Compile(result *Result) error {
-	return CompileContext(context.Background(), result)
-}
 
 func tidyWorkspace(ctx context.Context, result *Result) error {
 	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, "mod", "tidy"); err != nil {
@@ -41,7 +32,6 @@ func refreshWorkspaceBuildIdentity(result *Result) error {
 	if result.BuildFingerprint != fingerprint && result.BuildInput != nil {
 		result.BuildInput = nil
 		result.ImplementationRevisions = nil
-		result.RuntimeLinkerMetadata = nil
 	}
 	result.BuildFingerprint = fingerprint
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, fingerprint))
@@ -80,174 +70,7 @@ func savePrimedWorkspace(result *Result) error {
 	return nil
 }
 
-func CompileContext(ctx context.Context, result *Result) error {
-	if result == nil {
-		return fmt.Errorf("nil build result")
-	}
-	if result.Contract == nil {
-		return fmt.Errorf("refusing build without a prepared contract")
-	}
-	if result.Target == nil {
-		return fmt.Errorf("refusing build without a prepared target")
-	}
-	unlock, err := lockWorkspace(result.Dir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	previousBinary := ""
-	previousState, err := loadBuildState(result.Dir)
-	if err != nil {
-		return err
-	}
-	if previousState.BuildFingerprint != "" {
-		previousBinary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, previousState.BuildFingerprint))
-	}
-	verifyWorkspace := result.verification != nil
-	if verifyWorkspace {
-		if err := verifyPreparedWorkspace(result); err != nil {
-			return err
-		}
-	}
-	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return err
-	}
-	if result.ProductionAssets {
-		generatedBefore := len(result.GeneratedFiles)
-		if err := prepareAssistantRuntimeAssets(ctx, result); err != nil {
-			return err
-		}
-		if len(result.GeneratedFiles) != generatedBefore || len(result.AssistantAssets) > 0 {
-			if err := refreshWorkspaceBuildIdentity(result); err != nil {
-				return err
-			}
-		}
-	}
-	if result.Target != nil && result.NeedsTidy {
-		if err := tidyWorkspace(ctx, result); err != nil {
-			return err
-		}
-	}
-	err = compileWithPreparedVerification(ctx, result, func(ctx context.Context) error {
-		return compilePrivateWorkspace(ctx, result)
-	})
-	if err != nil && (result.NeedsTidy || goBuildNeedsWorkspaceTidy(err)) {
-		// The failed operation has joined its checker. Tidy may now mutate
-		// module files, then the complete verification/build pair runs anew.
-		if tidyErr := tidyWorkspace(ctx, result); tidyErr != nil {
-			return tidyErr
-		}
-		err = compileWithPreparedVerification(ctx, result, func(ctx context.Context) error {
-			return compilePrivateWorkspace(ctx, result)
-		})
-	}
-	if err != nil {
-		if removeErr := os.Remove(result.Binary); removeErr != nil && !os.IsNotExist(removeErr) {
-			return errors.Join(err, fmt.Errorf("remove failed private build: %w", removeErr))
-		}
-		return err
-	}
-	if verifyWorkspace {
-		if err := verifyPreparedWorkspace(result); err != nil {
-			return err
-		}
-	}
-	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return err
-	}
-	if result.FrameworkSourceRoot != "" {
-		source, err := FrameworkSourceManifest(result.FrameworkSourceRoot)
-		if err != nil || source.Digest != result.FrameworkSourceDigest {
-			return fmt.Errorf("framework source changed during application compilation; candidate was not published: %v", err)
-		}
-	}
-	if result.NeedsTidy {
-		fingerprint, fingerprintErr := dependencyFingerprintFromWorkspace(result.Dir)
-		if fingerprintErr != nil {
-			return fingerprintErr
-		}
-		result.DependencyFingerprint = fingerprint
-		result.NeedsTidy = false
-	}
-	// Success publication is downstream of the full verification/build join.
-	if err := writeRuntimeBundle(result); err != nil {
-		return err
-	}
-	if err := savePrimedWorkspace(result); err != nil {
-		return err
-	}
-	if err := pruneStaleWorkspaceBinaries(result.Dir, result.Binary, previousBinary); err != nil {
-		return err
-	}
-	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
-		return err
-	}
-	result.verification = nil
-	return nil
-}
-
-func compilePrivateWorkspace(ctx context.Context, result *Result) error {
-	if len(result.RuntimeLinkerMetadata) == 0 {
-		if err := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); err != nil {
-			return err
-		}
-	}
-	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
-		return err
-	}
-	return runSharedGoBuildContext(ctx, result)
-}
-
-func runGoBuildContext(ctx context.Context, result *Result) error {
-	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
-	}
-	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, effectiveGoBuildFlags(result))...); err != nil {
-		return err
-	}
-	return recordBuildArtifact(ctx, result.Binary, "miss")
-}
-
-func recordBuildArtifact(ctx context.Context, path, cache string) error {
-	started := time.Now()
-	info, err := os.Stat(path)
-	RecordStep(ctx, Step{
-		Name: "build.artifact", StartedAt: started, Duration: time.Since(started), Cache: cache,
-		Reason: "linked_application_executable", OK: err == nil,
-		ExecutableBytes: func() int64 {
-			if info != nil {
-				return info.Size()
-			}
-			return 0
-		}(),
-	})
-	if err != nil {
-		return fmt.Errorf("stat compiled application %s: %w", path, err)
-	}
-	return nil
-}
-
-func goBuildNeedsWorkspaceTidy(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := err.Error()
-	return strings.Contains(text, "missing go.sum entry") ||
-		strings.Contains(text, "updates to go.mod needed") ||
-		strings.Contains(text, "go.mod updates are needed")
-}
-
 var runGo = runRealGo
-
-func SetGoRunnerForTesting(runner func(context.Context, string, ...string) error) func() {
-	old := runGo
-	runGo = func(ctx context.Context, dir string, _ []string, args ...string) error {
-		return runner(ctx, dir, args...)
-	}
-	return func() {
-		runGo = old
-	}
-}
 
 func runRealGo(ctx context.Context, dir string, environment []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "go", args...)
@@ -291,11 +114,12 @@ func normalizeGoBuildFlags(flags []string) []string {
 	return normalized
 }
 
-func goBuildArgs(binary string, flags []string) []string {
-	flags = gotarget.WithTrimpath(normalizeGoBuildFlags(flags))
-	args := make([]string, 0, 6+len(flags))
-	args = append(args, "build")
-	args = append(args, flags...)
-	args = append(args, "-buildvcs=false", "-o", binary, "./scenery_internal_main")
-	return args
+func SetGoRunnerForTesting(runner func(context.Context, string, ...string) error) func() {
+	old := runGo
+	runGo = func(ctx context.Context, dir string, _ []string, args ...string) error {
+		return runner(ctx, dir, args...)
+	}
+	return func() {
+		runGo = old
+	}
 }

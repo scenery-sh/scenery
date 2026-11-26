@@ -141,7 +141,7 @@ func TestWatchRebuildsOnRegeneratedOwnedSQLCOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshotsEqual(before, unchanged) || !buildInputSnapshotsEqual(before, unchanged) {
+	if !snapshotsEqual(before, unchanged) {
 		t.Fatal("unchanged owned SQLC output requested a build")
 	}
 	write("db/gen/query.sql.go", "package gen\nconst regenerated = true\n")
@@ -149,7 +149,7 @@ func TestWatchRebuildsOnRegeneratedOwnedSQLCOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshotsEqual(before, after) || buildInputSnapshotsEqual(before, after) || !slices.Contains(changedPaths(before, after), "db/gen/query.sql.go") {
+	if snapshotsEqual(before, after) || !slices.Contains(changedPaths(before, after), "db/gen/query.sql.go") {
 		t.Fatal("regenerated owned SQLC output did not request a build")
 	}
 }

@@ -37,8 +37,6 @@ var killProcessTree = devprocess.KillTree
 
 const managedFrontendStartupTimeout = devprocess.DefaultStartupTimeout
 
-type safeLineTail = devprocess.LineTail
-
 var startDevManagedProcess = devprocess.Start
 
 const stopTimeout = devprocess.DefaultStopTimeout

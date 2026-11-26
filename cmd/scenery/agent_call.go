@@ -9,23 +9,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"scenery.sh/internal/victoria"
-
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/graph"
-	obs "scenery.sh/internal/observability"
 )
 
 type agentCallOptions struct {
@@ -112,14 +105,6 @@ func runAgentCall(ctx context.Context, out io.Writer, args []string) error {
 		return err
 	}
 	res.Binding = binding.Address
-	if route.Method == "" && connection.controlToken == "" {
-		linked, err := connection.internal(ctx, root)
-		if err != nil {
-			return err
-		}
-		connection = linked
-		defer connection.client.CloseIdleConnections()
-	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	bearer, err := connection.mint(ctx, opts)
@@ -142,9 +127,9 @@ func runAgentCall(ctx context.Context, out io.Writer, args []string) error {
 	res.DurationMS = time.Since(started).Milliseconds()
 	res.HTTPStatus, res.OK, res.Headers = response.StatusCode, response.StatusCode >= 200 && response.StatusCode < 300, response.Header
 	res.TraceID = response.Header.Get("X-Trace-Id")
-	res.Generation = uint64Header(response.Header, "X-App-Generation", "X-Scenery-Process-Generation")
-	res.HostPID = int(uint64Header(response.Header, "X-App-Host-Pid", "X-Scenery-Process-Id"))
-	res.WorkerPID = int(uint64Header(response.Header, "X-App-Worker-Pid", "X-Scenery-Service-Process-Id"))
+	res.Generation = uint64Header(response.Header, "X-App-Generation")
+	res.HostPID = int(uint64Header(response.Header, "X-App-Host-Pid"))
+	res.WorkerPID = int(uint64Header(response.Header, "X-App-Worker-Pid"))
 	if len(body) > 0 {
 		switch {
 		case json.Valid(body) && route.Method == "" && res.OK:
@@ -375,44 +360,20 @@ func parseAgentRoutePattern(path string) (kinds []int, literals int, hasWildcard
 type agentCallConnection struct {
 	client       *http.Client
 	worker       workerDevEndpoint
-	session      localagent.Session
 	controlToken string
 }
 
-func resolveAgentCallConnection(ctx context.Context, root string) (agentCallConnection, error) {
+func resolveAgentCallConnection(_ context.Context, root string) (agentCallConnection, error) {
 	worker, found, err := readWorkerDevEndpoint(root)
 	if err != nil {
 		return agentCallConnection{}, err
 	}
-	if found {
-		client := workerControlClient(worker.Control)
-		client.CheckRedirect = refuseCallRedirect
-		return agentCallConnection{client: client, worker: worker, controlToken: worker.Token}, nil
-	}
-	control, err := commandWorktreeClient(ctx, root)
-	if err != nil {
-		return agentCallConnection{}, err
-	}
-	defer control.CloseIdleConnections()
-	sessions, err := control.List(ctx, root)
-	if err != nil {
-		return agentCallConnection{}, err
-	}
-	if len(sessions) != 1 || sessions[0].AppRoot != root || !sessionOwnerLive(sessions[0]) {
+	if !found {
 		return agentCallConnection{}, fmt.Errorf("failed_precondition: scenery call requires a running development session for %s", root)
 	}
-	session := sessions[0]
-	backend := session.Backends[localagent.RouteAPI]
-	if (backend.Network != "unix" && backend.Network != "tcp") || backend.Addr == "" {
-		return agentCallConnection{}, fmt.Errorf("failed_precondition: local API backend is unavailable")
-	}
-	return agentCallConnection{client: localCallClient(backend.Network, backend.Addr), session: session}, nil
-}
-
-func localCallClient(network, address string) *http.Client {
-	return &http.Client{CheckRedirect: refuseCallRedirect, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, address)
-	}}}
+	client := workerControlClient(worker.Control)
+	client.CheckRedirect = refuseCallRedirect
+	return agentCallConnection{client: client, worker: worker, controlToken: worker.Token}, nil
 }
 
 // The default fast path checks the foreground worker's current source
@@ -431,34 +392,6 @@ func (c agentCallConnection) waitForSource(ctx context.Context, root string, wai
 }
 
 func refuseCallRedirect(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-
-func (c agentCallConnection) internal(ctx context.Context, root string) (agentCallConnection, error) {
-	status, err := readWorktreeRuntimeStatus(ctx, root, c.session)
-	if err != nil {
-		return c, err
-	}
-	path := status.ProcessLinkPath
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || filepath.Base(path) != devProcessLinkFile {
-		return c, fmt.Errorf("failed_precondition: the development process link is unavailable")
-	}
-	var link struct {
-		Token    string
-		Dispatch struct{ Network, Address string }
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return c, err
-	}
-	if err := json.Unmarshal(data, &link); err != nil {
-		return c, err
-	}
-	if link.Token == "" || link.Dispatch.Network != "unix" || filepath.Dir(link.Dispatch.Address) != filepath.Dir(path) {
-		return c, fmt.Errorf("failed_precondition: invalid local development process link")
-	}
-	c.client, c.controlToken = localCallClient("unix", link.Dispatch.Address), link.Token
-	return c, nil
-}
 
 func (c agentCallConnection) mint(ctx context.Context, opts agentCallOptions) (string, error) {
 	if opts.principal == "" && opts.tenant == "" {
@@ -522,13 +455,9 @@ func (c agentCallConnection) invoke(ctx context.Context, method, path string, bi
 	return c.client.Do(req)
 }
 
-func uint64Header(headers http.Header, names ...string) uint64 {
-	for _, name := range names {
-		if value, err := strconv.ParseUint(headers.Get(name), 10, 64); err == nil {
-			return value
-		}
-	}
-	return 0
+func uint64Header(headers http.Header, name string) uint64 {
+	value, _ := strconv.ParseUint(headers.Get(name), 10, 64)
+	return value
 }
 
 func (c agentCallConnection) collect(ctx context.Context, root string, result *agentCallResult, reportToken string, started time.Time, spanType string) {
@@ -538,57 +467,27 @@ func (c agentCallConnection) collect(ctx context.Context, root string, result *a
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	var scope obs.QueryScope
-	var stack *victoria.Stack
-	if c.worker.Socket == "" {
-		stack = resolveLogsVictoriaStack(ctx, root)
-	}
-	if stack != nil {
-		scope = obs.QueryScope{AppID: c.session.BaseAppID, SessionID: c.session.SessionID, AppRoot: root, Enforced: true}
-	}
 	for {
-		if c.worker.Socket != "" {
-			if telemetry, err := readWorkerTelemetry(ctx, c.client, c.worker, result.TraceID); err == nil {
-				result.callTelemetry = emptyCallTelemetry()
-				result.Spans = telemetry.Spans
-				for _, log := range telemetry.Logs {
-					result.Logs = append(result.Logs, log.LogEvent)
-				}
-			}
-		} else if stack != nil {
-			detail, err := stack.GetTraceDetail(ctx, devdash.TraceQuery{AppID: scope.AppID, SessionID: scope.SessionID, TraceID: result.TraceID})
-			if err == nil && detail != nil {
-				result.Spans = detail.Spans
+		if telemetry, err := readWorkerTelemetry(ctx, c.client, c.worker, result.TraceID); err == nil {
+			result.callTelemetry = emptyCallTelemetry()
+			result.Spans = telemetry.Spans
+			for _, log := range telemetry.Logs {
+				result.Logs = append(result.Logs, log.LogEvent)
 			}
 		}
 		if reportToken != "" && result.FailureReport == nil {
-			if report, err := readFailureReport(reportToken); err == nil && report.Origin == "runtime" && firstNonEmpty(c.worker.SessionID, c.session.SessionID) == report.SessionID {
+			if report, err := readFailureReport(reportToken); err == nil && report.Origin == "runtime" && c.worker.SessionID == report.SessionID {
 				result.FailureReport = &report
 			}
 		}
 		requestComplete := slices.ContainsFunc(result.Spans, func(span devdash.TraceSpanDetail) bool { return span.Type == spanType && span.IsRoot })
-		if (requestComplete || (c.worker.Socket == "" && stack == nil)) && (reportToken == "" || result.FailureReport != nil) {
+		if requestComplete && (reportToken == "" || result.FailureReport != nil) {
 			break
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	if stack != nil {
-		logs, err := obs.QueryLogs(ctx, obs.LogsQuery{
-			BaseURL: stack.BaseURL("logs"), Scope: scope, Query: "trace_id:=" + strconv.Quote(result.TraceID),
-			Bounds: obs.TimeBounds{Start: started.Add(-time.Second), End: time.Now()}, Limit: 200,
-		})
-		if err == nil {
-			for _, log := range logs.Logs {
-				if log.TraceID == result.TraceID {
-					at, _ := time.Parse(time.RFC3339Nano, log.Time)
-					result.Logs = append(result.Logs, devreport.LogEvent{AppID: scope.AppID, SessionID: scope.SessionID,
-						TraceID: log.TraceID, SpanID: log.SpanID, Timestamp: at, Level: log.Level, Message: log.Message, Attrs: log.Fields})
-				}
-			}
 		}
 	}
 }

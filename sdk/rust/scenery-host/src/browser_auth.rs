@@ -176,13 +176,21 @@ async fn dispatch(
     }
 }
 
-pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>) -> Reply {
+pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>, private: bool) -> Reply {
     let result = async {
         let (parts, body) = request.into_parts();
         let input = transport::read(body, 8 << 10).await;
         crate::http_timeout::request_body_finished(&parts.extensions);
         let input = input.map_err(|_| invalid("invalid request body"))?;
         let input = values::parse(&input).map_err(|_| invalid("invalid request body"))?;
+        let claimed = ["user_id", "tenant_id"].iter().any(|name| {
+            input[*name]
+                .as_str()
+                .is_some_and(|value| !value.trim().is_empty())
+        });
+        if claimed && !private {
+            return Err(denied("development identity claims are private"));
+        }
         match host
             .auth
             .bootstrap(&input)

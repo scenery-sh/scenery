@@ -30,14 +30,6 @@ func newUUID() (authdb.UUID, error) {
 	return parseUUID(uuid.NewString())
 }
 
-func nullableUUID(value string) (authdb.UUID, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return authdb.UUID{}, nil
-	}
-	return parseUUID(value)
-}
-
 func uuidString(id authdb.UUID) string {
 	if !id.Valid {
 		return ""
@@ -80,17 +72,6 @@ func defaultDisplayName(email string, explicit string) string {
 	return strings.TrimSpace(local)
 }
 
-func defaultWorkspaceName(displayName string) string {
-	name := strings.TrimSpace(displayName)
-	if name == "" {
-		name = "My"
-	}
-	if strings.EqualFold(name, "my") {
-		return "My Workspace"
-	}
-	return name + " Workspace"
-}
-
 func jsonBytes(value any) []byte {
 	if value == nil {
 		return []byte(`{}`)
@@ -100,15 +81,6 @@ func jsonBytes(value any) []byte {
 		return []byte(`{}`)
 	}
 	return out
-}
-
-func currentAuthData() (*AuthData, error) {
-	raw := Data()
-	data, ok := raw.(*AuthData)
-	if !ok || data == nil {
-		return nil, fmt.Errorf("unauthorized")
-	}
-	return data, nil
 }
 
 func requestHeaders() http.Header {
@@ -141,17 +113,4 @@ func requestIPHash() string {
 	}
 	sum := sha256.Sum256([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
-func isLocalRuntime() bool {
-	meta := scenery.Meta()
-	return meta != nil && meta.Environment.Cloud == scenery.CloudLocal
-}
-
-func safeRedirectPath(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
-		return "/"
-	}
-	return value
 }

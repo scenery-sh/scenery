@@ -24,10 +24,9 @@ content-revisioned graph (source, effective, and expanded views). Source files
 must stay inside the workspace with no symlinks. Go comments and `init()`
 register nothing.
 
-Set `worker_host = true` in `app.scn`'s `workspace` block to select the Rust
-host and worker ABI for an application with only Go services.
-An application with Rust, JavaScript, or TypeScript workers already uses the
-Rust host. Worker bundles currently support HTTP and internal bindings.
+Every application runs on the Rust application host (`scenery-host`) over
+Worker ABI v1, whatever languages its services use. Go, Rust, JavaScript, and
+TypeScript services are workers of one host bundle.
 
 ## 2. Core Kernel
 
@@ -107,7 +106,7 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   whose module build inputs changed. The artifact target embeds the JavaScript
   and Bun runtime in a per-module executable in the Host's portable bundle.
   Bundle execution requires the build platform and architecture.
-- A worker bundle links each Go service from the `go_target` its build
+- A host bundle links each Go service from the `go_target` its build
   selects: the target named by `scenery build --target`, otherwise the target
   with role `artifact`, or `development` for `scenery up` and
   `scenery build --development`.

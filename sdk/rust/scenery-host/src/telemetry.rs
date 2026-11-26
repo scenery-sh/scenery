@@ -34,6 +34,8 @@ pub(crate) struct Sink {
     logs: Filter,
     tracing: Filter,
     session: String,
+    /// root_hash names the development worktree the exported signals belong to.
+    root_hash: String,
     sender: Option<mpsc::Sender<Value>>,
     victoria: Option<mpsc::Sender<(String, Value)>>,
     report_dir: PathBuf,
@@ -64,6 +66,7 @@ impl Sink {
         reports: &ReportIdentity,
     ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
+        let root_hash = env::var("SCENERY_APP_ROOT_HASH").unwrap_or_default();
         let mut sender = None;
         if !development
             && let (Ok(endpoint), Ok(token)) = (
@@ -94,6 +97,7 @@ impl Sink {
             logs: Filter::new(&filters.logs),
             tracing: Filter::new(&filters.tracing),
             session,
+            root_hash,
             sender,
             victoria: crate::otlp::start(victoria)?,
             report_dir,
@@ -148,7 +152,13 @@ impl Sink {
 
     fn export(&self, kind: &str, value: &Value) {
         if let Some(sender) = &self.victoria {
-            let _ = sender.try_send((kind.into(), value.clone()));
+            let mut value = value.clone();
+            if !self.root_hash.is_empty()
+                && value["app_root_hash"].as_str().is_none_or(str::is_empty)
+            {
+                value["app_root_hash"] = json!(self.root_hash);
+            }
+            let _ = sender.try_send((kind.into(), value));
         }
     }
 
@@ -179,8 +189,16 @@ impl Sink {
                 _ => continue,
             };
             if record.is_object() {
+                // A worker states its application and session once per
+                // report; exported records carry them like the host's own.
+                let mut record = record.clone();
+                for key in ["app_id", "session_id"] {
+                    if record[key].as_str().is_none_or(str::is_empty) {
+                        record[key] = report[key].clone();
+                    }
+                }
                 self.retain(kind, record.clone());
-                self.export(kind, record);
+                self.export(kind, &record);
             }
         }
         Ok(())
@@ -610,6 +628,7 @@ mod tests {
             logs: Filter::new(&EndpointFilter::default()),
             tracing: Filter::new(&EndpointFilter::default()),
             session: "session".into(),
+            root_hash: "root".into(),
             sender,
             victoria: None,
             report_dir: directory.join("reports"),
@@ -714,6 +733,28 @@ mod tests {
         assert!(!entries.contains(&"rpt_0000000000000000.json".to_owned()));
         assert!(!entries.contains(&"rpt_0000000000000005.json".to_owned()));
         assert!(entries.contains(&"rpt_0000000000000006.json".to_owned()));
+        Ok(())
+    }
+
+    #[test]
+    fn worker_spans_are_exported_under_their_reported_application() -> Result<()> {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let mut sink = test_sink(std::path::Path::new(""), false, None);
+        sink.victoria = Some(sender);
+        sink.report_dir = PathBuf::new();
+        sink.working_directory = String::new();
+        sink.ingest(
+            json!({"reports":[{"type":"trace-summary","app_id":"inbox","session_id":"session",
+                "trace_summary":{"trace_id":"t","span_id":"s","type":"HTTP"}}]})
+            .to_string()
+            .as_bytes(),
+        )?;
+        let (kind, record) = receiver.try_recv()?;
+        assert_eq!(kind, "trace-summary");
+        assert_eq!(
+            (record["app_id"].as_str(), record["session_id"].as_str()),
+            (Some("inbox"), Some("session"))
+        );
         Ok(())
     }
 }

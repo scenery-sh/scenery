@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/rustbuild"
+	"scenery.sh/internal/workerplan"
 	workerruntime "scenery.sh/runtime"
 )
 
@@ -58,7 +59,7 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 	var err error
 	plan.HostConfig, err = json.Marshal(struct {
 		Host     workerHostPlan
-		Auth     *workerAuthPlan
+		Auth     *workerplan.StandardAuth
 		Keys     []string
 		Snapshot *workerruntime.ConfigSnapshot
 	}{bundle.Host, bundle.Auth, bundle.HostConfigKeys, projectWorkerConfig(bundle.config, "host", bundle.HostConfigKeys)})
@@ -82,7 +83,7 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 			return plan, err
 		}
 		plan.Programs = append(plan.Programs, launch)
-		service := slices.IndexFunc(bundle.Host.Workers, func(service workerruntime.WorkerServicePlan) bool { return service.Address == program.Service })
+		service := slices.IndexFunc(bundle.Host.Workers, func(service workerplan.WorkerServicePlan) bool { return service.Address == program.Service })
 		if service < 0 {
 			return plan, fmt.Errorf("missing worker service %s", program.Service)
 		}
@@ -148,9 +149,6 @@ func refreshWorkerRebuildPlan(args []string) error {
 		return err
 	}
 	if compiled.Valid() {
-		if !compiled.UsesWorkerBundle() {
-			return fmt.Errorf("application host changed; restart the application to load its new runtime")
-		}
 		if compiled.Manifest.ContractRevision != args[1] {
 			return fmt.Errorf("application contract changed; restart the application to load its new manifest")
 		}

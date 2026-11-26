@@ -16,6 +16,10 @@ import (
 	"scenery.sh/runtime/shared"
 )
 
+// workerShutdownGrace bounds the drain of the worker's listener and the
+// shutdown of its services.
+const workerShutdownGrace = 5 * time.Second
+
 // RegisterWorkerOperation installs a generated, typed operation adapter in
 // the worker. The Host owns its bindings and execution policy.
 func RegisterWorkerOperation(address string, invoke func(context.Context, []byte) ([]byte, shared.ByteStream, error)) error {
@@ -55,7 +59,7 @@ func MainGoWorker(cfg AppConfig, service string) (err error) {
 	}
 	defer startSupervisorParentMonitor(cancel)()
 	defer func() {
-		shutdown, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
+		shutdown, cancel := context.WithTimeout(context.Background(), workerShutdownGrace)
 		defer cancel()
 		err = errors.Join(err, ShutdownServices(shutdown))
 	}()
@@ -79,7 +83,7 @@ func MainGoWorker(cfg AppConfig, service string) (err error) {
 	case err := <-served:
 		return err
 	case <-runCtx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
+		shutdown, cancel := context.WithTimeout(context.Background(), workerShutdownGrace)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {
 			return errors.Join(err, server.Close())

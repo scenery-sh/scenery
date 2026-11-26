@@ -315,11 +315,11 @@ func (p *worktreeRuntimeProbe) churnCostCohort(cohort *worktreeCostCohort) (map[
 					_ = response.Body.Close()
 					identity = map[string]string{}
 					ready = response.StatusCode == 200 && bytes.Contains(body, []byte(marker))
-					for _, name := range []string{"X-Scenery-Process-ID", "X-Scenery-Service-Process-ID", "X-Scenery-Service-Implementation-Revision", "X-Scenery-Implementation-Revision", "X-Scenery-Build-Input-Digest", "X-Scenery-Contract-Revision"} {
+					for _, name := range []string{"X-App-Host-Pid", "X-App-Worker-Pid", "X-App-Implementation-Revision", "X-App-Build-Digest", "X-App-Contract-Revision"} {
 						identity[name] = response.Header.Get(name)
 						ready = ready && identity[name] != ""
 					}
-					ready = ready && identity["X-Scenery-Process-ID"] == runtime.Session.AppPID
+					ready = ready && identity["X-App-Host-Pid"] == runtime.Session.AppPID
 				}
 				if ready {
 					break

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"scenery.sh/errs"
 	"scenery.sh/internal/redact"
 	"scenery.sh/internal/stdlog"
 	"scenery.sh/internal/termstyle"
@@ -252,90 +251,4 @@ func redactedSlogValue(key string, value slog.Value) slog.Value {
 	default:
 		return value
 	}
-}
-
-func logTrace(ctx context.Context, msg string, args ...any) {
-	slog.Log(ctx, levelTrace, msg, args...)
-}
-
-func logRequestStart(state *requestState) {
-	if state == nil || !state.logsEnabled || state.trace == nil || !state.trace.isRoot || state.startLogged {
-		return
-	}
-	state.startLogged = true
-	args := []any{
-		"endpoint", state.request.Endpoint,
-		"service", state.request.Service,
-		"trace_id", state.trace.traceID,
-	}
-	if state.auth.UID != "" {
-		args = append(args, "uid", state.auth.UID)
-	}
-	logTrace(context.Background(), "starting request", args...)
-}
-
-func logRequestFailure(state *requestState, err error) {
-	if state == nil || !state.logsEnabled || state.trace == nil || !state.trace.isRoot || err == nil {
-		return
-	}
-	args := []any{
-		"error", contractDiagnosticError(err).Error(),
-		"code", traceErrorCode(err),
-		"endpoint", state.request.Endpoint,
-		"service", state.request.Service,
-		"trace_id", state.trace.traceID,
-	}
-	if state.auth.UID != "" {
-		args = append(args, "uid", state.auth.UID)
-	}
-	slog.Error("request failed", args...)
-}
-
-func logRequestCompleted(state *requestState, duration time.Duration, err error) {
-	if state == nil || !state.logsEnabled || state.trace == nil || !state.trace.isRoot {
-		return
-	}
-	code := traceErrorCode(err)
-	if err == nil {
-		code = string(errs.OK)
-	}
-	args := []any{
-		"code", code,
-		"duration_ms", duration.Milliseconds(),
-		"endpoint", state.request.Endpoint,
-		"service", state.request.Service,
-		"trace_id", state.trace.traceID,
-	}
-	if state.auth.UID != "" {
-		args = append(args, "uid", state.auth.UID)
-	}
-	logTrace(context.Background(), "request completed", args...)
-}
-
-func logAuthHandlerStart(state *requestState, handler *AuthHandler) {
-	if state == nil || !state.logsEnabled || state.trace == nil || handler == nil || !logsEnabledForAuthHandler(handler) {
-		return
-	}
-	logTrace(context.Background(), "running auth handler",
-		"endpoint", handler.Name,
-		"service", handler.Service,
-		"trace_id", state.trace.traceID,
-	)
-}
-
-func logAuthHandlerCompleted(state *requestState, handler *AuthHandler, info AuthInfo, err error, duration time.Duration) {
-	if state == nil || !state.logsEnabled || state.trace == nil || handler == nil || !logsEnabledForAuthHandler(handler) {
-		return
-	}
-	args := []any{
-		"endpoint", handler.Name,
-		"service", handler.Service,
-		"trace_id", state.trace.traceID,
-		"code", errs.Code(err),
-		"duration_ms", duration.Milliseconds(),
-	}
-	if info.UID != "" {
-		args = append(args, "uid", info.UID)
-	}
-	logTrace(context.Background(), "auth handler completed", args...)
 }

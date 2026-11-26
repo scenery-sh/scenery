@@ -19,7 +19,7 @@
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:31018f9d0d0e6e25e58a7ffbab06046245dba58ec9b7c189c729f2b4ab74dbb1"
+      "const": "sha256:55fe0512941b2ce1487c3c5784fb7ff59935abe0ca0055d084d258551a655071"
     },
     "app_id": {
       "type": "string",
@@ -157,10 +157,6 @@
     },
     "rebuild_timing": {
       "$ref": "scenery.dev-runtime.wait.schema.json#/$defs/rebuildTiming"
-    },
-    "process_link_path": {
-      "type": "string",
-      "description": "Private process-link descriptor location for local CLI calls."
     }
   },
   "additionalProperties": false,

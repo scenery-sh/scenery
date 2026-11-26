@@ -13,7 +13,6 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/appconfig"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/graph"
 	"scenery.sh/runtime"
@@ -235,9 +234,9 @@ func changedConfigServices(previous, next *devConfigResolution) []string {
 	return changed
 }
 
-// resolveGenerationConfig resolves the configuration a new generation of this
-// build starts with.
-func (s *devSupervisor) resolveGenerationConfig(ctx context.Context, result *build.Result, set *build.DevelopmentProcessSet) (*devConfigResolution, error) {
+// resolveGenerationConfig resolves the configuration a new host generation of
+// this application starts with.
+func (s *devSupervisor) resolveGenerationConfig(ctx context.Context, manifest *graph.Manifest) (*devConfigResolution, error) {
 	store, err := devConfigStore(s.cfg)
 	if err != nil {
 		return nil, err
@@ -246,7 +245,7 @@ func (s *devSupervisor) resolveGenerationConfig(ctx context.Context, result *bui
 	if err != nil {
 		return nil, preconditionErrorf("read %s configuration: %v", s.env.Name, err)
 	}
-	resolution, err := resolveDevConfig(ctx, result.Contract.Manifest, s.cfg, s.env, store, document, generationConsumers(set), func() (appconfig.SecretBackend, error) {
+	resolution, err := resolveDevConfig(ctx, manifest, s.cfg, s.env, store, document, []string{applicationConsumer}, func() (appconfig.SecretBackend, error) {
 		if configSecretBackendOverride != nil {
 			return configSecretBackendOverride(store)
 		}
@@ -293,22 +292,6 @@ func (s *devSupervisor) releaseConfigPin() {
 	}
 }
 
-// generationConsumers are the configuration consumers of a process set: its
-// host, then each service process.
-func generationConsumers(set *build.DevelopmentProcessSet) []string {
-	return append([]string{hostConsumer}, processServices(set.Services)...)
-}
-
-func processServices(processes []build.DevelopmentProcess) []string {
-	services := make([]string, 0, len(processes))
-	for _, process := range processes {
-		services = append(services, process.Service)
-	}
-	return services
-}
-
-// applicationConfigInput resolves the snapshot of a single-process
-// application executable, such as a worker, for an environment.
 func applicationConfigInput(ctx context.Context, root string, cfg app.Config, envName string, manifest *graph.Manifest) (*devprocess.PrivateInput, error) {
 	env, err := cfg.ResolveEnv(envName)
 	if err != nil {

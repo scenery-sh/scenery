@@ -752,28 +752,6 @@
       ]
     },
     {
-      "name": "SCENERY_DEV_ENDPOINTS",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "app.identity",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`1` enables dev/admin endpoints such as `/__scenery/config` and `/debug/pprof/*`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_DEV_OBSERVABILITY_BACKEND",
       "match": "exact",
       "scope": "runtime",

@@ -1,17 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
 
 func TestWorkerFieldDefaultsUseDeclaredWireTypes(t *testing.T) {
@@ -47,7 +45,7 @@ func TestWorkerFieldDefaultsUseDeclaredWireTypes(t *testing.T) {
 
 func TestWorkerPlanNamesDurableTasksAndKeepsHTTPAuthorization(t *testing.T) {
 	projection := workerPlanProjection{resources: map[string]graph.Resource{}}
-	service := workerruntime.WorkerServicePlan{Name: "jobs"}
+	service := workerplan.WorkerServicePlan{Name: "jobs"}
 	operation := graph.Resource{Address: "jobs/operation/run", Module: "jobs", Kind: "scenery.operation"}
 	for external, want := range map[string]string{"": "jobs/execution/run", "jobs.run.v1": "jobs.run.v1"} {
 		execution := graph.Resource{Address: "jobs/execution/run", Module: "jobs", Kind: "scenery.execution", Spec: map[string]any{"mode": "durable"}}
@@ -109,62 +107,6 @@ func TestWorkerBundleCarriesFailureReportIdentity(t *testing.T) {
 	if want := `"reports":{"schema_revision":"` + identity.SchemaRevision + `","producer_version":"`; !strings.Contains(string(encoded), want) {
 		t.Fatalf("bundle manifest %s lacks %s", encoded, want)
 	}
-}
-
-func TestWorkerRebuildPlanProjectsMigrationCheckMetadata(t *testing.T) {
-	root := t.TempDir()
-	scope := &workerInputScope{root: root}
-	dev := &workerDevelopment{
-		watch: scope,
-		cfg: app.Config{
-			Database: app.DatabaseConfig{
-				Migrations: []app.DatabaseMigrationConfig{{Service: "orders", Directory: "migrations"}},
-			},
-		},
-		compiled: &compiler.Result{
-			SQLRequirements: compiler.SQLRequirements{{Kind: compiler.SQLDataSource, Name: "orders_db", Schema: "orders"}},
-		},
-	}
-	plan, err := dev.project(workerBundle{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.HasMigrations || len(plan.SQLRequirements) != 1 || plan.SQLRequirements[0].Schema != "orders" {
-		t.Fatalf("projected migration metadata = %+v", plan)
-	}
-	if err := checkWorkerMigrationsCommand([]string{"only-one"}); err == nil {
-		t.Fatal("expected usage error for missing arguments")
-	}
-	if err := checkWorkerPendingMigrations(context.Background(), root, app.Config{}, dev.compiled.SQLRequirements, "development"); err != nil {
-		t.Fatalf("expected no-op when no migrations configured, got %v", err)
-	}
-}
-
-func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	cfg := app.Config{
-		Name: "polyglot",
-		Frontends: map[string]app.FrontendConfig{
-			"web": {Root: "web", Adapter: "vite", Mode: "static"},
-		},
-		Envs: map[string]app.EnvConfig{
-			"backend": {
-				Frontends: map[string]app.EnvFrontendConfig{
-					"web": {Serve: "disabled"},
-				},
-			},
-		},
-	}
-	frontend, pid, clean, err := configureWorkerFrontend(context.Background(), root, cfg, &compiler.Result{}, "backend")
-	if err != nil {
-		t.Fatalf("configureWorkerFrontend returned error for disabled frontend: %v", err)
-	}
-	if frontend != nil || pid != 0 {
-		t.Fatalf("configureWorkerFrontend returned (%+v, %d) for disabled frontend", frontend, pid)
-	}
-	clean()
 }
 
 func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {

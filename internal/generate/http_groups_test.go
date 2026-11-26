@@ -78,17 +78,6 @@ export "inspect" { value = operation.inspect }
 		t.Fatalf("compile: %v diagnostics=%#v", err, diagnosticsOf(result))
 	}
 	const route = "/v1/group1/nested/house/inspect"
-	goFiles, err := RenderGoWorkspaceFiles(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	serverFound := false
-	for _, source := range goFiles {
-		serverFound = serverFound || strings.Contains(string(source), `Path: "`+route+`"`)
-	}
-	if !serverFound {
-		t.Fatalf("generated Go server has no route %q", route)
-	}
 	clientFiles, err := renderTypeScriptClientFiles(result, "public_api")
 	if err != nil {
 		t.Fatal(err)

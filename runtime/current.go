@@ -27,7 +27,6 @@ type requestState struct {
 	auth          AuthInfo
 	invocation    runtimeapi.Invocation
 	trace         *traceSpan
-	startLogged   bool
 	logsEnabled   bool
 	traceEnabled  bool
 	// processGeneration pins internal calls of a request forwarded by a
@@ -85,16 +84,6 @@ func withState(ctx context.Context, state *requestState) context.Context {
 		return ctx
 	}
 	return appsdk.WithInvocation(ctx, &state.request, applicationSpanStarter{})
-}
-
-func withRuntimeInvocation(ctx context.Context, state *requestState) context.Context {
-	if current, ok := runtimeapi.InvocationFromContext(ctx); ok && current.Valid() {
-		if state != nil {
-			state.invocation = current
-		}
-		return ctx
-	}
-	return withNewRuntimeInvocation(ctx, state)
 }
 
 // A transport or background entrypoint mints its own invocation after tracing
@@ -162,43 +151,8 @@ func goroutineID() uint64 {
 	return id
 }
 
-func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, payload any, auth AuthInfo) *requestState {
-	requestType := shared.APICall
-	if ep.Raw {
-		requestType = shared.RawAPICall
-	}
-	started := time.Now()
-	request := shared.Request{
-		Type:         requestType,
-		Started:      started,
-		InvocationID: uuid.NewString(),
-		Service:      ep.Service,
-		Endpoint:     ep.Name,
-		Method:       req.Method,
-		Path:         req.URL.Path,
-		PathParams:   path,
-		Headers:      req.Header.Clone(),
-		Payload:      payload,
-		API: &shared.APIDesc{
-			Raw:          ep.Raw,
-			Exposed:      ep.Access != Private,
-			AuthRequired: ep.Access == Auth,
-		},
-	}
-	if ep.ContractPolicy != nil {
-		request.CallerBinding = ep.ContractPolicy.BindingAddress
-	}
-	if deadline, ok := req.Context().Deadline(); ok {
-		request.Deadline = deadline.UTC()
-	}
-	generation, _ := req.Context().Value(processGenerationKey{}).(uint64)
-	return &requestState{
-		workerRuntime: ep.workerRuntime, workerModule: ep.workerModule,
-		started:           started,
-		request:           request,
-		auth:              auth,
-		logsEnabled:       logsEnabledForRequest(request),
-		traceEnabled:      traceEnabledForRequest(request),
-		processGeneration: generation,
-	}
+// AuthInfo is the authenticated principal of the request a worker serves.
+type AuthInfo struct {
+	UID  string
+	Data any
 }

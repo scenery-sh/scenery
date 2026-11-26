@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -95,17 +94,6 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 		if err != nil {
 			return nil, err
 		}
-		// A worker app without managed resources may have only a live lock.
-		if cwdRoot, rootErr := resolveStatusAppRoot(""); rootErr == nil &&
-			!slices.ContainsFunc(discovered, func(item localagent.WorktreeDiscovery) bool { return item.AppRoot == cwdRoot }) {
-			if _, found, _ := readWorkerDevEndpoint(cwdRoot); found {
-				paths, err := commandWorktreePaths(cwdRoot)
-				if err != nil {
-					return nil, err
-				}
-				discovered = append(discovered, localagent.WorktreeDiscovery{Key: paths.Key, AppRoot: cwdRoot, Status: "retained"})
-			}
-		}
 	} else {
 		root, err = resolveStatusAppRoot(root)
 		if err != nil {
@@ -129,23 +117,6 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 	for _, item := range discovered {
 		entry := worktreeStatusEntry{WorktreeDiscovery: item, Sessions: []localagent.Session{}, Serving: []runtimeServingIdentity{}, OwnerStatus: "unknown", MetadataStatus: item.Status, SourceFreshness: "unknown"}
 		entry.RootStatus, entry.SourceStatus = worktreeSourceStatus(item.AppRoot)
-		if item.AppRoot != "" {
-			if endpoint, found, _ := readWorkerDevEndpoint(item.AppRoot); found {
-				var state runtimeSourceWait
-				probe, cancel := context.WithTimeout(ctx, time.Second)
-				err := readWorkerSourceStatus(probe, endpoint, 0, &state)
-				cancel()
-				if err == nil {
-					entry.Status, entry.OwnerStatus, entry.MetadataStatus = "running", "verified_running", "compatible"
-					entry.SourceFreshness, entry.RebuildTiming, entry.BuildFailure = state.SourceFreshness, state.RebuildTiming, state.BuildFailure
-					if state.Serving != nil {
-						entry.Serving = append(entry.Serving, *state.Serving)
-					}
-					result = append(result, entry)
-					continue
-				}
-			}
-		}
 		if item.Status == "retained" {
 			entry.MetadataStatus = "compatible"
 			paths, err := commandWorktreePaths(item.AppRoot)

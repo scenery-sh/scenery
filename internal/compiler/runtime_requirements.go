@@ -2,32 +2,7 @@ package compiler
 
 import (
 	"sort"
-	"strings"
 )
-
-// UsesWorkerBundle selects the Rust host for explicitly opted-in workspaces
-// and for applications that require a non-Go worker.
-func (r *Result) UsesWorkerBundle() bool {
-	if r == nil || r.Manifest == nil {
-		return false
-	}
-	for _, source := range r.Sources {
-		if source == nil || source.External || strings.Contains(source.Relative, "/") {
-			continue
-		}
-		for _, block := range source.Blocks {
-			if block.Type == "workspace" && block.Attributes["worker_host"].Value == true {
-				return true
-			}
-		}
-	}
-	for _, resource := range r.Manifest.Resources {
-		if resource.Kind == "scenery.service" && IsExternalWorkerRuntime(stringValue(resource.Spec["runtime"])) {
-			return true
-		}
-	}
-	return false
-}
 
 func IsJSRuntime(runtime string) bool {
 	return runtime == "ts" || runtime == "js"

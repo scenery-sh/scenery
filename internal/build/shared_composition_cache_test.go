@@ -16,29 +16,29 @@ func TestSharedCompositionReusesCrossWorktreeArtifactAndRepairsCorruption(t *tes
 	cfg := appcfg.Config{Name: "cross-worktree-composition", ConfigPath: filepath.Join(t.TempDir(), ".scenery.json")}
 	var steps []Step
 	ctx := WithTrace(context.Background(), func(step Step) { steps = append(steps, step) })
-	first, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	first, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// ConfigPath is machine-local discovery state and is intentionally omitted
 	// from Config JSON. Equivalent authored worktrees therefore share bytes.
 	cfg.ConfigPath = filepath.Join(t.TempDir(), ".scenery.json")
-	second, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	second, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(steps) != 2 || steps[0].Cache != "miss" || steps[1].Cache != "hit" || steps[1].Reason != "shared_content_artifact" {
 		t.Fatalf("shared composition steps = %+v", steps)
 	}
-	if string(first.Generated["scenery_internal_main/main.go"]) != string(second.Generated["scenery_internal_main/main.go"]) {
+	if string(first.Generated["scenery_internal_processes/services/echo_echo/main.go"]) != string(second.Generated["scenery_internal_processes/services/echo_echo/main.go"]) {
 		t.Fatal("cross-worktree composition bytes differ")
 	}
-	first.Generated["scenery_internal_main/main.go"][0] ^= 0xff
-	if first.Generated["scenery_internal_main/main.go"][0] == second.Generated["scenery_internal_main/main.go"][0] {
+	first.Generated["scenery_internal_processes/services/echo_echo/main.go"][0] ^= 0xff
+	if first.Generated["scenery_internal_processes/services/echo_echo/main.go"][0] == second.Generated["scenery_internal_processes/services/echo_echo/main.go"][0] {
 		t.Fatal("cache result shares mutable returned bytes")
 	}
 
-	key, err := sharedCompositionKey(cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	key, err := sharedCompositionKey(cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSharedCompositionReusesCrossWorktreeArtifactAndRepairsCorruption(t *tes
 		t.Fatal(err)
 	}
 	steps = nil
-	if _, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one"); err != nil {
+	if _, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one"); err != nil {
 		t.Fatal(err)
 	}
 	if len(steps) != 1 || steps[0].Cache != "miss" || steps[0].Reason != "rendered_and_published" {
@@ -60,11 +60,11 @@ func TestSharedCompositionReusesCrossWorktreeArtifactAndRepairsCorruption(t *tes
 
 func TestSharedCompositionKeyRejectsDifferentGenerator(t *testing.T) {
 	cfg := appcfg.Config{Name: "generator-key"}
-	first, err := sharedCompositionKey(cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	first, err := sharedCompositionKey(cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := sharedCompositionKey(cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-two")
+	second, err := sharedCompositionKey(cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +77,10 @@ func TestSharedCompositionRejectsIncompatibleProducer(t *testing.T) {
 	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 	cfg := appcfg.Config{Name: "producer-rejection"}
 	ctx := context.Background()
-	if _, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one"); err != nil {
+	if _, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one"); err != nil {
 		t.Fatal(err)
 	}
-	key, err := sharedCompositionKey(cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	key, err := sharedCompositionKey(cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,10 +113,10 @@ func TestSharedCompositionRejectsIncompatibleProducer(t *testing.T) {
 func TestSharedCompositionRejectsRehashedEscapingPayload(t *testing.T) {
 	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 	cfg := appcfg.Config{Name: "path-rejection"}
-	if _, err := renderSharedCompositionContext(context.Background(), cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one"); err != nil {
+	if _, err := renderSharedCompositionContext(context.Background(), cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one"); err != nil {
 		t.Fatal(err)
 	}
-	key, err := sharedCompositionKey(cfg.Name, cfg, generateapi.RuntimeIntegrationPlan{CompositionImport: "example.com/app/internal/scenerygen"}, nil, "generator-one")
+	key, err := sharedCompositionKey(cfg.Name, cfg, sharedCompositionTestPlan("example.com/app/internal/scenerygen"), nil, "generator-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,4 +145,11 @@ func TestSharedCompositionRejectsRehashedEscapingPayload(t *testing.T) {
 	if _, hit := loadSharedComposition(root, key, "generator-one"); hit {
 		t.Fatal("shared composition accepted an escaping generated path")
 	}
+}
+
+// sharedCompositionTestPlan plans one Go worker so a composition renders.
+func sharedCompositionTestPlan(contractRevision string) generateapi.RuntimeIntegrationPlan {
+	return generateapi.RuntimeIntegrationPlan{ContractRevision: contractRevision, Services: []generateapi.ServiceProcessPlan{{
+		Address: "echo/service/echo", Name: "echo_echo", AdapterImport: "example.com/app/internal/scenerygen/echo_echo_adapter", RequiredAddresses: []string{"echo/service/echo"},
+	}}}
 }

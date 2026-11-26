@@ -115,16 +115,3 @@ func TestDeclaredCompilerTestFileStillAffectsRuntime(t *testing.T) {
 		t.Fatal("declared graph input was ignored merely because its name ended in _test.go")
 	}
 }
-
-func TestBuildInputSnapshotsIgnoreOnlyGeneratedPublication(t *testing.T) {
-	t.Parallel()
-	before := fileSnapshot{files: map[string]fileStamp{"service/api.go": {hash: "one", size: 3}}, generated: map[string]bool{"service/generated.go": false}}
-	after := fileSnapshot{files: map[string]fileStamp{"service/api.go": {hash: "one", size: 3}}, generated: map[string]bool{"service/generated.go": true}}
-	if !buildInputSnapshotsEqual(before, after) {
-		t.Fatal("generated publication invalidated an otherwise exact captured input set")
-	}
-	after.files["service/api.go"] = fileStamp{hash: "two", size: 3}
-	if buildInputSnapshotsEqual(before, after) {
-		t.Fatal("changed source bytes were accepted as the captured input set")
-	}
-}
