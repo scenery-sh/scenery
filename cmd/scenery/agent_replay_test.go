@@ -331,6 +331,35 @@ binding "ping" {
 	if got := renderJSTestDatabases(sqlDeps); !strings.Contains(got, "ORDERS_DB_DATABASE_URL") || !strings.Contains(got, `"database"`) {
 		t.Fatalf("unexpected JS database map: %s", got)
 	}
+
+	// Verify durable Rust replay test restores execution_id on sdk::Context.
+	_, rustDurableSrc, err := renderReplayTestFile(
+		g,
+		modByName["rustmod"],
+		g.resources["rustmod/service/svc"],
+		g.resources["rustmod/operation/ping"],
+		failureReport{
+			ReportToken: "rpt_rustdurable01",
+			Code:        "SCN9000",
+			Cause:       "boom",
+			Origin:      "runtime",
+			Invocation: &devreport.ReplayInvocation{
+				Module:    "rustmod",
+				Runtime:   "rust",
+				Service:   "rustmod/service/svc",
+				Operation: "rustmod/operation/ping",
+				Mode:      "durable",
+				Input:     json.RawMessage(`{"value":"job"}`),
+			},
+		},
+		"rustdurable01",
+	)
+	if err != nil {
+		t.Fatalf("renderReplayTestFile(rust durable): %v", err)
+	}
+	if !strings.Contains(rustDurableSrc, `.with_execution_id("rpt_rustdurable01")`) {
+		t.Fatalf("durable Rust test missing with_execution_id:\n%s", rustDurableSrc)
+	}
 }
 
 func TestResolveDurableReplayTargetPrefersScheduleOverDirectExecution(t *testing.T) {

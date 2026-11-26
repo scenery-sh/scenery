@@ -219,8 +219,11 @@ func executeLiveReplay(ctx context.Context, out io.Writer, root string, report f
 	res.FailureReport = callRes.FailureReport
 
 	internalFailed := response.StatusCode >= 500 || newToken != "" || problem.Code == "system.internal"
+	routeNotFound := response.StatusCode == http.StatusNotFound &&
+		response.Header.Get("X-App-Worker-Pid") == "" &&
+		res.TraceID == ""
 	transportOrAdmissionRejected := isGenerationConflict ||
-		response.StatusCode == http.StatusNotFound ||
+		routeNotFound ||
 		strings.HasPrefix(problem.Code, "transport.") ||
 		strings.HasPrefix(problem.Code, "admission.")
 	if !internalFailed && !transportOrAdmissionRejected {
@@ -370,6 +373,7 @@ func executeDurableReplay(ctx context.Context, out io.Writer, root string, conne
 		"target":     resolveDurableReplayTarget(ctx, root, inv),
 		"input":      json.RawMessage(firstNonEmpty(string(inv.Input), "{}")),
 		"wait":       true,
+		"replay":     true,
 		"timeout_ns": int64((30 * time.Second).Nanoseconds()),
 	})
 	if err != nil {

@@ -96,11 +96,11 @@ impl ReplayInvocation {
         } else {
             (None, true)
         };
-        let target = if binding.is_none()
-            && matches!(call.method.as_str(), "DURABLE" | "SCHEDULE")
-            && !call.path.is_empty()
-        {
-            Some(call.path.clone())
+        let target = if binding.is_none() {
+            call.schedule_target.clone().or_else(|| {
+                (matches!(call.method.as_str(), "DURABLE" | "SCHEDULE") && !call.path.is_empty())
+                    .then(|| call.path.clone())
+            })
         } else {
             None
         };

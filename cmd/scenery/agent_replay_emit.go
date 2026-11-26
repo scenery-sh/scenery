@@ -231,6 +231,10 @@ test("replay %s (%s)", async () => {
 		if inv.TenantID != "" {
 			tenantRust = fmt.Sprintf("Some(%q)", inv.TenantID)
 		}
+		ctxExpr := fmt.Sprintf("sdk::Context::with_principal(%s, %s)", principalRust, tenantRust)
+		if inv.Mode == "durable" {
+			ctxExpr = fmt.Sprintf("%s.with_execution_id(%q)", ctxExpr, report.ReportToken)
+		}
 		rel := filepath.ToSlash(filepath.Join(mod.Directory, "tests", "replay_"+shortToken+".rs"))
 		src := fmt.Sprintf(`// Regression test generated from %s (%s).
 use scenerycontract::{%sConstructorInput, %sService, %sInput, sdk};
@@ -240,14 +244,14 @@ fn replay_%s() -> sdk::Result<()> {
     sdk::run(async {
         let service = %s::%s(%sConstructorInput::default())?;
         let input: %sInput = sdk::serde_json::from_str(%s)?;
-        let ctx = sdk::Context::with_principal(%s, %s);
+        let ctx = %s;
         let _outcome = %sService::%s(&service, ctx, input).await?;
         Ok(())
     })
 }
 `, report.ReportToken, inv.Operation, svcGoName, svcGoName, opGoName,
 			shortToken, crateName, ctorRust, svcGoName, opGoName, strconv.Quote(rawInput),
-			principalRust, tenantRust, svcGoName, methodRust)
+			ctxExpr, svcGoName, methodRust)
 		return rel, src, nil
 
 	case "go":

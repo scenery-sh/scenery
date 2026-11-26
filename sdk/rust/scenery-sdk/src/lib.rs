@@ -19,8 +19,7 @@ use scenery_wire::{
     BindingCallRef, BindingReply, CAPABILITY_PREFIX, CONTRACT_HEADER, ConnectionTokenReply,
     ConnectionTokenRequest, Delivery, EVENTS_MEDIA_TYPE, EventEmitCallRef, IMPLEMENTATION_HEADER,
     INVOKE_PATH, InvocationOutcome, MAX_METADATA, READY_PATH, RawEvent, SCOPE_HEADER,
-    STREAM_MEDIA_TYPE,
-    STREAM_SIZE_HEADER,
+    STREAM_MEDIA_TYPE, STREAM_SIZE_HEADER,
 };
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -223,6 +222,11 @@ impl Context {
         }
     }
 
+    pub fn with_execution_id(mut self, execution_id: impl Into<String>) -> Self {
+        self.invocation.execution_id = Some(execution_id.into());
+        self
+    }
+
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
     }
@@ -297,11 +301,13 @@ impl Context {
         if status != StatusCode::OK {
             return Err(event_emit_failure(status, &raw).into());
         }
-        let reply: BindingReply = serde_json::from_slice(&raw)
-            .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event capability response"))?;
+        let reply: BindingReply = serde_json::from_slice(&raw).map_err(|_| {
+            unavailable_failure(Delivery::Unknown, "invalid event capability response")
+        })?;
         match (reply.output, reply.error) {
-            (Some(output), None) => serde_json::from_str(output.get())
-                .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event receipt").into()),
+            (Some(output), None) => serde_json::from_str(output.get()).map_err(|_| {
+                unavailable_failure(Delivery::Unknown, "invalid event receipt").into()
+            }),
             (None, Some(error)) => Err(error.into()),
             _ => Err(
                 unavailable_failure(Delivery::Unknown, "invalid event capability response").into(),

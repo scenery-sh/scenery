@@ -6,9 +6,11 @@ use tokio::sync::{Notify, mpsc};
 #[test]
 fn standalone_context_keeps_cancellation_channel_open() {
     run(async {
-        let mut ctx = Context::with_principal(Some("usr_1"), Some("tnt_1"));
+        let mut ctx =
+            Context::with_principal(Some("usr_1"), Some("tnt_1")).with_execution_id("exec_1");
         assert_eq!(ctx.invocation.principal.as_deref(), Some("usr_1"));
         assert_eq!(ctx.invocation.tenant_id.as_deref(), Some("tnt_1"));
+        assert_eq!(ctx.invocation.execution_id.as_deref(), Some("exec_1"));
         let mut cloned = ctx.clone();
         assert!(
             tokio::time::timeout(Duration::from_millis(20), ctx.canceled())

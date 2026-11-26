@@ -158,7 +158,9 @@ impl Fault {
             "application/problem+json",
         );
         if let Some(cause) = self.cause
-            && let Some(token) = host.telemetry.failure_with_context(&cause, self.replay.as_deref())
+            && let Some(token) = host
+                .telemetry
+                .failure_with_context(&cause, self.replay.as_deref())
         {
             header(reply.headers_mut(), "x-report-token", &token);
         }
@@ -171,6 +173,7 @@ pub(crate) struct Call {
     pub generation: Arc<Generation>,
     pub principal: Option<Claims>,
     pub workload: Option<Value>,
+    pub schedule_target: Option<String>,
     pub invocation_id: String,
     pub trace_id: String,
     pub span_id: String,
@@ -217,6 +220,7 @@ impl Call {
             generation,
             principal: None,
             workload: None,
+            schedule_target: None,
             invocation_id: random_hex::<16>()?,
             trace_id,
             span_id: random_hex::<8>()?,
@@ -547,7 +551,11 @@ impl Host {
         }
         let principal = call.principal_value();
         let mut context = json!({"caller_binding": policy.binding_address, "method": call.method, "path": call.path});
-        if let Some(tenant) = principal.get("tenant_id").or_else(|| principal.get("TenantID")).filter(|v| v.as_str().is_none_or(|s| !s.is_empty())) {
+        if let Some(tenant) = principal
+            .get("tenant_id")
+            .or_else(|| principal.get("TenantID"))
+            .filter(|v| v.as_str().is_none_or(|s| !s.is_empty()))
+        {
             context["tenant_id"] = tenant.clone();
         }
         let variables = json!({"principal": principal, "context": context, "input": input});
