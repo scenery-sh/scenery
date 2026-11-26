@@ -44,13 +44,14 @@ type testHostSummary struct {
 }
 
 type testDatabaseHarness struct {
-	admin        *sql.DB
-	adminURL     string
-	templateName string
-	bindings     []compiler.SQLBinding
-	requirements compiler.SQLRequirements
-	summary      *testDatabaseTemplateSummary
-	stopServer   func() error
+	admin           *sql.DB
+	adminURL        string
+	templateName    string
+	bindings        []compiler.SQLBinding
+	requirements    compiler.SQLRequirements
+	summary         *testDatabaseTemplateSummary
+	releaseTemplate func() error
+	stopServer      func() error
 }
 
 func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, baseEnv []string) (*testDatabaseHarness, error) {
@@ -85,7 +86,7 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 		}
 		return nil, fmt.Errorf("connect postgres admin for test branching: %w", err)
 	}
-	templateName, hit, setupDur, bindings, err := ensureAppTemplateDatabase(ctx, canonicalRoot, cfg, compiled, admin, adminURL, baseEnv)
+	templateName, hit, setupDur, bindings, releaseTemplate, err := ensureAppTemplateDatabase(ctx, canonicalRoot, cfg, compiled, admin, adminURL, baseEnv)
 	if err != nil {
 		_ = admin.Close()
 		if stopAfter != nil {
@@ -94,6 +95,9 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 		return nil, err
 	}
 	if templateName == "" {
+		if releaseTemplate != nil {
+			_ = releaseTemplate()
+		}
 		_ = admin.Close()
 		if stopAfter != nil {
 			_ = stopAfter()
@@ -111,7 +115,8 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 			TemplateHit: hit,
 			SetupMS:     setupDur.Milliseconds(),
 		},
-		stopServer: stopAfter,
+		releaseTemplate: releaseTemplate,
+		stopServer:      stopAfter,
 	}, nil
 }
 
@@ -120,6 +125,9 @@ func (h *testDatabaseHarness) Close() error {
 		return nil
 	}
 	var err error
+	if h.releaseTemplate != nil {
+		err = errors.Join(err, h.releaseTemplate())
+	}
 	if h.admin != nil {
 		err = errors.Join(err, h.admin.Close())
 	}

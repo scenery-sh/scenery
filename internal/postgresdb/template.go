@@ -91,63 +91,111 @@ func EnsureTemplateDatabase(
 	templateName string,
 	populate func(ctx context.Context, dbURL string) error,
 ) (bool, error) {
+	hit, release, err := HoldTemplateDatabase(ctx, admin, adminServerURL, appID, templateName, populate)
+	if err != nil {
+		return false, err
+	}
+	_ = release()
+	return hit, nil
+}
+
+// HoldTemplateDatabase ensures templateName exists as a sealed PostgreSQL template
+// database and returns a shared session-level advisory lock lease that prevents
+// concurrent template pruning from dropping templateName until release is called.
+func HoldTemplateDatabase(
+	ctx context.Context,
+	admin *sql.DB,
+	adminServerURL string,
+	appID string,
+	templateName string,
+	populate func(ctx context.Context, dbURL string) error,
+) (bool, func() error, error) {
 	templateName = strings.TrimSpace(templateName)
 	if templateName == "" {
-		return false, fmt.Errorf("postgres template database name is required")
+		return false, nil, fmt.Errorf("postgres template database name is required")
 	}
 	templateURL, err := DatabaseURLWithName(adminServerURL, templateName)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	conn, err := admin.Conn(ctx)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer func() { _ = conn.Close() }()
 
 	lockKey := "scenery.template." + templateName
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockKey); err != nil {
-		return false, fmt.Errorf("acquire template database lock %s: %w", templateName, err)
+		return false, nil, fmt.Errorf("acquire template database lock %s: %w", templateName, err)
 	}
 	defer func() {
 		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, lockKey)
 	}()
 
+	acquireUseLease := func() (func() error, error) {
+		leaseConn, leaseErr := admin.Conn(ctx)
+		if leaseErr != nil {
+			return nil, leaseErr
+		}
+		useKey := "scenery.template.use." + templateName
+		if _, lockErr := leaseConn.ExecContext(ctx, `SELECT pg_advisory_lock_shared(hashtextextended($1, 0))`, useKey); lockErr != nil {
+			_ = leaseConn.Close()
+			return nil, fmt.Errorf("acquire shared template lease %s: %w", templateName, lockErr)
+		}
+		released := false
+		return func() error {
+			if released {
+				return nil
+			}
+			released = true
+			_, _ = leaseConn.ExecContext(context.Background(), `SELECT pg_advisory_unlock_shared(hashtextextended($1, 0))`, useKey)
+			return leaseConn.Close()
+		}, nil
+	}
+
 	isTemplate, disallowsConn, exists, err := inspectTemplateState(ctx, conn, templateName)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if exists && isTemplate && disallowsConn {
-		return true, nil
+		release, err := acquireUseLease()
+		if err != nil {
+			return false, nil, err
+		}
+		return true, release, nil
 	}
 	if exists {
 		if err := dropUnsealedOrStaleTemplate(ctx, conn, templateName); err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 
 	quoted := quoteIdent(templateName)
 	if _, err := conn.ExecContext(ctx, `CREATE DATABASE `+quoted); err != nil {
-		return false, fmt.Errorf("create staging template database %s: %w", templateName, err)
+		return false, nil, fmt.Errorf("create staging template database %s: %w", templateName, err)
 	}
 	if populate != nil {
 		if err := populate(ctx, templateURL); err != nil {
 			_ = dropUnsealedOrStaleTemplate(context.WithoutCancel(ctx), conn, templateName)
-			return false, err
+			return false, nil, err
 		}
 	}
 	if _, err := conn.ExecContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, templateName); err != nil {
 		_ = dropUnsealedOrStaleTemplate(context.WithoutCancel(ctx), conn, templateName)
-		return false, fmt.Errorf("terminate template connections %s: %w", templateName, err)
+		return false, nil, fmt.Errorf("terminate template connections %s: %w", templateName, err)
 	}
 	if _, err := conn.ExecContext(ctx, `ALTER DATABASE `+quoted+` WITH IS_TEMPLATE = true ALLOW_CONNECTIONS = false`); err != nil {
 		_ = dropUnsealedOrStaleTemplate(context.WithoutCancel(ctx), conn, templateName)
-		return false, fmt.Errorf("seal template database %s: %w", templateName, err)
+		return false, nil, fmt.Errorf("seal template database %s: %w", templateName, err)
 	}
 	_, _ = conn.ExecContext(ctx, `CHECKPOINT`)
+	release, leaseErr := acquireUseLease()
+	if leaseErr != nil {
+		return false, nil, leaseErr
+	}
 	_ = pruneOldTemplates(ctx, conn, TemplateScopePrefix(appID), templateName)
-	return false, nil
+	return false, release, nil
 }
 
 // HasSealedTemplate reports whether templateName exists and is sealed as a template database.
@@ -247,7 +295,13 @@ func pruneOldTemplates(ctx context.Context, conn *sql.Conn, prefix, keepCurrent 
 			kept++
 			continue
 		}
+		useKey := "scenery.template.use." + name
+		var pruneLock bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, useKey).Scan(&pruneLock); err != nil || !pruneLock {
+			continue
+		}
 		_ = dropUnsealedOrStaleTemplate(ctx, conn, name)
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, useKey)
 	}
 	return nil
 }

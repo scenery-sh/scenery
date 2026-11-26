@@ -54,26 +54,26 @@ func ensureAppTemplateDatabase(
 	admin *sql.DB,
 	adminServerURL string,
 	baseEnv []string,
-) (string, bool, time.Duration, []compiler.SQLBinding, error) {
+) (string, bool, time.Duration, []compiler.SQLBinding, func() error, error) {
 	cfgs, err := resolveSQLSupply(contract.SQLRequirements, baseEnv, true)
 	if err != nil {
-		return "", false, 0, nil, err
+		return "", false, 0, nil, nil, err
 	}
 	if len(cfgs) == 0 {
-		return "", false, 0, nil, nil
+		return "", false, 0, nil, nil, nil
 	}
 	setup, hasWork, err := buildDevDatabaseSetup(root, cfg, contract)
 	if err != nil {
-		return "", false, 0, nil, err
+		return "", false, 0, nil, nil, err
 	}
 	signature, err := templateDatabaseSignature(root, cfg, setup, cfgs)
 	if err != nil {
-		return "", false, 0, nil, err
+		return "", false, 0, nil, nil, err
 	}
 	templateName := postgresdb.TemplateDatabaseName(cfg.AppID(), signature)
 
 	started := time.Now()
-	hit, err := postgresdb.EnsureTemplateDatabase(ctx, admin, adminServerURL, cfg.AppID(), templateName, func(ctx context.Context, templateURL string) error {
+	hit, releaseLease, err := postgresdb.HoldTemplateDatabase(ctx, admin, adminServerURL, cfg.AppID(), templateName, func(ctx context.Context, templateURL string) error {
 		tplDB, err := openPostgresDatabase(ctx, templateURL)
 		if err != nil {
 			return fmt.Errorf("connect staging template database %s: %w", templateName, err)
@@ -127,9 +127,9 @@ func ensureAppTemplateDatabase(
 		return err
 	})
 	if err != nil {
-		return "", false, 0, nil, err
+		return "", false, 0, nil, nil, err
 	}
-	return templateName, hit, time.Since(started), cfgs, nil
+	return templateName, hit, time.Since(started), cfgs, releaseLease, nil
 }
 
 func waitForPostgresOperation(ctx context.Context, resolver worktreePostgresResolver) (worktreePostgresOperation, error) {
@@ -278,9 +278,12 @@ func prepareWorktreeDatabase(ctx context.Context, createdRoot string, cfg appcfg
 	}
 	defer func() { _ = admin.Close() }()
 
-	templateName, hit, _, _, err := ensureAppTemplateDatabase(ctx, canonicalRoot, cfg, contract, admin, adminURL, baseEnv)
+	templateName, hit, _, _, releaseTemplate, err := ensureAppTemplateDatabase(ctx, canonicalRoot, cfg, contract, admin, adminURL, baseEnv)
 	if err != nil {
 		return nil, err
+	}
+	if releaseTemplate != nil {
+		defer func() { _ = releaseTemplate() }()
 	}
 	if templateName == "" {
 		return nil, nil
