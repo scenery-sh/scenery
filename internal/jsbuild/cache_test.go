@@ -156,4 +156,42 @@ func TestVerifyBuildDependenciesRunsVerifyFirstAndRetriesNewPostStartEdit(t *tes
 	if _, retryEqual, cacheableEqual, err := verifyBuildDependencies(root, nil, []string{depRel}, exactInfo.ModTime(), nil); err != nil || !retryEqual || cacheableEqual {
 		t.Fatalf("ModTime().Equal(buildStarted) = (retry=%v, cacheable=%v, err=%v), want (true, false, nil)", retryEqual, cacheableEqual, err)
 	}
+
+	// Missing new dependency during build wraps ErrSourcesChanged.
+	if err := os.Remove(depPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := verifyBuildDependencies(root, nil, []string{depRel}, buildStarted, nil); !errors.Is(err, ErrSourcesChanged) {
+		t.Fatalf("missing new dependency = %v, want ErrSourcesChanged", err)
+	}
+}
+
+func TestRunJSBuildAttemptsFailsClosedAfterExhaustingRetries(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	art, err := runJSBuildAttempts(2, nil, func(prior map[string]string) (Artifact, map[string]string, bool, error) {
+		calls++
+		if calls == 1 {
+			if prior != nil {
+				t.Fatalf("attempt 1 prior = %#v, want nil", prior)
+			}
+			return Artifact{}, map[string]string{"dep": "d1"}, true, nil
+		}
+		if prior["dep"] != "d1" {
+			t.Fatalf("attempt 2 prior = %#v, want d1", prior)
+		}
+		return Artifact{Path: "/tmp/worker-ok", Digest: "sha256:ok"}, nil, false, nil
+	})
+	if err != nil || calls != 2 || art.Path != "/tmp/worker-ok" {
+		t.Fatalf("retry recovery = (%+v, calls=%d, err=%v), want ok on attempt 2", art, calls, err)
+	}
+
+	exhaustedCalls := 0
+	art, err = runJSBuildAttempts(2, nil, func(map[string]string) (Artifact, map[string]string, bool, error) {
+		exhaustedCalls++
+		return Artifact{}, map[string]string{"dep": "d"}, true, nil
+	})
+	if !errors.Is(err, ErrSourcesChanged) || exhaustedCalls != 2 || art.Path != "" {
+		t.Fatalf("exhausted retry = (%+v, calls=%d, err=%v), want empty artifact + ErrSourcesChanged", art, exhaustedCalls, err)
+	}
 }

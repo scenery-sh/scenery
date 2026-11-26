@@ -17,27 +17,30 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"scenery.sh/internal/devtelemetry"
-	workerruntime "scenery.sh/runtime"
 )
 
 type workerWatcher struct {
-	directory, capabilities, token string
-	dev                            *workerDevelopment
-	devControl                     *workerDevControl
-	app                            *devtelemetry.App
-	faults                         map[*workerProcess]struct{}
-	exits                          chan struct{}
-	client                         *http.Client
-	bundle                         workerBundle
-	active                         map[string]*workerProcess
-	all                            []*workerProcess
-	generation, sequence           uint64
-	retirements                    sync.WaitGroup
-	generations                    workerGenerations
+	directory, capabilities, token          string
+	dev                                     *workerDevelopment
+	devControl                              *workerDevControl
+	app                                     *devtelemetry.App
+	faults                                  map[*workerProcess]struct{}
+	exits                                   chan struct{}
+	client                                  *http.Client
+	bundle                                  workerBundle
+	active                                  map[string]*workerProcess
+	all                                     []*workerProcess
+	generation, sequence                    uint64
+	retirements                             sync.WaitGroup
+	generations                             workerGenerations
+	lastConfigError                         string
+	retireDrainTimeout, retireForceInterval time.Duration
 }
 
 func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) error {
+	runCtx, cancelRun := context.WithCancel(ctx)
 	defer func() {
+		cancelRun()
 		watch.retirements.Wait()
 		stopWorkers(watch.all)
 		if watch.dev != nil {
@@ -48,7 +51,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 	watch.exits = make(chan struct{}, 1)
 	watch.faults = make(map[*workerProcess]struct{})
 	for _, process := range watch.active {
-		watch.observeExit(ctx, process)
+		watch.observeExit(runCtx, process)
 	}
 	var events <-chan fsnotify.Event
 	var watchErrors <-chan error
@@ -70,8 +73,9 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		if sameConfigFile(lastConfigInfo, info) {
 			return
 		}
-		lastConfigInfo = info
-		watch.applyConfigurationChange(ctx)
+		if watch.applyConfigurationChange(runCtx) {
+			lastConfigInfo = info
+		}
 	}
 	startConfigWatch := func() bool {
 		if configTicks != nil || watch.dev == nil || watch.bundle.config == nil {
@@ -116,7 +120,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		select {
 		case err := <-hostDone:
 			return err
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			return <-hostDone
 		case event, ok := <-events:
 			if !ok {
@@ -151,7 +155,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 				continue
 			}
 			seen, retryCandidate = current, false
-			if applied, err := watch.refresh(ctx, current, observed); err != nil {
+			if applied, err := watch.refresh(runCtx, current, observed); err != nil {
 				fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
 				if errors.Is(err, errWorkerInputsChanged) {
 					// The next candidate must include edits even if their
@@ -166,9 +170,9 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 				}
 			}
 		case <-watch.exits:
-			watch.restartStopped(ctx, retry)
+			watch.restartStopped(runCtx, retry)
 		case <-retry.C:
-			watch.restartStopped(ctx, retry)
+			watch.restartStopped(runCtx, retry)
 		}
 	}
 }
@@ -355,71 +359,109 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	}
 	candidate.applied = appliedCurrent
 	candidate.ensureAssistantCompiled().Store(candidate.compiled)
-	if edit.declarations && candidate.assistants != nil && candidate.assistantDefs != nil {
+	if edit.declarations && candidate.assistantState != nil {
+		state := candidate.assistantState
 		nextDefs := assistantDefinitionsFromResult(candidate.compiled, candidate.watch.root)
-		var prevDefs []assistantDefinition
-		if loaded := candidate.assistantDefs.Load(); loaded != nil {
-			prevDefs = *loaded
-		}
-		if !slices.Equal(prevDefs, nextDefs) {
-			if err := candidate.assistants.Reconcile(ctx, candidate.compiled); err != nil {
-				fmt.Fprintf(os.Stderr, "assistant reconcile failed: %v\n", err)
-			} else if candidate.assistantConfigPath != "" {
-				if err := workerruntime.WriteAssistantRuntimeConfig(candidate.assistantConfigPath, candidate.assistants.RuntimeConfig()); err != nil {
-					fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
+		state.mu.Lock()
+		prevDefs := slices.Clone(state.defs)
+		var untracked []string
+		for _, def := range nextDefs {
+			if def.SourceRoot != "" {
+				if _, ok := state.digests[def.SourceRoot]; !ok {
+					untracked = append(untracked, def.SourceRoot)
 				}
 			}
-			candidate.assistantDefs.Store(&nextDefs)
+		}
+		state.mu.Unlock()
+		if !slices.Equal(prevDefs, nextDefs) {
+			preDigests := make(map[string]string, len(untracked))
+			for _, source := range untracked {
+				if digest, digestErr := workerAssistantSourceDigest(source); digestErr == nil {
+					preDigests[source] = digest
+				}
+			}
+			if err := state.supervisor.Reconcile(ctx, candidate.compiled); err != nil {
+				fmt.Fprintf(os.Stderr, "assistant reconcile failed: %v\n", err)
+			} else {
+				if err := state.writeRuntimeConfig(); err != nil {
+					fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
+				}
+				activeRoots := make(map[string]bool, len(nextDefs))
+				for _, def := range nextDefs {
+					if def.SourceRoot != "" {
+						activeRoots[def.SourceRoot] = true
+					}
+				}
+				state.mu.Lock()
+				state.defs = nextDefs
+				for source := range state.digests {
+					if !activeRoots[source] {
+						delete(state.digests, source)
+					}
+				}
+				for source, digest := range preDigests {
+					if _, exists := state.digests[source]; !exists {
+						state.digests[source] = digest
+					}
+				}
+				state.mu.Unlock()
+			}
 		}
 	}
 	*watch.dev = candidate
 	return appliedCurrent, nil
 }
 
-func (watch *workerWatcher) applyConfigurationChange(ctx context.Context) {
+func (watch *workerWatcher) applyConfigurationChange(ctx context.Context) bool {
 	if watch.dev == nil || watch.bundle.config == nil {
-		return
+		return false
+	}
+	reportError := func(prefix string, err error) bool {
+		msg := prefix + ": " + err.Error()
+		if watch.lastConfigError != msg {
+			watch.lastConfigError = msg
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		return false
 	}
 	_, cfg, err := discoverConfiguredApp(watch.dev.watch.root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
-		return
+		return reportError("configuration reload failed", err)
 	}
 	env, err := cfg.ResolveEnv(watch.dev.envName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
-		return
+		return reportError("configuration reload failed", err)
 	}
 	store, err := devConfigStore(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
-		return
+		return reportError("configuration reload failed", err)
 	}
 	document, err := devConfigDocument(store, cfg, env)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
-		return
+		return reportError("configuration reload failed", err)
 	}
 	if document.Revision == watch.bundle.config.Revision {
-		return
+		watch.lastConfigError = ""
+		return true
 	}
 	nextBundle := watch.bundle
 	nextBundle.Programs = slices.Clone(watch.bundle.Programs)
 	if err := nextBundle.resolveDevelopmentConfig(ctx, watch.dev.compiled, cfg, watch.dev.envName); err != nil {
-		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
-		return
+		return reportError("configuration reload failed", err)
 	}
 	nextBundle.setWorkerConfig()
 	if watch.bundle.config != nil && nextBundle.config != nil && nextBundle.config.Revision == watch.bundle.config.Revision {
-		return
+		watch.lastConfigError = ""
+		return true
 	}
 	if err := watch.replace(ctx, nextBundle, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "configuration apply failed: %v\n", err)
-		return
+		return reportError("configuration apply failed", err)
 	}
+	watch.lastConfigError = ""
 	if watch.devControl != nil {
 		watch.devControl.publish(watch.dev.applied, watch.bundle, watch.generation, nil)
 	}
+	return true
 }
 
 func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
@@ -570,7 +612,15 @@ func workerControlRetireGeneration(ctx context.Context, client *http.Client, tok
 }
 
 func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
-	watch.retireWith(ctx, generation, 5*time.Second, 200*time.Millisecond)
+	drainTimeout := watch.retireDrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = 5 * time.Second
+	}
+	forceInterval := watch.retireForceInterval
+	if forceInterval <= 0 {
+		forceInterval = 200 * time.Millisecond
+	}
+	watch.retireWith(ctx, generation, drainTimeout, forceInterval)
 }
 
 func (watch *workerWatcher) retireWith(ctx context.Context, generation uint64, drainTimeout, forceRetryInterval time.Duration) {

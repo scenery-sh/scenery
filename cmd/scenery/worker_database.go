@@ -8,12 +8,20 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/storageconfig"
 )
 
 func workerDatabaseEnv(root string, cfg app.Config, environmentName string) []string {
-	return appChildEnv(workerProcessEnv(envpolicy.Environ(), "go"), false,
-		"SCENERY_APP_ID="+cfg.AppID(), "SCENERY_APP_ROOT="+root,
-		"SCENERY_ENV="+environmentName, "SCENERY_RUNTIME_ENV="+environmentName)
+	overrides := []string{
+		"SCENERY_APP_ID=" + cfg.AppID(),
+		"SCENERY_APP_ROOT=" + root,
+		"SCENERY_ENV=" + environmentName,
+		"SCENERY_RUNTIME_ENV=" + environmentName,
+	}
+	if storageCfg, ok := envpolicy.Lookup(storageconfig.RuntimeConfigEnv); ok && storageCfg != "" {
+		overrides = append(overrides, storageconfig.RuntimeConfigEnv+"="+storageCfg)
+	}
+	return appChildEnv(workerProcessEnv(envpolicy.Environ(), "go"), false, overrides...)
 }
 
 // runWorkerDatabaseSetup applies the application's declared database setup

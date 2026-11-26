@@ -11,16 +11,17 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -237,26 +238,23 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if err := envpolicy.Set("SCENERY_PROCESS_LINK", linkPath); err != nil {
 		return err
 	}
-	var assistants *assistantSupervisor
-	var assistantConfigPath string
-	var assistantDefs *atomic.Pointer[[]assistantDefinition]
-	var initialAssistantDigests map[string]string
+	var assistantState *workerAssistantWatchState
 	var assistantWG sync.WaitGroup
 	if dev != nil && len(bundle.Host.Assistants) > 0 {
-		var assistantDefinitions []assistantDefinition
-		var restoreAssistantEnv func()
-		assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests, restoreAssistantEnv, err = prepareWorkerDevAssistants(ctx, dev, directory)
+		assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests, restoreAssistantEnv, err := prepareWorkerDevAssistants(ctx, dev, directory)
 		if err != nil {
 			return err
 		}
-		assistantDefs = &atomic.Pointer[[]assistantDefinition]{}
-		assistantDefs.Store(&assistantDefinitions)
-		dev.assistants = assistants
-		dev.assistantConfigPath = assistantConfigPath
-		dev.assistantDefs = assistantDefs
+		assistantState = &workerAssistantWatchState{
+			supervisor: assistants,
+			configPath: assistantConfigPath,
+			defs:       slices.Clone(assistantDefinitions),
+			digests:    maps.Clone(initialAssistantDigests),
+		}
+		dev.assistantState = assistantState
 		defer func() {
 			assistantWG.Wait()
-			_ = assistants.Close()
+			_ = assistantState.supervisor.Close()
 			restoreAssistantEnv()
 		}()
 	}
@@ -302,15 +300,15 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	if dev != nil {
 		pruneJSWorkers(dev.watch.root, bundle.Programs)
-		if assistants != nil {
-			if err := assistants.StartPrepared(ctx); err != nil {
+		if assistantState != nil {
+			if err := assistantState.supervisor.StartPrepared(ctx); err != nil {
 				return err
 			}
-			if err := workerruntime.WriteAssistantRuntimeConfig(assistantConfigPath, assistants.RuntimeConfig()); err != nil {
+			if err := assistantState.writeRuntimeConfig(); err != nil {
 				return err
 			}
 			assistantWG.Go(func() {
-				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, assistantDefs, initialAssistantDigests)
+				superviseWorkerAssistantSources(ctx, assistantState)
 			})
 		}
 		devControl.publish(dev.applied, bundle, 1, nil)
@@ -716,21 +714,33 @@ func workerAssistantSourceDigest(sourceRoot string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, defsPtr *atomic.Pointer[[]assistantDefinition], initialDigests map[string]string) {
-	if supervisor == nil || defsPtr == nil {
-		return
+type workerAssistantWatchState struct {
+	supervisor *assistantSupervisor
+	configPath string
+	configMu   sync.Mutex
+	mu         sync.Mutex
+	defs       []assistantDefinition
+	digests    map[string]string
+}
+
+func (state *workerAssistantWatchState) writeRuntimeConfig() error {
+	if state == nil || state.configPath == "" || state.supervisor == nil {
+		return nil
 	}
-	digests := make(map[string]string, len(initialDigests))
-	for source, initial := range initialDigests {
-		digests[source] = initial
+	state.configMu.Lock()
+	defer state.configMu.Unlock()
+	return workerruntime.WriteAssistantRuntimeConfig(state.configPath, state.supervisor.RuntimeConfig())
+}
+
+func superviseWorkerAssistantSources(ctx context.Context, state *workerAssistantWatchState) {
+	if state == nil || state.supervisor == nil {
+		return
 	}
 	lastErrors := make(map[string]string)
 	scan := func() {
-		loaded := defsPtr.Load()
-		if loaded == nil {
-			return
-		}
-		definitions := *loaded
+		state.mu.Lock()
+		definitions := slices.Clone(state.defs)
+		state.mu.Unlock()
 		var changed []string
 		for _, definition := range definitions {
 			source := definition.SourceRoot
@@ -746,25 +756,27 @@ func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantS
 				continue
 			}
 			delete(lastErrors, source)
-			previous, tracked := digests[source]
+			state.mu.Lock()
+			previous, tracked := state.digests[source]
 			if !tracked {
-				digests[source] = digest
+				state.digests[source] = digest
+				state.mu.Unlock()
 				continue
 			}
 			if previous == digest {
+				state.mu.Unlock()
 				continue
 			}
-			digests[source] = digest
-			if relative, err := filepath.Rel(supervisor.config.Root, source); err == nil {
+			state.digests[source] = digest
+			state.mu.Unlock()
+			if relative, err := filepath.Rel(state.supervisor.config.Root, source); err == nil {
 				changed = append(changed, filepath.ToSlash(relative))
 			}
 		}
 		if len(changed) > 0 {
-			supervisor.HandleChanges(ctx, changed)
-			if runtimeConfigPath != "" {
-				if err := workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, supervisor.RuntimeConfig()); err != nil {
-					fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
-				}
+			state.supervisor.HandleChanges(ctx, changed)
+			if err := state.writeRuntimeConfig(); err != nil {
+				fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
 			}
 		}
 	}

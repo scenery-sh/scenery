@@ -87,22 +87,32 @@ func BuildWithVerify(ctx context.Context, root string, service Service, check bo
 	}
 	directory := filepath.Join(root, service.Directory)
 	entry := filepath.Join(directory, "scenerycontract", "main.ts")
-	for attempt := range 2 {
+	return runJSBuildAttempts(2, priorDepDigests, func(currentPrior map[string]string) (Artifact, map[string]string, bool, error) {
 		buildStarted := time.Now()
 		var before []moduleInputDigest
 		if !check {
+			var err error
 			before, err = captureModuleInputs(root, service)
 			if err != nil {
-				return Artifact{}, err
+				return Artifact{}, nil, false, err
 			}
 		}
-		artifact, depDigests, retryNewDep, err := buildJSWorkerAttempt(ctx, root, privateRoot, cache, directory, entry, bun, service, check, before, priorDepDigests, buildStarted, verify)
+		return buildJSWorkerAttempt(ctx, root, privateRoot, cache, directory, entry, bun, service, check, before, currentPrior, buildStarted, verify)
+	})
+}
+
+func runJSBuildAttempts(attempts int, priorDepDigests map[string]string, runAttempt func(prior map[string]string) (Artifact, map[string]string, bool, error)) (Artifact, error) {
+	for attempt := range attempts {
+		artifact, depDigests, retryNewDep, err := runAttempt(priorDepDigests)
 		if err != nil {
 			return Artifact{}, err
 		}
-		if retryNewDep && attempt == 0 {
-			priorDepDigests = depDigests
-			continue
+		if retryNewDep {
+			if attempt+1 < attempts {
+				priorDepDigests = depDigests
+				continue
+			}
+			break
 		}
 		return artifact, nil
 	}
@@ -203,6 +213,9 @@ func verifyBuildDependencies(root string, priorDepDigests map[string]string, dep
 				return nil, false, false, fmt.Errorf("JavaScript worker dependency %s changed during build: %w", dep, ErrSourcesChanged)
 			}
 		} else if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, false, false, fmt.Errorf("JavaScript worker dependency %s disappeared during build: %w", dep, ErrSourcesChanged)
+			}
 			return nil, false, false, err
 		}
 		depDigests[dep] = currentDigest

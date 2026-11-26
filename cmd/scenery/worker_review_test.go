@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/jsbuild"
@@ -692,10 +693,10 @@ func TestWorkerConfigIdentityAndLiveReloadSelectivelyMatchesWorkers(t *testing.T
 		Consumer: hostConsumer, Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`true`)},
 		Public: []string{"public.flag"},
 	}
-	workerruntime.UpdateWorkerDevelopmentConfig(hostSnap, map[string]*workerruntime.ConfigSnapshot{"mod/service/a": changedSecretA})
+	workerruntime.UpdateWorkerHostConfig(hostSnap)
 	loaded, err := workerruntime.LoadConfigSnapshot()
 	if err != nil || loaded == nil || loaded.Revision != "rev-2" {
-		t.Fatalf("LoadConfigSnapshot after UpdateWorkerDevelopmentConfig = (%+v, %v), want rev-2", loaded, err)
+		t.Fatalf("LoadConfigSnapshot after UpdateWorkerHostConfig = (%+v, %v), want rev-2", loaded, err)
 	}
 }
 
@@ -735,8 +736,21 @@ func TestWorkerVerifyDatabaseSetupSkipsUnchangedAndBlocksPendingMigration(t *tes
 		},
 	}
 
+	t.Setenv(storageconfig.RuntimeConfigEnv, "/tmp/storage.json")
+	t.Setenv("SCENERY_PROCESS_LINK", "/tmp/link.json")
+	t.Setenv(workerruntime.AssistantRuntimeConfigEnv, "/tmp/assistant.json")
+	dbEnv := workerDatabaseEnv(root, cfg, "local")
+	if !slices.Contains(dbEnv, storageconfig.RuntimeConfigEnv+"=/tmp/storage.json") {
+		t.Fatalf("workerDatabaseEnv stripped %s: %v", storageconfig.RuntimeConfigEnv, dbEnv)
+	}
+	for _, entry := range dbEnv {
+		if strings.HasPrefix(entry, "SCENERY_PROCESS_LINK=") || strings.HasPrefix(entry, workerruntime.AssistantRuntimeConfigEnv+"=") {
+			t.Fatalf("workerDatabaseEnv leaked restricted variable %q", entry)
+		}
+	}
+
 	gotSetup, dbChanged, err := dev.checkPendingMigrations(context.Background())
-	if err != nil || dbChanged || gotSetup.Fingerprint != initialSetup.Fingerprint && dbChanged || called != 0 {
+	if err != nil || dbChanged || gotSetup.Fingerprint != initialSetup.Fingerprint || called != 0 {
 		t.Fatalf("checkPendingMigrations(unchanged) = (%+v, %v, %v), called=%d", gotSetup, dbChanged, err, called)
 	}
 
@@ -757,78 +771,77 @@ func TestWorkerVerifyDatabaseSetupSkipsUnchangedAndBlocksPendingMigration(t *tes
 	}
 }
 
-func TestWorkerWatcherRepublishesGenerationOnHostOnlyConfigChangeAndForcedRetire(t *testing.T) {
+func newTestWorkerControl(t *testing.T, handler http.HandlerFunc) (string, *http.Client) {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "wrev-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	// 1. Host-only or revision-only config change publishes a new generation without restarting matching workers,
-	// and retires previous generations across transient forced-retire failures.
-	controlSock := filepath.Join(dir, "control.sock")
-	listener, err := net.Listen("unix", controlSock)
+	sock := filepath.Join(dir, "control.sock")
+	listener, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
+	server := &http.Server{Protocols: workerabi.Protocols(), ReadHeaderTimeout: time.Second, Handler: handler}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	client := workerControlClient(sock)
+	t.Cleanup(client.CloseIdleConnections)
+	return dir, client
+}
+
+func newTestDummyWorkerProcess(dir string, program workerProgram) *workerProcess {
+	cmd := exec.Command("true")
+	cmd.Process = &os.Process{Pid: os.Getpid()}
+	return &workerProcess{program: program, cmd: cmd, socket: filepath.Join(dir, "w1.sock"), token: strings.Repeat("a", 32), done: make(chan struct{})}
+}
+
+func TestWorkerWatcherRepublishesGenerationOnHostOnlyConfigChangeAndForcedRetire(t *testing.T) {
 	var mu sync.Mutex
 	var published []map[string]any
 	var forcedAttempts int
-	server := &http.Server{
-		Protocols:         workerabi.Protocols(),
-		ReadHeaderTimeout: time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer tok" {
-				w.WriteHeader(http.StatusUnauthorized)
+	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			switch {
-			case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
-				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					w.WriteHeader(http.StatusBadRequest)
-					return
-				}
-				mu.Lock()
-				published = append(published, body)
-				mu.Unlock()
-				w.WriteHeader(http.StatusNoContent)
-			case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
-				if r.URL.Query().Get("force") != "true" {
-					w.WriteHeader(http.StatusConflict)
-					return
-				}
-				mu.Lock()
-				forcedAttempts++
-				attempt := forcedAttempts
-				mu.Unlock()
-				if attempt == 1 {
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-			default:
-				w.WriteHeader(http.StatusNotFound)
+			mu.Lock()
+			published = append(published, body)
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			if r.URL.Query().Get("force") != "true" {
+				w.WriteHeader(http.StatusConflict)
+				return
 			}
-		}),
-	}
-	go func() { _ = server.Serve(listener) }()
-	defer func() { _ = server.Close() }()
+			mu.Lock()
+			forcedAttempts++
+			attempt := forcedAttempts
+			mu.Unlock()
+			if attempt == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
 
 	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
 	workerCfg := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-1", Consumer: "mod/service/a", Values: map[string]json.RawMessage{}, Secrets: map[string][]byte{}}
 	hostCfg1 := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-1", Consumer: "$host", Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`false`)}, Public: []string{"public.flag"}, Secrets: map[string][]byte{}}
 	hostCfg2 := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-2", Consumer: "$host", Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`false`)}, Public: []string{"public.flag"}, Secrets: map[string][]byte{}}
 
-	cmd := exec.Command("true")
-	cmd.Process = &os.Process{Pid: os.Getpid()}
-	aliveProc := &workerProcess{
-		program: workerProgram{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: workerCfg},
-		cmd:     cmd,
-		socket:  filepath.Join(dir, "w1.sock"),
-		token:   strings.Repeat("a", 32),
-		done:    make(chan struct{}),
-	}
+	aliveProc := newTestDummyWorkerProcess(dir, workerProgram{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: workerCfg})
 	bundle1 := workerBundle{
 		ContractRevision: "c1",
 		Host:             workerruntime.ProcessHostConfig{DevelopmentCall: true, WorkerConfig: map[string]*workerruntime.ConfigSnapshot{"mod/service/a": workerCfg}},
@@ -839,38 +852,143 @@ func TestWorkerWatcherRepublishesGenerationOnHostOnlyConfigChangeAndForcedRetire
 	bundle2 := bundle1
 	bundle2.config = hostCfg2
 
-	client := workerControlClient(controlSock)
-	defer client.CloseIdleConnections()
-	watch := &workerWatcher{
-		token:      "tok",
-		client:     client,
-		bundle:     bundle1,
-		active:     map[string]*workerProcess{"a": aliveProc},
-		generation: 1,
-		sequence:   1,
-	}
+	watch := &workerWatcher{token: "tok", client: client, bundle: bundle1, active: map[string]*workerProcess{"a": aliveProc}, generation: 1, sequence: 1, retireDrainTimeout: 10 * time.Millisecond, retireForceInterval: 5 * time.Millisecond}
 	watch.generations.add(1, watch.active)
 	if err := watch.replace(context.Background(), bundle2, nil); err != nil {
 		t.Fatalf("watch.replace(host revision bump) = %v", err)
 	}
-	watch.retireWith(context.Background(), 1, 10*time.Millisecond, 5*time.Millisecond)
 	watch.retirements.Wait()
 	if watch.generation != 2 || watch.active["a"] != aliveProc {
 		t.Fatalf("watch state after host-only change = (gen=%d, active=%p), want gen=2 and reused process", watch.generation, watch.active["a"])
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if forcedAttempts < 2 {
-		t.Fatalf("forced retire attempts = %d, want >= 2 after transient 500", forcedAttempts)
-	}
-	if len(published) != 1 {
-		t.Fatalf("published generation count = %d, want 1", len(published))
+	if forcedAttempts < 2 || len(published) != 1 {
+		t.Fatalf("forcedAttempts=%d, published=%d; want >=2, 1", forcedAttempts, len(published))
 	}
 	if gen, _ := published[0]["generation"].(float64); gen != 2 {
 		t.Fatalf("published generation = %v, want 2", published[0]["generation"])
 	}
-	hostPayload, _ := published[0]["host_config"].(map[string]any)
-	if hostPayload == nil || hostPayload["revision"] != "rev-2" {
+	if hostPayload, _ := published[0]["host_config"].(map[string]any); hostPayload == nil || hostPayload["revision"] != "rev-2" {
 		t.Fatalf("published host_config = %#v, want revision rev-2", published[0]["host_config"])
+	}
+}
+
+func TestWorkerWatcherCancelsActiveRetirementsOnHostExitAndRetriesFailedConfigApply(t *testing.T) {
+	var mu sync.Mutex
+	allowPublish := false
+	retireForcedSeen := make(chan struct{})
+	var retireForcedOnce sync.Once
+	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+			mu.Lock()
+			ok := allowPublish
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			if strings.HasSuffix(r.URL.Path, "/1") || strings.HasSuffix(r.URL.Path, "/2") {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.URL.Query().Get("force") == "true" {
+				retireForcedOnce.Do(func() { close(retireForcedSeen) })
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	root := filepath.Join(dir, "app")
+	writeWatchFile(t, root, ".scenery.json", `{"name":"cfg-retry","id":"cfg-retry","envs":{"local":{"default":true}}}`)
+	store, err := devConfigStore(app.Config{Name: "cfg-retry", ID: "cfg-retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(store.Dir()) })
+	mutateFlag := func(val string) {
+		t.Helper()
+		if _, err := store.Mutate(context.Background(), "local", appconfig.Mutation{Key: "a.flag", Value: json.RawMessage(val)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mutateFlag("false")
+	_, cfg, err := discoverConfiguredApp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := &compiler.Result{
+		Root: root,
+		Manifest: &graph.Manifest{
+			ContractRevision: "c1",
+			Resources: []graph.Resource{{
+				Address: "mod/service/a", Module: "mod", Kind: "scenery.service", Name: "a",
+				Spec: map[string]any{"config_schema": []any{map[string]any{"name": "flag", "type": "bool", "public": true}}},
+			}},
+		},
+	}
+	inputWatch, err := openWorkerInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inputWatch.fs.Close() }()
+
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	bundle1 := workerBundle{
+		ContractRevision: "c1",
+		Host:             workerruntime.ProcessHostConfig{DevelopmentCall: true},
+		Programs:         []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity}},
+		HostConfigKeys:   []string{"a.flag"},
+	}
+	if err := bundle1.resolveDevelopmentConfig(context.Background(), compiled, cfg, "local"); err != nil {
+		t.Fatal(err)
+	}
+	bundle1.setWorkerConfig()
+	aliveProc := newTestDummyWorkerProcess(dir, bundle1.Programs[0])
+	watch := &workerWatcher{
+		token: "tok", client: client, dev: &workerDevelopment{watch: inputWatch, compiled: compiled, envName: "local"},
+		bundle: bundle1, active: map[string]*workerProcess{"a": aliveProc}, generation: 1, sequence: 1,
+		retireDrainTimeout: 5 * time.Millisecond, retireForceInterval: 5 * time.Millisecond,
+	}
+
+	mutateFlag("true")
+	if watch.applyConfigurationChange(context.Background()) {
+		t.Fatal("applyConfigurationChange must return false when publish fails")
+	}
+	mu.Lock()
+	allowPublish = true
+	mu.Unlock()
+	if !watch.applyConfigurationChange(context.Background()) {
+		t.Fatal("applyConfigurationChange must return true once Host accepts publish")
+	}
+
+	// Bump config revision so watch.run's startup check triggers a real replacement
+	// and starts a stuck forced-retirement goroutine under runCtx, then exit via hostDone.
+	mutateFlag("false")
+	hostDone := make(chan error, 1)
+	sentinel := errors.New("host exited")
+	runDone := make(chan error, 1)
+	go func() { runDone <- watch.run(context.Background(), hostDone) }()
+	select {
+	case <-retireForcedSeen:
+	case <-time.After(time.Second):
+		hostDone <- sentinel
+		t.Fatal("forced retire did not start within 1s")
+	}
+	hostDone <- sentinel
+	select {
+	case runErr := <-runDone:
+		if !errors.Is(runErr, sentinel) {
+			t.Fatalf("watcher.run = %v, want %v", runErr, sentinel)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watcher.run deadlocked on active retirements after hostDone")
 	}
 }

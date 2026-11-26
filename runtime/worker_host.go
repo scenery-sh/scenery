@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,23 +31,6 @@ type workerHost struct {
 	configMu sync.RWMutex
 	config   map[string]*ConfigSnapshot
 	storage  WorkerStorageHandler
-}
-
-// UpdateWorkerDevelopmentConfig swaps the Host and per-worker configuration
-// snapshots stored by the active worker Host during a development session.
-func UpdateWorkerDevelopmentConfig(hostSnapshot *ConfigSnapshot, workerSnapshots map[string]*ConfigSnapshot) {
-	UpdateWorkerHostConfig(hostSnapshot)
-	activeProcessHost.RLock()
-	host := activeProcessHost.host
-	activeProcessHost.RUnlock()
-	if host == nil || host.workers == nil {
-		return
-	}
-	next := make(map[string]*ConfigSnapshot, len(workerSnapshots))
-	maps.Copy(next, workerSnapshots)
-	host.workers.configMu.Lock()
-	host.workers.config = next
-	host.workers.configMu.Unlock()
 }
 
 func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec, snapshots map[string]*ConfigSnapshot, storage WorkerStorageHandler) error {
