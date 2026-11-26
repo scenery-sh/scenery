@@ -31,6 +31,15 @@ func TestTemplateDatabaseNameDeterministicAndBounded(t *testing.T) {
 	if !strings.HasPrefix(bounded, TemplateScopePrefix(longApp)) {
 		t.Fatalf("bounded template %q does not match scope prefix %q", bounded, TemplateScopePrefix(longApp))
 	}
+
+	// Prefix of "foo" must never match templates of "foo-bar" or "foo_bar".
+	fooPrefix := TemplateScopePrefix("foo")
+	for _, otherApp := range []string{"foo-bar", "foo_bar"} {
+		otherTpl := TemplateDatabaseName(otherApp, "fp-123")
+		if strings.HasPrefix(otherTpl, fooPrefix) {
+			t.Fatalf("template %q for %q collided with prefix %q of \"foo\"", otherTpl, otherApp, fooPrefix)
+		}
+	}
 }
 
 func TestDatabaseURLWithNameReplacesDatabaseAndStripsSearchPath(t *testing.T) {

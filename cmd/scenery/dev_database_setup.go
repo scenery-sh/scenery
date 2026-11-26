@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -164,6 +165,8 @@ type declaredDatabaseSetup struct {
 	contract *compiler.Result
 	env      []string
 	console  *runConsole
+	stdout   io.Writer
+	stderr   io.Writer
 	// statusOnly reports a pending migration instead of applying it.
 	statusOnly bool
 	// failed observes an apply or seed failure before the setup returns it.
@@ -198,8 +201,16 @@ func (run declaredDatabaseSetup) apply(ctx context.Context, setup devDatabaseSet
 		failed = func(string, error) {}
 	}
 	if strings.TrimSpace(run.cfg.Database.Apply.Command) != "" {
-		applyStdout := newSetupOutputWriter(run.console, "stdout", os.Stdout)
-		applyStderr := newSetupOutputWriter(run.console, "stderr", os.Stderr)
+		stdoutFallback := io.Writer(os.Stdout)
+		if run.stdout != nil {
+			stdoutFallback = run.stdout
+		}
+		stderrFallback := io.Writer(os.Stderr)
+		if run.stderr != nil {
+			stderrFallback = run.stderr
+		}
+		applyStdout := newSetupOutputWriter(run.console, "stdout", stdoutFallback)
+		applyStderr := newSetupOutputWriter(run.console, "stderr", stderrFallback)
 		applyErr := runDatabaseApplyCommandWithEnvIOHooks(ctx, run.root, run.cfg.Database.Apply, run.env, applyStdout, applyStderr, run.lifecycle)
 		applyStdout.Close()
 		applyStderr.Close()

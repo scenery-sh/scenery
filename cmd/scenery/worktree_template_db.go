@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -111,12 +112,18 @@ func ensureAppTemplateDatabase(
 		tplEnv = append(tplEnv, managedDatabaseSetupEnv(contract.SQLRequirements, managed)...)
 		connections := newDBSetupConnections()
 		defer func() { _ = connections.Close() }()
+		var setupLog bytes.Buffer
 		_, err = declaredDatabaseSetup{
 			root:     root,
 			cfg:      cfg,
 			contract: contract,
 			env:      tplEnv,
+			stdout:   &setupLog,
+			stderr:   &setupLog,
 		}.apply(ctx, setup, connections)
+		if err != nil && setupLog.Len() > 0 {
+			return fmt.Errorf("%w\n%s", err, strings.TrimSpace(setupLog.String()))
+		}
 		return err
 	})
 	if err != nil {

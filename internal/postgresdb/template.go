@@ -21,26 +21,23 @@ const (
 // for a migrated and seeded template database keyed by appID and setup fingerprint.
 func TemplateDatabaseName(appID, fingerprint string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(appID) + "\n" + strings.TrimSpace(fingerprint)))
-	hash := hex.EncodeToString(sum[:8])
-	appSlug := sanitizeTemplateSlug(appID)
-	prefix := templatePrefix + appSlug
-	suffix := "_" + hash
-	if len(prefix)+len(suffix) > maxPostgresIdentifier {
-		keep := maxPostgresIdentifier - len(suffix)
-		prefix = strings.TrimRight(prefix[:keep], "_")
-	}
-	return prefix + suffix
+	return TemplateScopePrefix(appID) + hex.EncodeToString(sum[:8])
 }
 
-// TemplateScopePrefix returns the identifier prefix shared by all templates of appID.
+// TemplateScopePrefix returns the identifier prefix shared only by templates of appID.
+// Including an exact hash of appID prevents prefix collisions across apps such as
+// "foo" and "foo-bar" on a shared external PostgreSQL server.
 func TemplateScopePrefix(appID string) string {
 	appSlug := sanitizeTemplateSlug(appID)
-	prefix := templatePrefix + appSlug + "_"
-	maxPrefix := maxPostgresIdentifier - 16
-	if len(prefix) > maxPrefix {
-		prefix = strings.TrimRight(prefix[:maxPrefix-1], "_") + "_"
+	maxSlug := maxPostgresIdentifier - len(templatePrefix) - 1 - 8 - 1 - 16
+	if len(appSlug) > maxSlug {
+		appSlug = strings.TrimRight(appSlug[:maxSlug], "_")
+		if appSlug == "" {
+			appSlug = "app"
+		}
 	}
-	return prefix
+	appSum := sha256.Sum256([]byte("scenery.postgres.template.app\x00" + strings.TrimSpace(appID)))
+	return templatePrefix + appSlug + "_" + hex.EncodeToString(appSum[:4]) + "_"
 }
 
 func sanitizeTemplateSlug(value string) string {
