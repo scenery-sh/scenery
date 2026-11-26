@@ -107,7 +107,7 @@ func TestOCIDockerfileCompilesAndSealsRustWorkers(t *testing.T) {
 
 // A polyglot bundle: a cross-compiled Go and Bun executable, a Rust worker
 // the builder stage compiles, and a static frontend.
-func ociFixture(t *testing.T) (workerBundle, []ociRustWorker, func(string) error) {
+func ociFixture(t *testing.T) (workerBundle, []ociRustWorker, func(string, ...string) error) {
 	t.Helper()
 	source := t.TempDir()
 	write := func(relative, contents string, mode os.FileMode) string {
@@ -141,8 +141,8 @@ func ociFixture(t *testing.T) (workerBundle, []ociRustWorker, func(string) error
 		Frontend: &workerFrontend{Name: "web", Root: filepath.Join(source, "web", "dist"), Reserved: []string{"/api"}},
 	}
 	workers := []ociRustWorker{{Workspace: ".", Crate: "pricing", Binary: rustbuild.BinaryName(services[0]), Process: "quote", Toolchain: "1.99.1", Placeholder: "@rust-worker-0@"}}
-	export := func(directory string) error {
-		return rustbuild.ExportWorkerSources(t.Context(), filepath.Join(source, "app"), services, directory)
+	export := func(directory string, exclude ...string) error {
+		return rustbuild.ExportWorkerSources(t.Context(), filepath.Join(source, "app"), services, directory, exclude...)
 	}
 	return bundle, workers, export
 }
@@ -255,8 +255,23 @@ func TestOCIContextReplacesOnlyAPreviousContext(t *testing.T) {
 	if err := writeOCIContext(bundle, workers, export, occupied, platform); err == nil || !strings.Contains(err.Error(), "not an image build context") {
 		t.Fatalf("occupied destination: %v", err)
 	}
+	// A hand-authored directory that happens to contain a Dockerfile and
+	// bundle/manifest.json must never be overwritten.
+	handAuthored := filepath.Join(output, "hand-authored")
+	if err := os.MkdirAll(filepath.Join(handAuthored, "bundle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(handAuthored, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(handAuthored, "bundle", "manifest.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeOCIContext(bundle, workers, export, handAuthored, platform); err == nil || !strings.Contains(err.Error(), "not a generated image build context") {
+		t.Fatalf("hand-authored destination: %v", err)
+	}
 	entries, err := os.ReadDir(output)
-	if err != nil || len(entries) != 2 {
+	if err != nil || len(entries) != 3 {
 		t.Fatalf("staging was left behind: %v %v", entries, err)
 	}
 }
@@ -276,6 +291,42 @@ func TestOCIContextOfAGoOnlyApplication(t *testing.T) {
 	dockerfile, err := os.ReadFile(filepath.Join(context, "Dockerfile"))
 	if err != nil || strings.Contains(string(dockerfile), "COPY rust/") {
 		t.Fatalf("Go-only Dockerfile: %v\n%s", err, dockerfile)
+	}
+}
+
+func TestOCIContextInsideAppRootExcludesSelfAndRootSecrets(t *testing.T) {
+	t.Parallel()
+
+	bundle, workers, _ := ociFixture(t)
+	appRoot := t.TempDir()
+	write := func(relative, contents string) {
+		path := filepath.Join(appRoot, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Cargo.toml", "[workspace]\nmembers = [\"native\"]\n")
+	write("Cargo.lock", "version = 4\n")
+	write("native/Cargo.toml", "[package]\nname = \"pricing\"\n")
+	write("native/scenerycontract/quote_worker.rs", "fn main() {}\n")
+	write(".scenery/gen/rust-sdk/Cargo.toml", "[package]\nname = \"scenery-sdk\"\n")
+	write("prod-config.json", `{"secrets":{"token":"super-secret"}}`)
+	services := []rustbuild.Service{{ModuleDirectory: "native", Workspace: ".", Crate: "pricing", ServiceName: "quote", Toolchain: "1.99.1"}}
+	export := func(directory string, exclude ...string) error {
+		return rustbuild.ExportWorkerSources(t.Context(), appRoot, services, directory, exclude...)
+	}
+	contextDir := filepath.Join(appRoot, "oci-out")
+	if err := writeOCIContext(bundle, workers, export, contextDir, ociPlatforms["linux/amd64"]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(contextDir, "rust", "prod-config.json")); !os.IsNotExist(err) {
+		t.Fatalf("root secrets JSON leaked into Rust OCI context: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contextDir, "rust", "oci-out")); !os.IsNotExist(err) {
+		t.Fatalf("OCI context directory recursed into rust/: %v", err)
 	}
 }
 

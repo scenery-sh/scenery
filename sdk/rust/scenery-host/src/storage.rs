@@ -230,9 +230,13 @@ fn load(lookup: Lookup) -> Result<Option<serde_json::Value>> {
         return Ok(None);
     };
     let data = if config.trim_start().starts_with('{') {
+        ensure!(
+            config.len() <= 4 << 20,
+            "{STORAGE_CONFIG} exceeds 4 MiB"
+        );
         config.into_bytes()
     } else {
-        std::fs::read(PathBuf::from(&config))
+        crate::config::read_file_limited(&PathBuf::from(&config))
             .with_context(|| format!("read {STORAGE_CONFIG} file {config}"))?
     };
     let mut value = values::parse(&data).with_context(|| format!("parse {STORAGE_CONFIG}"))?;

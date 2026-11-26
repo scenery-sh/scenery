@@ -372,6 +372,14 @@ fn answer(
             reply(200, &[("etag", etag)], "")
         }
         Method::DELETE => {
+            if let Some(expected) = parts
+                .headers
+                .get("if-match")
+                .and_then(|value| value.to_str().ok())
+                && current.is_none_or(|stored| stored.etag != expected)
+            {
+                return error(412, "PreconditionFailed");
+            }
             state.objects.remove(&object);
             reply(204, &[], "")
         }
@@ -815,4 +823,49 @@ async fn limits_access_and_backend_failures_map_to_storage_faults() {
             .unwrap_err(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+#[tokio::test]
+async fn delete_prefix_is_scoped_and_ignores_unsafe_listed_keys() {
+    let (endpoint, state) = mock_s3().await;
+    let store = Store::new(&endpoint, json!({}));
+    for (tenant, key) in [
+        ("acme", "logs/2026/a.txt"),
+        ("acme", "logs/2026/b.txt"),
+        ("acme", "keep/c.txt"),
+        ("globex", "logs/2026/a.txt"),
+    ] {
+        store
+            .call("PUT", tenant, &[("key", key)], &[], b"data")
+            .await
+            .unwrap();
+    }
+    // Inject a traversal key under acme's prefix directly into the mock bucket
+    // to verify delete_prefix never normalizes and deletes outside the partition.
+    let poisoned = "app/files/tenants/YWNtZQ/logs/2026/../../keep/c.txt".to_owned();
+    state.lock().unwrap().objects.insert(
+        poisoned.clone(),
+        Stored {
+            data: Bytes::from_static(b"poison"),
+            etag: "\"poison\"".into(),
+            headers: HeaderMap::new(),
+        },
+    );
+    let (status, _, _) = store
+        .call(
+            "DELETE",
+            "acme",
+            &[("key", "logs/"), ("recursive", "1")],
+            &[],
+            b"",
+        )
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let objects = &state.lock().unwrap().objects;
+    assert!(!objects.contains_key("app/files/tenants/YWNtZQ/logs/2026/a.txt"));
+    assert!(!objects.contains_key("app/files/tenants/YWNtZQ/logs/2026/b.txt"));
+    assert!(objects.contains_key("app/files/tenants/YWNtZQ/keep/c.txt"));
+    assert!(objects.contains_key("app/files/tenants/Z2xvYmV4/logs/2026/a.txt"));
+    assert!(objects.contains_key(&poisoned));
 }

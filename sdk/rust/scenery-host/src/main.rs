@@ -388,7 +388,14 @@ async fn run(mut input: Input) -> Result<()> {
             engine.abort();
             let _ = engine.await;
         }
-        let _ = scheduler.await;
+        let mut scheduler = scheduler;
+        if tokio::time::timeout(DRAIN_TIMEOUT, &mut scheduler)
+            .await
+            .is_err()
+        {
+            scheduler.abort();
+            let _ = scheduler.await;
+        }
         result
     }.await;
     stop.cancel();

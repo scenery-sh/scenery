@@ -61,8 +61,13 @@ pub(crate) async fn run(host: Arc<Host>, stop: CancellationToken) {
                             let client = host.engine.connection().await?;
                             schedule_slots::prune(&client, &services).await
                         };
-                        if let Err(error) = pruned.await {
-                            eprintln!("schedule retention: {error:#}");
+                        tokio::select! {
+                            () = stop.cancelled() => break,
+                            result = tokio::time::timeout(Duration::from_secs(10), pruned) => match result {
+                                Ok(Ok(_)) => {}
+                                Ok(Err(error)) => eprintln!("schedule retention: {error:#}"),
+                                Err(_) => eprintln!("schedule retention timed out"),
+                            }
                         }
                     }
                 }
@@ -171,21 +176,27 @@ async fn tick(
                         Overlap::Queue => { queue.push_back(current); None }
                         Overlap::Skip => None,
                     },
-                    Some(slots) => match claim(&host, slots, &key, at, schedule).await {
-                        Ok(Some(run)) => {
-                            if schedule.overlap == "replace" {
-                                active.abort_all();
+                    Some(slots) => {
+                        let claimed = tokio::select! {
+                            () = stop.cancelled() => break,
+                            result = claim(&host, slots, &key, at, schedule) => result,
+                        };
+                        match claimed {
+                            Ok(Some(run)) => {
+                                if schedule.overlap == "replace" {
+                                    active.abort_all();
+                                }
+                                Some(Some(run))
                             }
-                            Some(Some(run))
+                            Ok(None) => None,
+                            Err(error) => {
+                                // Without the claim no replica may assume the
+                                // slot is free; it is skipped, never run twice.
+                                eprintln!("schedule {} could not claim its slot: {error:#}", schedule.address);
+                                None
+                            }
                         }
-                        Ok(None) => None,
-                        Err(error) => {
-                            // Without the claim no replica may assume the
-                            // slot is free; it is skipped, never run twice.
-                            eprintln!("schedule {} could not claim its slot: {error:#}", schedule.address);
-                            None
-                        }
-                    },
+                    }
                 }
             }
         };
@@ -220,24 +231,28 @@ async fn claim(
     at: i128,
     schedule: &Schedule,
 ) -> anyhow::Result<Option<Run>> {
-    slots.ensure_schema().await?;
-    let client = host.engine.connection().await?;
     let catchup = Duration::from_nanos(schedule.catchup_maximum_age);
-    let claim = slots.claim(
-        &client,
-        key,
-        schedule_slots::micros(at),
-        &schedule.overlap,
-        catchup,
-    );
+    let claim = async {
+        slots.ensure_schema().await?;
+        let client = host.engine.connection().await?;
+        slots
+            .claim(
+                &client,
+                key,
+                schedule_slots::micros(at),
+                &schedule.overlap,
+                catchup,
+            )
+            .await
+    };
     tokio::time::timeout(Duration::from_secs(10), claim)
         .await
         .map_err(|_| anyhow::anyhow!("claim timed out"))?
 }
 
 /// Runs a claimed slot and, for a `queue` schedule, every slot that waited
-/// behind it. A leased run renews its lease while it runs and ends when it
-/// loses it.
+/// behind it. A leased run renews its lease while it runs and stops before its
+/// last confirmed lease expires or when another replica replaces it.
 async fn coordinated_run(
     host: Arc<Host>,
     slots: Arc<Slots>,
@@ -252,22 +267,29 @@ async fn coordinated_run(
     while let Some(run) = next.take() {
         let invocation = invoke(&host, service, schedule);
         tokio::pin!(invocation);
+        let mut lease_deadline = Instant::now() + slots.lease();
         let mut renewal = interval(slots.heartbeat());
         renewal.tick().await;
         let result = loop {
             tokio::select! {
                 result = &mut invocation => break Some(result),
+                () = sleep_until(lease_deadline), if run.leased => {
+                    eprintln!("schedule {} lease expired before renewal succeeded; cancelling run", schedule.address);
+                    break None;
+                }
                 _ = renewal.tick(), if run.leased => {
+                    let started = Instant::now();
                     let renewed = async {
                         let client = host.engine.connection().await?;
                         slots.renew(&client, &key, &run).await
                     };
-                    match renewed.await {
-                        Ok(true) => {}
+                    match tokio::time::timeout(Duration::from_secs(5), renewed).await {
+                        Ok(Ok(true)) => lease_deadline = started + slots.lease(),
                         // Replaced or taken over: dropping the invocation
                         // cancels it, as a local `replace` does.
-                        Ok(false) => break None,
-                        Err(error) => eprintln!("schedule {} could not renew its lease: {error:#}", schedule.address),
+                        Ok(Ok(false)) => break None,
+                        Ok(Err(error)) => eprintln!("schedule {} could not renew its lease: {error:#}", schedule.address),
+                        Err(_) => eprintln!("schedule {} lease renewal timed out", schedule.address),
                     }
                 }
             }
@@ -284,12 +306,13 @@ async fn coordinated_run(
             }
             Ok(None)
         };
-        match finished.await {
-            Ok(promoted) => next = promoted,
-            Err(error) => eprintln!(
+        match tokio::time::timeout(Duration::from_secs(5), finished).await {
+            Ok(Ok(promoted)) => next = promoted,
+            Ok(Err(error)) => eprintln!(
                 "schedule {} could not record its run: {error:#}",
                 schedule.address
             ),
+            Err(_) => eprintln!("schedule {} finish timed out", schedule.address),
         }
     }
 }

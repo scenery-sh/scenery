@@ -101,11 +101,11 @@ func buildCommand(out io.Writer, args []string) error {
 	if development {
 		role = "development"
 	}
-	if err := validateWorkerBundleTargetPlatform(compiled, role, targetName); err != nil {
-		return goTargetSelectionCLIError(err)
-	}
 	if oci {
 		return buildOCICommand(context.Background(), out, compiled, appRoot, cfg, targetName, image, jsonOutput)
+	}
+	if err := validateWorkerBundleTargetPlatform(compiled, role, targetName); err != nil {
+		return goTargetSelectionCLIError(err)
 	}
 	bundle, err := buildWorkerBundle(context.Background(), compiled, role, targetName, false)
 	if err != nil {

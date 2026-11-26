@@ -121,7 +121,13 @@ func withSnapshot(ctx context.Context, root string, services []Service, verify f
 }
 
 func prepareSnapshot(ctx context.Context, root, snapshot string, services []Service, captured map[string][sha256.Size]byte) error {
+	return prepareSnapshotFiltered(ctx, root, snapshot, services, captured, false, nil)
+}
+
+func prepareSnapshotFiltered(ctx context.Context, root, snapshot string, services []Service, captured map[string][sha256.Size]byte, ociOnly bool, excludePaths []string) error {
 	manifests := make(map[string][]byte)
+	hasRootWorkspace := false
+	workspaces := make([]string, 0, len(services))
 	for _, service := range services {
 		worker := filepath.Join(root, service.ModuleDirectory, "scenerycontract", service.ServiceName+"_worker.rs")
 		if info, err := os.Lstat(worker); err != nil || !info.Mode().IsRegular() {
@@ -129,9 +135,58 @@ func prepareSnapshot(ctx context.Context, root, snapshot string, services []Serv
 		}
 		manifest := filepath.Join(service.ModuleDirectory, "Cargo.toml")
 		manifests[manifest] = fmt.Appendf(manifests[manifest], "\n[[bin]]\nname = %q\npath = %q\n", binaryName(service), "scenerycontract/"+service.ServiceName+"_worker.rs")
+		ws := filepath.Clean(service.Workspace)
+		if ws == "." || ws == "" {
+			hasRootWorkspace = true
+		} else if !slices.Contains(workspaces, ws) {
+			workspaces = append(workspaces, ws)
+		}
 	}
-	if err := syncSources(ctx, root, snapshot, true, manifests, captured); err != nil {
-		return err
+	excluded := make(map[string]bool, len(excludePaths))
+	for _, p := range excludePaths {
+		if p == "" {
+			continue
+		}
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			excluded[filepath.Clean(resolved)] = true
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			excluded[filepath.Clean(abs)] = true
+		}
+	}
+	if ociOnly && !hasRootWorkspace && len(workspaces) > 0 {
+		for _, ws := range workspaces {
+			wsRoot := filepath.Join(root, ws)
+			wsDest := filepath.Join(snapshot, ws)
+			if err := ensureSnapshotDirectory(wsDest); err != nil {
+				return err
+			}
+			wsManifests := make(map[string][]byte)
+			for rel, suffix := range manifests {
+				if sub, err := filepath.Rel(ws, rel); err == nil && sub != ".." && !strings.HasPrefix(sub, ".."+string(filepath.Separator)) {
+					wsManifests[sub] = suffix
+				}
+			}
+			if err := syncSourcesFiltered(ctx, wsRoot, wsDest, true, false, excluded, wsManifests, captured); err != nil {
+				return err
+			}
+		}
+		for _, optional := range []string{"rust-toolchain.toml", "rust-toolchain"} {
+			src := filepath.Join(root, optional)
+			if info, err := os.Lstat(src); err == nil && info.Mode().IsRegular() {
+				data, err := os.ReadFile(src)
+				if err != nil {
+					return err
+				}
+				if err := syncSnapshotFile(filepath.Join(snapshot, optional), data, info.Mode().Perm()&0o700); err != nil {
+					return err
+				}
+			}
+		}
+	} else {
+		if err := syncSourcesFiltered(ctx, root, snapshot, true, ociOnly, excluded, manifests, captured); err != nil {
+			return err
+		}
 	}
 	const sdk = ".scenery/gen/rust-sdk"
 	for _, dir := range []string{".scenery", ".scenery/gen"} {
@@ -139,10 +194,10 @@ func prepareSnapshot(ctx context.Context, root, snapshot string, services []Serv
 			return err
 		}
 	}
-	return syncSources(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false, nil, nil)
+	return syncSourcesFiltered(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false, false, nil, nil, nil)
 }
 
-func syncSources(ctx context.Context, root, destination string, skipIgnored bool, suffixes map[string][]byte, captured map[string][sha256.Size]byte) error {
+func syncSourcesFiltered(ctx context.Context, root, destination string, skipIgnored, skipRootSecrets bool, excluded map[string]bool, suffixes map[string][]byte, captured map[string][sha256.Size]byte) error {
 	seen := make(map[string]bool)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -151,13 +206,19 @@ func syncSources(ctx context.Context, root, destination string, skipIgnored bool
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if excluded[filepath.Clean(path)] {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
 		output := filepath.Join(destination, relative)
 		if skipIgnored && relative != "." {
-			if entry.IsDir() && appwalk.SkipDir(root, path) {
+			if entry.IsDir() && (appwalk.SkipDir(root, path) || strings.HasPrefix(entry.Name(), ".oci-context-")) {
 				return filepath.SkipDir
 			}
 			switch entry.Name() {
@@ -169,6 +230,12 @@ func syncSources(ctx context.Context, root, destination string, skipIgnored bool
 			}
 			if watchignore.IsLocalEnvironmentFile(entry.Name()) || entry.Name() == ".DS_Store" {
 				return nil
+			}
+			if skipRootSecrets && !entry.IsDir() && filepath.Dir(relative) == "." {
+				lower := strings.ToLower(entry.Name())
+				if strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key") {
+					return nil
+				}
 			}
 		}
 		seen[relative] = true
@@ -256,12 +323,12 @@ func BinaryName(service Service) string { return binaryName(service) }
 // from to destination: the application's sources with each worker's bin
 // declaration and the generated Rust SDK. An OCI build compiles it in a
 // Linux builder stage.
-func ExportWorkerSources(ctx context.Context, root string, services []Service, destination string) error {
+func ExportWorkerSources(ctx context.Context, root string, services []Service, destination string, excludePaths ...string) error {
 	root, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return err
 	}
-	return prepareSnapshot(ctx, root, destination, services, nil)
+	return prepareSnapshotFiltered(ctx, root, destination, services, nil, true, excludePaths)
 }
 
 func buildService(ctx context.Context, snapshot, target, privateRoot string, service Service, release, check bool) (Artifact, error) {

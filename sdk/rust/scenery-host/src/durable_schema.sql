@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS scenery.schedule_slots (
   service TEXT NOT NULL,
   schedule TEXT NOT NULL,
   slot_at TIMESTAMPTZ NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('claimed', 'running', 'queued', 'done', 'replaced', 'expired')),
+  state TEXT NOT NULL CHECK (state IN ('claimed', 'running', 'queued', 'skipped', 'done', 'replaced', 'expired')),
   owner TEXT NOT NULL,
   lease_until TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

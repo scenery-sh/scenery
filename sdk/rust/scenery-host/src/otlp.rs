@@ -218,11 +218,14 @@ pub(crate) fn start(export: Export) -> Result<Option<(Queue, Flush)>> {
                 }
             }
             let payloads = encode(&mut events, batch.drain(..));
-            for (signal, body) in payloads {
-                if let Some(endpoint) = endpoints.get(signal) {
+            let deliveries = payloads.into_iter().filter_map(|(signal, body)| {
+                let endpoint = endpoints.get(signal)?.clone();
+                let client = client.clone();
+                let headers = headers.clone();
+                Some(async move {
                     let sent = client
-                        .post(endpoint.clone())
-                        .headers(headers.clone())
+                        .post(endpoint)
+                        .headers(headers)
                         .header("content-type", "application/x-protobuf")
                         .body(body)
                         .send()
@@ -231,8 +234,9 @@ pub(crate) fn start(export: Export) -> Result<Option<(Queue, Flush)>> {
                     if let Err(error) = sent {
                         eprintln!("could not export {signal}: {}", error.without_url());
                     }
-                }
-            }
+                })
+            });
+            futures_util::future::join_all(deliveries).await;
             if last {
                 break;
             }

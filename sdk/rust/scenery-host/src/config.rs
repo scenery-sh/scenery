@@ -144,7 +144,7 @@ pub(crate) fn load_snapshot(explicit: Option<&Path>, lookup: Lookup) -> Result<V
     Ok(snapshot)
 }
 
-fn read_file(path: &Path) -> Result<Vec<u8>> {
+pub(crate) fn read_file_limited(path: &Path) -> Result<Vec<u8>> {
     let file =
         File::open(path).with_context(|| format!("read configuration file {}", path.display()))?;
     ensure!(
@@ -153,6 +153,10 @@ fn read_file(path: &Path) -> Result<Vec<u8>> {
         path.display()
     );
     read_limited(file).with_context(|| format!("read configuration file {}", path.display()))
+}
+
+fn read_file(path: &Path) -> Result<Vec<u8>> {
+    read_file_limited(path)
 }
 
 fn read_descriptor(value: &OsStr) -> Result<Vec<u8>> {
@@ -196,6 +200,7 @@ fn resolve_snapshot(snapshot: &mut Value, lookup: Lookup) -> Result<()> {
             "configuration snapshot has no {field}"
         );
     }
+    let mut budget = SNAPSHOT_LIMIT as usize;
     if let Some(secrets) = snapshot.get_mut("secrets") {
         let secrets = secrets
             .as_object_mut()
@@ -203,7 +208,9 @@ fn resolve_snapshot(snapshot: &mut Value, lookup: Lookup) -> Result<()> {
         for (key, secret) in secrets {
             if let Some(name) = reference(secret)? {
                 let raw = variable(lookup, name)?;
-                *secret = Value::String(STANDARD.encode(raw.as_bytes()));
+                let encoded = STANDARD.encode(raw.as_bytes());
+                spend_budget(&mut budget, encoded.len())?;
+                *secret = Value::String(encoded);
             } else {
                 ensure!(
                     secret
@@ -214,30 +221,43 @@ fn resolve_snapshot(snapshot: &mut Value, lookup: Lookup) -> Result<()> {
             }
         }
     }
-    resolve_env(snapshot, lookup)
+    resolve_env_budgeted(snapshot, lookup, &mut budget)
 }
 
 /// Replaces every `{"$env": "NAME"}` object in `value` with the named
 /// variable's value as a JSON string. A referenced variable that is not set
 /// is an error naming the variable, never its value.
 pub(crate) fn resolve_env(value: &mut Value, lookup: Lookup) -> Result<()> {
+    let mut budget = SNAPSHOT_LIMIT as usize;
+    resolve_env_budgeted(value, lookup, &mut budget)
+}
+
+fn resolve_env_budgeted(value: &mut Value, lookup: Lookup, budget: &mut usize) -> Result<()> {
     if let Some(name) = reference(value)? {
         let raw = variable(lookup, name)?;
         let text = raw
             .into_string()
             .map_err(|_| anyhow::anyhow!("environment variable {name} is not valid UTF-8"))?;
+        spend_budget(budget, text.len())?;
         *value = Value::String(text);
         return Ok(());
     }
     match value {
         Value::Array(items) => items
             .iter_mut()
-            .try_for_each(|item| resolve_env(item, lookup)),
+            .try_for_each(|item| resolve_env_budgeted(item, lookup, budget)),
         Value::Object(fields) => fields
             .values_mut()
-            .try_for_each(|field| resolve_env(field, lookup)),
+            .try_for_each(|field| resolve_env_budgeted(field, lookup, budget)),
         _ => Ok(()),
     }
+}
+
+fn spend_budget(budget: &mut usize, bytes: usize) -> Result<()> {
+    *budget = budget
+        .checked_sub(bytes)
+        .ok_or_else(|| anyhow::anyhow!("resolved configuration exceeds 4 MiB"))?;
+    Ok(())
 }
 
 /// The variable a `{"$env": "NAME"}` object references. Any other object
@@ -443,6 +463,29 @@ mod tests {
         let error = format!(
             "{:#}",
             load_snapshot(Some(file.path()), &lookup).unwrap_err()
+        );
+        assert!(error.contains("exceeds 4 MiB"), "{error}");
+
+        // Repeated $env references cannot amplify memory past the 4 MiB cap.
+        let chunk = "x".repeat(1 << 20);
+        let amplified = json!({
+            "kind": SNAPSHOT_KIND,
+            "app_id": "app",
+            "environment": "prod",
+            "revision": "r1",
+            "values": {
+                "a": {"$env": "BIG"},
+                "b": {"$env": "BIG"},
+                "c": {"$env": "BIG"},
+                "d": {"$env": "BIG"},
+                "e": {"$env": "BIG"},
+            }
+        });
+        let file = snapshot_file(amplified.to_string().as_bytes());
+        let big_lookup = environment(&[("BIG", &chunk)]);
+        let error = format!(
+            "{:#}",
+            load_snapshot(Some(file.path()), &big_lookup).unwrap_err()
         );
         assert!(error.contains("exceeds 4 MiB"), "{error}");
     }

@@ -51,6 +51,11 @@ impl Slots {
         }
     }
 
+    /// How long a newly granted or renewed lease lasts.
+    pub(crate) fn lease(&self) -> Duration {
+        self.lease
+    }
+
     /// The interval at which a leased run renews its lease.
     pub(crate) fn heartbeat(&self) -> Duration {
         self.lease / 3
@@ -114,6 +119,21 @@ impl Slots {
             .await?
             .is_some();
         match (inserted, state) {
+            (false, "running") if overlap != "replace" => {
+                // Record the skip decision for this slot so a delayed replica
+                // cannot execute it once the overlapping run finishes.
+                client
+                    .execute(
+                        &format!(
+                            "INSERT INTO scenery.schedule_slots (service, schedule, slot_at, state, owner, lease_until)
+                             VALUES ($1, $2, {SLOT}, 'skipped', $4, NULL)
+                             ON CONFLICT (service, schedule, slot_at) DO NOTHING"
+                        ),
+                        &[&key.service, &key.schedule, &slot, &self.owner],
+                    )
+                    .await?;
+                Ok(None)
+            }
             (false, _) => Ok(None),
             (true, "queued") => self.promote(client, key, catchup).await,
             (true, state) => Ok(Some(Run {

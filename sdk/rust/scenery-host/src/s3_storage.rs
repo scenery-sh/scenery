@@ -592,8 +592,11 @@ impl<'a> Partition<'a> {
         Ok(json_reply(StatusCode::CREATED, &object))
     }
 
-    /// Deletes `key`. A precondition is checked against the current version
-    /// first; deleting an absent object succeeds, as it does locally.
+    /// Deletes `key`. `If-Match` is forwarded on the signed `DELETE` request
+    /// for atomic backend enforcement and checked via `HEAD` first for
+    /// backends that do not implement conditional deletes; `If-None-Match: *`
+    /// checks absence first. Deleting an absent object succeeds, as it does
+    /// locally.
     async fn delete(&self, request: &HeaderMap, key: &str) -> Result<Reply, Fault> {
         let object = self.object(key);
         let (if_match, absent) = preconditions(request)?;
@@ -612,10 +615,14 @@ impl<'a> Partition<'a> {
                 return Ok(empty(StatusCode::NO_CONTENT));
             }
         }
+        let mut headers = HeaderMap::new();
+        if let Some(expected) = &if_match {
+            headers.insert(hyper::header::IF_MATCH, expected.clone());
+        }
         let url = self.bucket.url(Some(&object), &[]);
         let response = self
             .bucket
-            .send(Method::DELETE, url, HeaderMap::new(), EMPTY_PAYLOAD, None)
+            .send(Method::DELETE, url, headers, EMPTY_PAYLOAD, None)
             .await?;
         if !response.status().is_success() && response.status() != StatusCode::NOT_FOUND {
             return Err(failure(response).await);
@@ -652,10 +659,29 @@ impl<'a> Partition<'a> {
             let document = read_text(response, LIST_LIMIT).await?;
             let keys: Vec<String> = elements(&document, "Contents")
                 .filter_map(|entry| element(entry, "Key").map(unescape))
-                .filter(|object| object.starts_with(&full_prefix))
+                .filter(|object| {
+                    object
+                        .strip_prefix(&self.root)
+                        .is_some_and(|relative| {
+                            relative.starts_with(prefix) && path_valid(relative, false)
+                        })
+                })
                 .collect();
             for object in keys {
                 let url = self.bucket.url(Some(&object), &[]);
+                let expected_suffix = object
+                    .split('/')
+                    .map(encode)
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let expected_path = if self.bucket.path_style {
+                    format!("/{}/{expected_suffix}", encode(&self.bucket.bucket))
+                } else {
+                    format!("/{expected_suffix}")
+                };
+                if url.path() != expected_path {
+                    return Err(Fault::internal("storage backend returned an unsafe key"));
+                }
                 let delete = self
                     .bucket
                     .send(Method::DELETE, url, HeaderMap::new(), EMPTY_PAYLOAD, None)

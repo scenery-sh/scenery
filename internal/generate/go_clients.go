@@ -251,15 +251,6 @@ func operationVariantWrappers(opName string, op Resource) []operationVariantWrap
 	return wrappers
 }
 
-func operationVariantWrapperMap(opName string, op Resource) map[string]string {
-	entries := operationVariantWrappers(opName, op)
-	byOutcome := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		byOutcome[entry.Kind+"."+entry.VariantName] = entry.WrapperName
-	}
-	return byOutcome
-}
-
 // generatedOperationSymbols returns all package-level identifiers emitted by
 // renderOperationAPI for an operation named name.
 func generatedOperationSymbols(name string, op Resource) []string {
