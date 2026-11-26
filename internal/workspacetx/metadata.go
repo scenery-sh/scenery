@@ -36,10 +36,10 @@ type Journal struct {
 func NewArtifacts(transactionDir, receipt string) (Lock, Journal) {
 	owner := currentOwner()
 	return Lock{
-			ArtifactIdentity: machine.NewArtifactIdentity(lockKind, lockDescriptor),
-			Owner:            owner, TransactionDir: transactionDir,
-		}, Journal{
-			ArtifactIdentity: machine.NewArtifactIdentity(journalKind, journalDescriptor),
-			Owner:            owner, Receipt: receipt, Directory: transactionDir,
-		}
+		ArtifactIdentity: machine.NewArtifactIdentity(lockKind, lockDescriptor),
+		Owner:            owner, TransactionDir: transactionDir,
+	}, Journal{
+		ArtifactIdentity: machine.NewArtifactIdentity(journalKind, journalDescriptor),
+		Owner:            owner, Receipt: receipt, Directory: transactionDir,
+	}
 }
