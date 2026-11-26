@@ -7,6 +7,7 @@
 
 # Local dependencies and caches
 node_modules/
+__pycache__/
 /oracle/
 /coverage/
 /.DS_Store

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
@@ -18,17 +19,20 @@ import (
 
 type moduleTestResult struct {
 	agentModule
-	Command    []string `json:"command"`
-	OK         bool     `json:"ok"`
-	DurationMS int64    `json:"duration_ms"`
-	Output     string   `json:"output,omitempty"`
+	Command    []string                   `json:"command"`
+	OK         bool                       `json:"ok"`
+	DurationMS int64                      `json:"duration_ms"`
+	Output     string                     `json:"output,omitempty"`
+	Database   *testModuleDatabaseSummary `json:"database,omitempty"`
 }
 
 func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	flags := newCLIFlagSet("test")
 	var root string
-	var jsonOutput bool
+	var jsonOutput, withHost, branchDB bool
 	flags.StringVar(&root, "app-root", "", "")
+	flags.BoolVar(&withHost, "with-host", false, "")
+	flags.BoolVar(&branchDB, "branch-db", false, "")
 	registerJSONOutput(flags, &jsonOutput)
 	targets, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -37,6 +41,9 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	root, err = findContractRoot(root)
 	if err != nil {
 		return err
+	}
+	if canonical, evalErr := filepath.EvalSymlinks(root); evalErr == nil {
+		root = canonical
 	}
 	g, err := loadAgentGraph(ctx, root)
 	if err != nil {
@@ -59,6 +66,42 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	// Publish all module contracts in the existing atomic transaction. Tests
 	// can import generated clients belonging to a different module.
 	_, generationErr := generate.GenerateSnapshotWithContext(ctx, g.Result, "contracts", false)
+	baseEnv := envpolicy.Environ()
+	var cfg appcfg.Config
+	if _, discoveredCfg, cfgErr := appcfg.DiscoverRoot(root); cfgErr == nil {
+		cfg = discoveredCfg
+	} else if g.Manifest != nil {
+		cfg.Name = g.Manifest.Application.Name
+	}
+
+	var dbHarness *testDatabaseHarness
+	var hostBuilder *testHostBuilder
+	var lastHostSummary *testHostSummary
+	if generationErr == nil && (branchDB || (withHost && len(g.SQLRequirements) > 0)) {
+		dbHarness, err = startTestDatabaseHarness(ctx, root, cfg, g.Result, baseEnv)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = dbHarness.Close() }()
+	}
+	if generationErr == nil && withHost {
+		hostBuilder, err = prepareTestHostBuilder(ctx, root, cfg, g.Result)
+		if err != nil {
+			return err
+		}
+	}
+
+	var sharedHostStop func()
+	var sharedHostEnv []string
+	if hostBuilder != nil && dbHarness == nil {
+		var startErr error
+		lastHostSummary, sharedHostEnv, sharedHostStop, startErr = hostBuilder.startInstance(ctx, baseEnv)
+		if startErr != nil {
+			return startErr
+		}
+		defer sharedHostStop()
+	}
+
 	for _, module := range modules {
 		dir, command, err := g.testCommand(module)
 		record := moduleTestResult{agentModule: module, Command: command}
@@ -69,11 +112,47 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 		case err != nil:
 			record.Output = boundedOutput(err.Error())
 		default:
+			modEnv := slicesCloneEnv(baseEnv)
+			var cleanupDB func()
+			if dbHarness != nil {
+				dbSummary, dbEnv, dropClone, branchErr := dbHarness.branchForModule(ctx, module.Name)
+				if branchErr != nil {
+					record.Output = boundedOutput("branch test database: " + branchErr.Error())
+					break
+				}
+				cleanupDB = dropClone
+				record.Database = dbSummary
+				modEnv = mergeEnvEntries(modEnv, dbEnv)
+			}
+			var stopModHost func()
+			if hostBuilder != nil {
+				if dbHarness != nil {
+					hostSummary, hostEnv, stopFn, hostErr := hostBuilder.startInstance(ctx, modEnv)
+					if hostErr != nil {
+						if cleanupDB != nil {
+							cleanupDB()
+						}
+						record.Output = boundedOutput("start test host: " + hostErr.Error())
+						break
+					}
+					lastHostSummary = hostSummary
+					modEnv = hostEnv
+					stopModHost = stopFn
+				} else {
+					modEnv = mergeEnvEntries(modEnv, sharedHostEnv)
+				}
+			}
 			run := exec.CommandContext(ctx, command[0], command[1:]...)
-			run.Dir, run.Env = dir, envpolicy.Environ()
+			run.Dir, run.Env = dir, modEnv
 			var output tailOutput
 			run.Stdout, run.Stderr = &output, &output
 			err := run.Run()
+			if stopModHost != nil {
+				stopModHost()
+			}
+			if cleanupDB != nil {
+				cleanupDB()
+			}
 			record.OK = err == nil
 			if err != nil {
 				record.Output = strings.TrimSpace(err.Error() + "\n" + output.String())
@@ -84,9 +163,16 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 		results = append(results, record)
 	}
 	if jsonOutput {
-		payload := withCLIPayloadIdentity("scenery.test.result", map[string]any{
+		data := map[string]any{
 			"ok": success, "app_root": root, "modules": results, "duration_ms": time.Since(started).Milliseconds(),
-		})
+		}
+		if dbHarness != nil && dbHarness.summary != nil {
+			data["database_template"] = dbHarness.summary
+		}
+		if lastHostSummary != nil {
+			data["test_host"] = lastHostSummary
+		}
+		payload := withCLIPayloadIdentity("scenery.test.result", data)
 		if err := writeCLIJSON(out, payload); err != nil {
 			return err
 		}
@@ -96,7 +182,11 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 			if !result.OK {
 				state = "failed"
 			}
-			_, _ = fmt.Fprintf(out, "%s (%s): %s in %dms\n", result.Name, result.Runtime, state, result.DurationMS)
+			extra := ""
+			if result.Database != nil {
+				extra = fmt.Sprintf(" [db %s cloned in %dms]", result.Database.Name, result.Database.CloneMS)
+			}
+			_, _ = fmt.Fprintf(out, "%s (%s): %s in %dms%s\n", result.Name, result.Runtime, state, result.DurationMS, extra)
 			if result.Output != "" {
 				_, _ = fmt.Fprintln(out, result.Output)
 			}

@@ -423,6 +423,11 @@ impl Host {
         })
     }
 
+    pub(crate) fn enable_test_harness(&mut self) {
+        self.development = true;
+        self.telemetry.enable_development_retention();
+    }
+
     pub(crate) fn generation(&self) -> Option<Arc<Generation>> {
         self.generation.borrow().clone()
     }

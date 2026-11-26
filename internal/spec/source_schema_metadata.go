@@ -254,7 +254,15 @@ func authoredDefaultRevisionDomain(revision string) string {
 	if revision == "scenery.source.module" {
 		return "workspace_only"
 	}
-	if strings.HasPrefix(revision, "scenery.source.go-") || strings.HasPrefix(revision, "scenery.go-target.") || revision == "scenery.source.typescript_client" || revision == "scenery.assistant.implementation" {
+	if strings.HasPrefix(revision, "scenery.source.go-") ||
+		strings.HasPrefix(revision, "scenery.source.go_") ||
+		strings.HasPrefix(revision, "scenery.source.rust_") ||
+		strings.HasPrefix(revision, "scenery.source.js_") ||
+		strings.HasPrefix(revision, "scenery.source.python_") ||
+		strings.HasPrefix(revision, "scenery.source.package.") ||
+		strings.HasPrefix(revision, "scenery.go-target.") ||
+		revision == "scenery.source.typescript_client" ||
+		revision == "scenery.assistant.implementation" {
 		return "implementation"
 	}
 	if revision == "scenery.typescript-client.retry" || revision == "scenery.typescript-client.react" {

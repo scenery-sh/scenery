@@ -45,16 +45,16 @@ func GenerationNodes(result *compiler.Result, selector string, check bool) ([]li
 }
 
 type generationOperation struct {
-	compilation        *compiler.Result
-	selector           string
-	check              bool
-	cachedOnly         bool
-	typescriptOnly     bool
-	goRenderer         artifactRenderer
+	compilation                     *compiler.Result
+	selector                        string
+	check                           bool
+	cachedOnly                      bool
+	typescriptOnly                  bool
+	goRenderer                      artifactRenderer
 	goFiles, tsFiles                []generatedFile
 	rustFiles, jsFiles, pythonFiles []generatedFile
-	result             GenerateResult
-	updates            []workspacetx.File
+	result                          GenerateResult
+	updates                         []workspacetx.File
 }
 
 func newGenerationOperation(compiled *compiler.Result, selector string, check bool) (*generationOperation, error) {

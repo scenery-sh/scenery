@@ -22,14 +22,14 @@
   "package_contract_abi_revision": "sha256:aa04ac9d2ed99ae3002b3f46fbd82756533dd3497f2f4ee8d54c4ac70d001fc6",
   "package_identity": "service",
   "producer": {
-    "version": "v0.3.7-0.20261126120119-69393b379996+dirty",
-    "commit": "69393b379996733c9f04920eaa2e8807c564dd50",
-    "built_at": "2026-11-26T12:01:19Z",
+    "version": "v0.3.7-0.20261126174550-28e0c6a71b0c+dirty",
+    "commit": "28e0c6a71b0ce28984e16d9c2dbab8ce6b68dfce",
+    "built_at": "2026-11-26T17:45:50Z",
     "toolchain": {
       "go_version": "go1.27.0"
     }
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:19aa387710814fba22fdc4ea6dd38a663cab2ed17275594fe53ee3aadcef6fab"
+  "spec_revision": "sha256:7c4e4ab75424687ed4f3c4f10c294dfd2817e023d208db4db82dbda0e2973cd7"
 }

@@ -3,7 +3,7 @@ import { freezeMetadata } from "./runtime.js";
 export const clientMetadata = /* @__PURE__ */ freezeMetadata({
   "bindings": [],
   "compatibilityCatalog": "compatibility-core",
-  "contractRevision": "sha256:ce54abde919e77736518b03e05a6dbf0eb55a61d1fd332315f0095319555a175",
+  "contractRevision": "sha256:8d6f7dfd128ee8b47a45fae9150c4e6760d1d2f5248d83575101f4e0dce8dcd4",
   "gateways": [
     "http_gateway.public_api"
   ],

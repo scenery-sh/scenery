@@ -118,6 +118,13 @@ impl Sink {
         self.sender.is_some() || self.recent.is_some() || self.victoria.is_some()
     }
 
+    pub(crate) fn enable_development_retention(&mut self) {
+        self.development = true;
+        if self.recent.is_none() {
+            self.recent = Some(Mutex::new(Recent::default()));
+        }
+    }
+
     /// Delivers the records still queued for export, waiting at most `limit`.
     pub(crate) async fn flush(&self, limit: Duration) {
         if let Some(exporter) = &self.exporter {
