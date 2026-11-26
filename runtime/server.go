@@ -368,8 +368,25 @@ func addVary(headers http.Header, values ...string) {
 	headers.Set("Vary", strings.Join(merged, ", "))
 }
 
+func (s *server) recordContractCORS(ep *Endpoint) {
+	if ep.ContractPolicy == nil || ep.Access == Private {
+		return
+	}
+	corsPattern := parseRoutePattern(ep.Path)
+	corsPattern.pathTail = ep.ContractPathTail != nil
+	s.contractCORS = append(s.contractCORS, contractCORSRoute{
+		path:     ep.Path,
+		pathTail: ep.ContractPathTail != nil,
+		methods:  append([]string(nil), ep.Methods...),
+		policy:   ep.ContractPolicy,
+		pattern:  &corsPattern,
+	})
+}
+
 func (s *server) registerRaw(ep *Endpoint) {
 	handler := func(w http.ResponseWriter, req *http.Request, params routeParams) {
+		applyContractForwardedPolicy(req, ep.ContractPolicy)
+		applyContractCORSHeaders(w.Header(), req, ep.ContractPolicy)
 		pathParams := make(shared.PathParams, 0, len(params))
 		for _, param := range params {
 			pathParams = append(pathParams, shared.PathParam{Name: param.Key, Value: strings.TrimPrefix(param.Value, "/")})
@@ -422,6 +439,7 @@ func (s *server) registerRaw(ep *Endpoint) {
 		}
 	}
 
+	s.recordContractCORS(ep)
 	registerRoute(s.selectRouter(ep), ep.Path, ep.Methods, handler)
 }
 
@@ -552,11 +570,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 		}
 	}
 
-	if ep.ContractPolicy != nil && ep.Access != Private {
-		corsPattern := parseRoutePattern(ep.Path)
-		corsPattern.pathTail = ep.ContractPathTail != nil
-		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, pathTail: ep.ContractPathTail != nil, methods: append([]string(nil), ep.Methods...), policy: ep.ContractPolicy, pattern: &corsPattern})
-	}
+	s.recordContractCORS(ep)
 	registerEndpointRoute(s.selectRouter(ep), ep, handler)
 }
 

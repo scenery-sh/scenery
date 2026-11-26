@@ -109,14 +109,14 @@ func dbQueryBinding(compiled *compiler.Result, service string) (compiler.SQLBind
 	if len(bindings) == 1 {
 		return bindings[0], nil
 	}
-	// The other db commands also accept declared SQL binding names.
-	for _, requirement := range compiled.SQLRequirements {
-		if found && requirement.Kind == compiler.SQLDataSource && requirement.Name == service {
-			return compiler.SQLBinding{Name: requirement.Name, Schema: requirement.Schema}, nil
-		}
-	}
 	if found {
 		return compiler.SQLBinding{}, usageErrorf("service %q has no Postgres binding", service)
+	}
+	// The other db commands also accept declared SQL binding names.
+	for _, requirement := range compiled.SQLRequirements {
+		if requirement.Kind == compiler.SQLDataSource && requirement.Name == service {
+			return compiler.SQLBinding{Name: requirement.Name, Schema: requirement.Schema}, nil
+		}
 	}
 	return compiler.SQLBinding{}, usageErrorf("unknown database service %q", service)
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 
 	"scenery.sh/internal/connectionapi"
@@ -93,4 +94,48 @@ func CurrentHost() Host {
 	host.RLock()
 	defer host.RUnlock()
 	return host.value
+}
+
+var configReloadHooks struct {
+	sync.RWMutex
+	byName map[string]func() error
+}
+
+// RegisterConfigReloadHook registers a named callback invoked after the Host
+// replaces its runtime configuration snapshot.
+func RegisterConfigReloadHook(name string, hook func() error) {
+	if name == "" || hook == nil {
+		return
+	}
+	configReloadHooks.Lock()
+	if configReloadHooks.byName == nil {
+		configReloadHooks.byName = make(map[string]func() error)
+	}
+	configReloadHooks.byName[name] = hook
+	configReloadHooks.Unlock()
+}
+
+// NotifyConfigReload runs registered configuration reload hooks in name order.
+func NotifyConfigReload() error {
+	configReloadHooks.RLock()
+	if len(configReloadHooks.byName) == 0 {
+		configReloadHooks.RUnlock()
+		return nil
+	}
+	names := make([]string, 0, len(configReloadHooks.byName))
+	for name := range configReloadHooks.byName {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	hooks := make([]func() error, 0, len(names))
+	for _, name := range names {
+		hooks = append(hooks, configReloadHooks.byName[name])
+	}
+	configReloadHooks.RUnlock()
+	for _, hook := range hooks {
+		if err := hook(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

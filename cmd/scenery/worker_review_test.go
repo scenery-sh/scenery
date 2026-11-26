@@ -137,3 +137,86 @@ func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
 	}
 	clean()
 }
+
+func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		"SCENERY_ROLE=api",
+		"DATABASE_URL=postgres://user:pass@localhost/db",
+		"SCENERY_DATABASE_JSON={}",
+		"SCENERY_ASSISTANT_RUNTIME_CONFIG=/tmp/a.json",
+		"SCENERY_ASSISTANT_TOKEN_KEY=secret",
+		"SCENERY_ASSISTANT_TOKEN_KEY_FILE=/tmp/k",
+		"SCENERY_ASSISTANT_CONTROL_ADDR=http://127.0.0.1:9",
+		"SCENERY_ASSISTANT_CONTROL_TOKEN=ctrl-secret",
+		"SCENERY_MCP_BRIDGE_SECRET=bridge-secret",
+		"SCENERY_MCP_URL=http://127.0.0.1:10",
+		"SCENERY_DEV_REPORT_URL=http://127.0.0.1:1/report",
+		"SCENERY_DEV_REPORT_TOKEN=report-secret",
+	}
+	goEnv := strings.Join(workerProcessEnv(base, "go"), "\n")
+	for _, forbidden := range []string{
+		"SCENERY_ROLE=", "SCENERY_ASSISTANT_RUNTIME_CONFIG=", "SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_TOKEN_KEY_FILE=",
+		"SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_MCP_BRIDGE_SECRET=", "SCENERY_MCP_URL=",
+	} {
+		if strings.Contains(goEnv, forbidden) {
+			t.Fatalf("Go worker leaked %s", forbidden)
+		}
+	}
+	if !strings.Contains(goEnv, "SCENERY_DEV_REPORT_TOKEN=report-secret") {
+		t.Fatalf("Go worker lost dev report token: %s", goEnv)
+	}
+	rustEnv := strings.Join(workerProcessEnv(base, "rust"), "\n")
+	if !strings.Contains(rustEnv, "PATH=") {
+		t.Fatalf("Rust worker lost PATH: %s", rustEnv)
+	}
+	for _, forbidden := range []string{
+		"SCENERY_ROLE=", "DATABASE_URL=", "SCENERY_DATABASE_JSON=", "SCENERY_DEV_REPORT_URL=", "SCENERY_DEV_REPORT_TOKEN=",
+		"SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_MCP_BRIDGE_SECRET=", "SCENERY_MCP_URL=",
+	} {
+		if strings.Contains(rustEnv, forbidden) {
+			t.Fatalf("Rust worker leaked %s", forbidden)
+		}
+	}
+}
+
+func TestAgentCallRanksLiteralRoutesAheadOfParameters(t *testing.T) {
+	service := graph.Resource{Address: "items/service/items", Kind: "scenery.service", Name: "items", Module: "items"}
+	opParam := graph.Resource{Address: "items/operation/get", Kind: "scenery.operation", Name: "get", Module: "items", Spec: map[string]any{"service": map[string]any{"$ref": "service.items"}}}
+	opLiteral := graph.Resource{Address: "items/operation/latest", Kind: "scenery.operation", Name: "latest", Module: "items", Spec: map[string]any{"service": map[string]any{"$ref": "service.items"}}}
+	gateway := graph.Resource{Address: "app/http_gateway/api", Kind: "scenery.http-gateway", Spec: map[string]any{"base_path": "/api"}}
+	paramBinding := graph.Resource{Address: "items/binding/get", Kind: "scenery.binding", Module: "items", Spec: map[string]any{
+		"protocol": "http", "gateway": map[string]any{"$ref": "http_gateway.api"}, "operation": map[string]any{"$ref": "operation.get"},
+		"authentication": map[string]any{"$ref": "std.authentication.none"}, "http": map[string]any{"method": "GET", "path": "/items/{id}"},
+	}}
+	literalBinding := graph.Resource{Address: "items/binding/latest", Kind: "scenery.binding", Module: "items", Spec: map[string]any{
+		"protocol": "http", "gateway": map[string]any{"$ref": "http_gateway.api"}, "operation": map[string]any{"$ref": "operation.latest"},
+		"authentication": map[string]any{"$ref": "std.authentication.none"}, "http": map[string]any{"method": "GET", "path": "/items/latest"},
+	}}
+	resources := []graph.Resource{service, opParam, opLiteral, gateway, paramBinding, literalBinding}
+	g := agentGraph{Result: &compiler.Result{Manifest: &graph.Manifest{Resources: resources}}, resources: map[string]graph.Resource{}}
+	for _, r := range resources {
+		g.resources[r.Address] = r
+	}
+	binding, _, err := g.callTarget("GET /api/items/latest", false)
+	if err != nil || binding.Address != literalBinding.Address {
+		t.Fatalf("got binding %s (%v), want %s", binding.Address, err, literalBinding.Address)
+	}
+}
+
+func TestDBQueryBindingDistinguishesDBLessServiceFromSQLBinding(t *testing.T) {
+	compiled := &compiler.Result{
+		Manifest: &graph.Manifest{Resources: []graph.Resource{
+			{Address: "auth/service/auth", Name: "auth", Module: "auth", Kind: "scenery.service", Origin: graph.Origin{Kind: "authored"}, Spec: map[string]any{"runtime": "go", "implementation": map[string]any{"kind": "go"}}},
+			{Address: "auth/operation/ping", Name: "ping", Module: "auth", Kind: "scenery.operation", Spec: map[string]any{"service": map[string]any{"$ref": "service.auth"}, "handler": map[string]any{"method": "Ping"}}},
+		}},
+		SQLRequirements: []compiler.SQLRequirement{{Kind: compiler.SQLDataSource, Name: "ledger_db", Schema: "ledger"}},
+	}
+	if _, err := dbQueryBinding(compiled, "auth"); err == nil || !strings.Contains(err.Error(), "has no Postgres binding") {
+		t.Fatalf("expected DB-less error, got %v", err)
+	}
+	got, err := dbQueryBinding(compiled, "ledger_db")
+	if err != nil || got.Name != "ledger_db" {
+		t.Fatalf("ledger_db resolution = %+v, %v", got, err)
+	}
+}

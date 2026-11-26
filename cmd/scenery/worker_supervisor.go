@@ -21,16 +21,36 @@ type workerLaunchProgram struct {
 	Startup     json.RawMessage       `json:"startup,omitempty"`
 }
 
+func workerProcessEnv(inherited []string, runtime string) []string {
+	env := envWithoutKeys(
+		minimalAppProcessEnv(inherited),
+		"SCENERY_ROLE",
+		"SCENERY_LISTEN_NETWORK",
+		"SCENERY_LISTEN_ADDR",
+		"SCENERY_PROCESS_LINK",
+		workerruntime.ConfigSnapshotFDEnv,
+		storageconfig.RuntimeConfigEnv,
+		workerruntime.AssistantRuntimeConfigEnv,
+		workerruntime.AssistantTokenKeyEnv,
+		workerruntime.AssistantTokenKeyFileEnv,
+		"SCENERY_ASSISTANT_ID",
+		"SCENERY_ASSISTANT_CONTROL_ADDR",
+		"SCENERY_ASSISTANT_CONTROL_TOKEN",
+		"SCENERY_MCP_BRIDGE_SECRET",
+		"SCENERY_MCP_URL",
+	)
+	if runtime != "go" {
+		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, "SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN")
+	}
+	return env
+}
+
 func projectWorkerLaunch(program workerProgram) (workerLaunchProgram, error) {
-	environment := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR",
-		"SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv, storageconfig.RuntimeConfigEnv)
+	environment := workerProcessEnv(envpolicy.Environ(), program.Runtime)
 	launch := workerLaunchProgram{
 		Service: program.Service, Process: program.Process, Binary: program.Binary,
 		Digest: program.Digest, Runtime: program.Runtime, Identity: program.Identity,
 		Environment: environment,
-	}
-	if program.Runtime != "go" {
-		launch.Environment = envWithoutKeys(environment, appDatabaseURLEnv, postgresdb.RegistryEnv)
 	}
 	if compiler.IsJSRuntime(program.Runtime) {
 		data, err := jsWorkerStartup(program)

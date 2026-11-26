@@ -204,10 +204,12 @@ func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, b
 	if delivery != "call" && delivery != "stream" && delivery != "enqueue" && delivery != "wait" {
 		return result, fmt.Errorf("worker binding delivery %q has no Host plan", delivery)
 	}
-	if (delivery == "enqueue" || delivery == "wait") && service.Durable[result.Execution].Operation == "" {
+	protocol := cp.StringValue(binding.Spec["protocol"])
+	isDurable := cp.StringValue(p.resources[result.Execution].Spec["mode"]) == "durable"
+	if (delivery == "enqueue" || delivery == "wait" || (protocol == "mcp" && isDurable)) && service.Durable[result.Execution].Operation == "" {
 		return result, fmt.Errorf("durable execution %s has no Host plan", result.Execution)
 	}
-	switch cp.StringValue(binding.Spec["protocol"]) {
+	switch protocol {
 	case "http":
 		httpPlan, err := p.httpBinding(binding, operation, &result.Policy)
 		if err != nil {

@@ -120,7 +120,8 @@ func (types ManifestTypes) normalizeArray(t contractWireType, raw []byte, constr
 
 func validateManifestItemCount(count int, constraints ContractConstraints) error {
 	length := int64(count)
-	if constraints.MinItems != nil && length < *constraints.MinItems || constraints.MaxItems != nil && length > *constraints.MaxItems {
+	if constraints.MinItems != nil && length < *constraints.MinItems || constraints.MaxItems != nil && length > *constraints.MaxItems ||
+		constraints.MinLength != nil && length < *constraints.MinLength || constraints.MaxLength != nil && length > *constraints.MaxLength {
 		return fmt.Errorf("collection exceeds declared item count limits")
 	}
 	return nil

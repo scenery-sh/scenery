@@ -240,17 +240,30 @@ func (g agentGraph) callTarget(target string, asPrincipal bool) (graph.Resource,
 			return graph.Resource{}, agentRoute{}, usageErrorf("invalid application route %q", path)
 		}
 		method = strings.ToUpper(method)
+		type routeCandidate struct {
+			resource graph.Resource
+			route    agentRoute
+			pattern  string
+		}
+		var matches []routeCandidate
 		for _, resource := range g.Manifest.Resources {
 			if resource.Kind != "scenery.binding" || resource.Spec["protocol"] != "http" {
 				continue
 			}
 			route := g.route(resource)
 			if route.Method == method && agentRouteMatches(route.Path, routeURL.EscapedPath()) {
+				pattern := route.Path
 				route.Path = path
-				return resource, route, nil
+				matches = append(matches, routeCandidate{resource: resource, route: route, pattern: pattern})
 			}
 		}
-		return graph.Resource{}, agentRoute{}, usageErrorf("HTTP route %q is not declared", target)
+		if len(matches) == 0 {
+			return graph.Resource{}, agentRoute{}, usageErrorf("HTTP route %q is not declared", target)
+		}
+		slices.SortStableFunc(matches, func(a, b routeCandidate) int {
+			return compareAgentRoutePatterns(a.pattern, b.pattern)
+		})
+		return matches[0].resource, matches[0].route, nil
 	}
 	var matches []graph.Resource
 	for _, op := range g.Manifest.Resources {
@@ -315,6 +328,48 @@ func agentRouteMatches(pattern, path string) bool {
 		}
 	}
 	return len(want) == len(actual)
+}
+
+func compareAgentRoutePatterns(a, b string) int {
+	left, leftLiterals, leftWildcard := parseAgentRoutePattern(a)
+	right, rightLiterals, rightWildcard := parseAgentRoutePattern(b)
+	for index := 0; index < len(left) && index < len(right); index++ {
+		if left[index] != right[index] {
+			return left[index] - right[index]
+		}
+	}
+	if leftLiterals != rightLiterals {
+		return rightLiterals - leftLiterals
+	}
+	if leftWildcard != rightWildcard {
+		if leftWildcard {
+			return 1
+		}
+		return -1
+	}
+	if len(left) != len(right) {
+		return len(right) - len(left)
+	}
+	return 0
+}
+
+func parseAgentRoutePattern(path string) (kinds []int, literals int, hasWildcard bool) {
+	if path == "" || path == "/" {
+		return nil, 0, false
+	}
+	for _, part := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		switch {
+		case strings.HasPrefix(part, "*") || strings.HasSuffix(part, "...}"):
+			kinds = append(kinds, 2)
+			hasWildcard = true
+		case strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}"):
+			kinds = append(kinds, 1)
+		default:
+			kinds = append(kinds, 0)
+			literals++
+		}
+	}
+	return kinds, literals, hasWildcard
 }
 
 type agentCallConnection struct {

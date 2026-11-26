@@ -49,6 +49,8 @@ pub struct Launch {
     pub host_socket: PathBuf,
     pub token: String,
     pub identity: Identity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_death_fd: Option<i32>,
 }
 
 impl Launch {

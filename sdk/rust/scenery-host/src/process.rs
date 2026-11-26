@@ -140,6 +140,7 @@ impl Worker {
                 contract_revision: program.identity.contract_revision.clone(),
                 implementation_revision: program.identity.implementation_revision.clone(),
             },
+            parent_death_fd: None,
         };
         let startup = program
             .startup
@@ -463,6 +464,7 @@ impl Worker {
                 contract_revision: identity.contract_revision.clone(),
                 implementation_revision: identity.implementation_revision.clone(),
             },
+            parent_death_fd: None,
         };
         let binary = PathBuf::from("/bin/sleep");
         Ok(Self {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"scenery.sh/auth"
@@ -117,9 +118,38 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 	return services, nil
 }
 
+func validateWorkerBundleTargetPlatform(result *compiler.Result, role, goTarget string) error {
+	if result == nil || result.Manifest == nil {
+		return nil
+	}
+	hasGoService := false
+	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+		if firstNonEmpty(cp.StringValue(service.Spec["runtime"]), "go") == "go" {
+			hasGoService = true
+			break
+		}
+	}
+	if goTarget == "" && !hasGoService {
+		return nil
+	}
+	target, err := compiler.ResolveGoBuildTarget(result, goTarget, role)
+	if err != nil {
+		return err
+	}
+	if target.Context.GOOS != goruntime.GOOS || target.Context.GOARCH != goruntime.GOARCH {
+		return preconditionErrorf("worker bundle target %q (%s/%s) does not match host platform %s/%s; worker bundles package host-built executables", target.Name, target.Context.GOOS, target.Context.GOARCH, goruntime.GOOS, goruntime.GOARCH)
+	}
+	return nil
+}
+
 // buildWorkerBundle builds every worker of the application for role. goTarget
 // names the go_target of its Go services; empty selects the one with that role.
 func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTarget string, check bool) (workerBundle, error) {
+	if !check {
+		if err := validateWorkerBundleTargetPlatform(result, role, goTarget); err != nil {
+			return workerBundle{}, err
+		}
+	}
 	var bundle workerBundle
 	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
 	if err != nil {

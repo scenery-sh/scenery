@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
-import { closeSync, readFileSync } from "node:fs";
+import { closeSync, createReadStream, readFileSync } from "node:fs";
 import { createServer } from "node:http2";
 import { pipeline } from "node:stream/promises";
 import { Host, MAX_METADATA, readMetadata } from "./host.mjs";
@@ -148,6 +148,14 @@ export async function serve(launch, parse, dispatch) {
     server.close();
     for (const session of sessions) session.close();
   };
+  const parentPipe = Number.isInteger(launch.parent_death_fd) && launch.parent_death_fd >= 3
+    ? createReadStream(null, { fd: launch.parent_death_fd, autoClose: true })
+    : undefined;
+  if (parentPipe) {
+    parentPipe.on("end", stop);
+    parentPipe.on("error", stop);
+    parentPipe.resume();
+  }
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   const closed = once(server, "close");
@@ -158,6 +166,11 @@ export async function serve(launch, parse, dispatch) {
   } finally {
     process.off("SIGTERM", stop);
     process.off("SIGINT", stop);
+    if (parentPipe) {
+      parentPipe.off("end", stop);
+      parentPipe.off("error", stop);
+      parentPipe.destroy();
+    }
     host.close();
   }
 }

@@ -111,12 +111,24 @@ export class Host {
     const json = async (...args) => JSON.parse(await read(...args));
     const media = { "content-type": "application/json" };
     const post = (path, value) => json("POST", path, 200, JSON.stringify(value), media);
-    const storage = (operation, store, params) =>
-      "storage/" + operation + "?" + new URLSearchParams({ store, ...params });
-    const conditions = (options) => ({
-      ...(options?.ifMatch === undefined ? {} : { "if-match": options.ifMatch }),
-      ...(options?.ifNoneMatch === undefined ? {} : { "if-none-match": options.ifNoneMatch }),
-    });
+    const storage = (operation, store, params) => {
+      const query = new URLSearchParams({ store });
+      for (const [key, value] of Object.entries(params ?? {})) {
+        if (value !== undefined && key !== "store") query.set(key, String(value));
+      }
+      return "storage/" + operation + "?" + query;
+    };
+    const conditions = (options, allowIfNoneMatch = false) => {
+      const headers = {};
+      if (options?.ifMatch !== undefined) headers["if-match"] = options.ifMatch;
+      if (options?.ifNoneMatch !== undefined && options?.ifNoneMatch !== false) {
+        if (!allowIfNoneMatch || (options.ifNoneMatch !== true && options.ifNoneMatch !== "*")) {
+          throw new RangeError("invalid storage ifNoneMatch condition");
+        }
+        headers["if-none-match"] = "*";
+      }
+      return headers;
+    };
     return Object.freeze({
       invocation, signal, mode: envelope.mode, binding: envelope.binding,
       async bindingRequest(client, input, enqueue = false) {
@@ -161,11 +173,14 @@ export class Host {
         return (await request("HEAD", storage("read", store, { key }), 200)).headers;
       },
       storageWrite: (store, key, body, options) => json("PUT", storage("write", store, { key }), 201, body, {
-        ...conditions(options),
+        ...conditions(options, true),
         ...(options?.contentType === undefined ? {} : { "content-type": options.contentType }),
       }),
       async storageDelete(store, key, options) {
         await request("DELETE", storage("delete", store, { key }), 204, undefined, conditions(options));
+      },
+      async storageDeletePrefix(store, prefix = "") {
+        await request("DELETE", storage("delete", store, { ...(prefix === "" ? {} : { key: prefix }), recursive: "1" }), 204);
       },
       storageList: (store, options) => json("GET", storage("list", store, options), 200),
     });

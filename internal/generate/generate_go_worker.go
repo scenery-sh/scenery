@@ -13,6 +13,7 @@ func renderWorkerOperations(b *strings.Builder, operations, bindings []Resource)
 		fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterWorkerOperation(%q, func(ctx context.Context, data []byte) ([]byte, scenery.ByteStream, error) {\n", operation.Address)
 		b.WriteString("\t\t\t\tvar stream scenery.ByteStream\n")
 		fmt.Fprintf(b, "\t\t\t\tinput, err := contract.Unmarshal%sInput(data); if err != nil { return nil, stream, err }\n", name)
+		b.WriteString("\t\t\t\tsceneryruntime.SetWorkerRequestPayload(ctx, input)\n")
 		if operationUsesHTTPStream(operation, bindings) {
 			fmt.Fprintf(b, "\t\t\t\toutcome, stream, err := service.%s(ctx, input)\n", method)
 		} else {

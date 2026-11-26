@@ -47,8 +47,12 @@ func MainGoWorker(cfg AppConfig, service string) (err error) {
 	defer stopReporting()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	runCtx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	runCtx := ctx
 	defer cancel()
+	if launch.ParentDeathFD > 0 {
+		defer watchWorkerParentFD(launch.ParentDeathFD, cancel)()
+	}
 	defer startSupervisorParentMonitor(cancel)()
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
@@ -99,10 +103,46 @@ type workerInvocationMetadata struct {
 	Started      time.Time          `json:"started,omitzero"`
 	Type         shared.RequestType `json:"request_type,omitempty"`
 	// The HTTP request admitted at ingress, as CurrentRequest reports it.
-	Method     string            `json:"method,omitempty"`
-	Path       string            `json:"path,omitempty"`
-	PathParams []workerPathParam `json:"path_params,omitempty"`
-	Headers    http.Header       `json:"headers,omitempty"`
+	Method             string            `json:"method,omitempty"`
+	Path               string            `json:"path,omitempty"`
+	PathParams         []workerPathParam `json:"path_params,omitempty"`
+	Headers            http.Header       `json:"headers,omitempty"`
+	API                *workerAPIDesc    `json:"api,omitempty"`
+	CronIdempotencyKey string            `json:"cron_idempotency_key,omitempty"`
+}
+
+type workerAPIDesc struct {
+	Exposed      bool `json:"exposed"`
+	AuthRequired bool `json:"auth_required"`
+}
+
+// SetWorkerRequestPayload attaches the decoded typed input to the active worker
+// request context so handlers reading CurrentRequest().Payload observe it.
+func SetWorkerRequestPayload(ctx context.Context, payload any) {
+	if state := stateFromContext(ctx); state != nil {
+		state.request.Payload = payload
+	}
+}
+
+func watchWorkerParentFD(fd int, cancel context.CancelFunc) func() {
+	file := os.NewFile(uintptr(fd), "worker-parent")
+	if file == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		var buf [1]byte
+		_, _ = file.Read(buf[:])
+		select {
+		case <-done:
+		default:
+			cancel()
+		}
+	}()
+	return func() {
+		close(done)
+		_ = file.Close()
+	}
 }
 
 // workerPathParam keeps the route order of path parameters on the wire.
@@ -170,11 +210,18 @@ func goWorkerContext(ctx context.Context, invocation workerabi.Invocation) (cont
 	for _, param := range metadata.PathParams {
 		pathParams = append(pathParams, shared.PathParam{Name: param.Name, Value: param.Value})
 	}
+	var apiDesc *shared.APIDesc
+	if metadata.API != nil {
+		apiDesc = &shared.APIDesc{Exposed: metadata.API.Exposed, AuthRequired: metadata.API.AuthRequired}
+	} else {
+		apiDesc = &shared.APIDesc{Exposed: false, AuthRequired: wire.Principal != ""}
+	}
 	state.request = shared.Request{
 		Type: metadata.Type, Started: metadata.Started, InvocationID: wire.InvocationID, TraceID: traceID, Headers: headers,
 		CallerBinding: metadata.Caller, ExecutionID: wire.ExecutionID, Locale: wire.Locale, Deployment: metadata.Deployment,
 		Deadline: deadline, Service: metadata.ServiceName, Endpoint: invocation.Operation,
-		Method: metadata.Method, Path: metadata.Path, PathParams: pathParams,
+		Method: metadata.Method, Path: metadata.Path, PathParams: pathParams, API: apiDesc,
+		CronIdempotencyKey: metadata.CronIdempotencyKey,
 	}
 	if state.request.Service == "" {
 		state.request.Service = invocation.Service

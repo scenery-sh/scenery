@@ -1,6 +1,9 @@
 package generate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -248,6 +251,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 		`options.ConcurrencyKey = concurrencyKey`,
 		`DispatchContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
 		`DispatchAndWaitContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
+		`return nil, sceneryruntime.ClassifyContractDurableWaitError(err, 0, 0)`,
 		`contract.UnmarshalProcessSceneOutcome(data)`,
 		`case scenery.ExecutionReceipt:`,
 		`sceneryruntime.EncodeContractRepresentationWithOptions(request, 202, typed, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions`,
@@ -255,6 +259,45 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("durable adapter missing %q:\n%s", fragment, adapter)
+		}
+	}
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, "adapter.gen.go", adapter, 0)
+	if err != nil {
+		t.Fatalf("parse adapter.gen.go: %v\n%s", err, adapter)
+	}
+	var checkBody func(body *ast.BlockStmt, wantResults int)
+	checkBody = func(body *ast.BlockStmt, wantResults int) {
+		if body == nil || wantResults <= 1 {
+			return
+		}
+		ast.Inspect(body, func(node ast.Node) bool {
+			if nested, ok := node.(*ast.FuncLit); ok {
+				nestedResults := 0
+				if nested.Type != nil && nested.Type.Results != nil {
+					nestedResults = nested.Type.Results.NumFields()
+				}
+				checkBody(nested.Body, nestedResults)
+				return false
+			}
+			ret, ok := node.(*ast.ReturnStmt)
+			if !ok || len(ret.Results) == 0 || len(ret.Results) == wantResults {
+				return true
+			}
+			if _, isCall := ret.Results[0].(*ast.CallExpr); len(ret.Results) == 1 && isCall {
+				return true
+			}
+			t.Fatalf("adapter.gen.go line %d returns %d values inside %d-result function", fset.Position(ret.Pos()).Line, len(ret.Results), wantResults)
+			return false
+		})
+	}
+	for _, decl := range parsed.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Type != nil {
+			results := 0
+			if fn.Type.Results != nil {
+				results = fn.Type.Results.NumFields()
+			}
+			checkBody(fn.Body, results)
 		}
 	}
 }

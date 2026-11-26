@@ -245,16 +245,33 @@ func goContractTypeClosure(module string, local, all, clientOperations []Resourc
 			}
 		}
 	}
+	used := moduleReservedPackageSymbols(local)
 	result := make([]Resource, 0, len(local)+len(embedded))
 	for _, resource := range local {
 		if !isNamedContractType(resource) || needed[resource.Address] {
 			result = append(result, resource)
 		}
 	}
+	embeddedAddresses := make([]string, 0, len(embedded))
 	for address := range embedded {
+		embeddedAddresses = append(embeddedAddresses, address)
+		if !clientTypes[address] {
+			reserveGeneratedTypeResource(used, byAddress[address])
+		}
+	}
+	sort.Strings(embeddedAddresses)
+	for _, address := range embeddedAddresses {
 		resource := byAddress[address]
 		if clientTypes[address] {
-			resource.Name = goName(strings.ReplaceAll(resource.Module, "/", "_")) + "Client" + goName(resource.Name)
+			base := goName(strings.ReplaceAll(resource.Module, "/", "_")) + "Client" + goName(resource.Name)
+			resource.Name = base
+			if !symbolsAvailable(used, generatedTypeResourceSymbols(resource)) {
+				resource.Name = "Embedded" + base
+				for suffix := 2; !symbolsAvailable(used, generatedTypeResourceSymbols(resource)); suffix++ {
+					resource.Name = fmt.Sprintf("Embedded%d%s", suffix, base)
+				}
+			}
+			reserveGeneratedTypeResource(used, resource)
 			resource.Spec = qualifyProjectedGoTypes(resource)
 		}
 		result = append(result, resource)
