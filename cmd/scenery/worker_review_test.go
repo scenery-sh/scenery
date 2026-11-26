@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -137,11 +138,17 @@ func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
 		"SCENERY_ASSISTANT_RUNTIME_CONFIG=/tmp/a.json",
 		"SCENERY_ASSISTANT_TOKEN_KEY=secret",
 		"SCENERY_ASSISTANT_TOKEN_KEY_FILE=/tmp/k",
+		"SCENERY_ASSISTANT_CONTROL_ADDR=http://127.0.0.1:9",
+		"SCENERY_ASSISTANT_CONTROL_TOKEN=ctrl-secret",
+		"SCENERY_MCP_URL=http://127.0.0.1:10",
 		"SCENERY_DEV_REPORT_URL=http://127.0.0.1:1/report",
 		"SCENERY_DEV_REPORT_TOKEN=report-secret",
 	}
 	goEnv := strings.Join(workerProcessEnv(base, "go"), "\n")
-	for _, forbidden := range []string{"SCENERY_ASSISTANT_RUNTIME_CONFIG=", "SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_TOKEN_KEY_FILE="} {
+	for _, forbidden := range []string{
+		"SCENERY_ASSISTANT_RUNTIME_CONFIG=", "SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_TOKEN_KEY_FILE=",
+		"SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_MCP_URL=",
+	} {
 		if strings.Contains(goEnv, forbidden) {
 			t.Fatalf("Go worker leaked %s", forbidden)
 		}
@@ -153,7 +160,10 @@ func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
 	if !strings.Contains(rustEnv, "PATH=") {
 		t.Fatalf("Rust worker lost PATH: %s", rustEnv)
 	}
-	for _, forbidden := range []string{"DATABASE_URL=", "SCENERY_DATABASE_JSON=", "SCENERY_DEV_REPORT_URL=", "SCENERY_DEV_REPORT_TOKEN=", "SCENERY_ASSISTANT_TOKEN_KEY="} {
+	for _, forbidden := range []string{
+		"DATABASE_URL=", "SCENERY_DATABASE_JSON=", "SCENERY_DEV_REPORT_URL=", "SCENERY_DEV_REPORT_TOKEN=",
+		"SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_MCP_URL=",
+	} {
 		if strings.Contains(rustEnv, forbidden) {
 			t.Fatalf("Rust worker leaked %s", forbidden)
 		}
@@ -352,6 +362,13 @@ func TestJSBuildPruneAndExplicitDependencyWatch(t *testing.T) {
 	}
 	if changed := changedWorkerInputs(inputs, updated); !slices.Equal(changed, []string{depRel}) {
 		t.Fatalf("changed = %v, want [%s]", changed, depRel)
+	}
+	// Removing an explicit dependency must not wedge verification when the file still exists in node_modules.
+	watch.setExplicit(nil, false)
+	dropped := maps.Clone(updated)
+	delete(dropped, depRel)
+	if err := (&workerDevelopment{watch: watch}).verify(dropped); err != nil {
+		t.Fatalf("verify after dropping explicit dependency = %v", err)
 	}
 }
 

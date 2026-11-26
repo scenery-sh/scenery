@@ -70,6 +70,7 @@ func TestWorkerHostForwardsIngressRequestToGoWorker(t *testing.T) {
 	request.Header.Set("X-Correlation-Id", "corr-1")
 	request.Header.Set("Authorization", "Bearer secret")
 	request.Header.Set("Cookie", "app_access=secret")
+	request.Header.Set("X-Scenery-Cron-Execution", "forged")
 	state := newExternalState(&Endpoint{Service: plan.Name, Name: binding}, request, shared.PathParams{{Name: "id", Value: "42"}}, nil, AuthInfo{UID: "user-1"})
 	ctx := context.WithValue(withState(t.Context(), state), processHostGenerationKey{}, generation)
 	ctx = withRuntimeInvocation(ctx, state)
@@ -81,19 +82,28 @@ func TestWorkerHostForwardsIngressRequestToGoWorker(t *testing.T) {
 		seen.Headers.Get("X-Correlation-Id") != "corr-1" {
 		t.Fatalf("request observed by the Go worker: %+v", seen)
 	}
-	if seen.Headers.Get("Authorization") != "" || seen.Headers.Get("Cookie") != "" {
-		t.Fatalf("ingress credentials reached the worker: %v", seen.Headers)
+	if seen.Headers.Get("Authorization") != "" || seen.Headers.Get("Cookie") != "" || seen.Headers.Get("X-Scenery-Cron-Execution") != "" {
+		t.Fatalf("ingress credentials or internal headers reached the worker: %v", seen.Headers)
+	}
+	if seen.CronIdempotencyKey != "" {
+		t.Fatalf("external header spoofed CronIdempotencyKey = %q", seen.CronIdempotencyKey)
 	}
 }
 
 func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	routes := newRouteTable()
-	routes.Handle([]string{http.MethodGet}, "/api/ping", func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
+	routes.Handle([]string{http.MethodGet}, "/api/ping", func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+		if req.Header.Get("X-Scenery-Cron-Execution") != "" || req.Header.Get("X-Scenery-Generation") != "" {
+			t.Errorf("external X-Scenery-* header passed ingress: %v", req.Header)
+		}
 		w.Header().Set("X-App-Generation", "1")
 		w.Header().Set("X-App-Worker-Pid", "99")
 		w.Header().Set("X-App-Worker-Revision", "rev-1")
 		w.Header().Set("X-Scenery-Debug", "leak")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Scenery-Debug, X-App-Worker-Pid")
+		w.WriteHeader(http.StatusOK)
+	})
+	routes.Handle([]string{http.MethodGet}, "/api/files/mountain-scenery.png", func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
 		w.WriteHeader(http.StatusOK)
 	})
 	host := &processHost{
@@ -102,15 +112,23 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	}
 	handler := neutralWorkerIngress(http.HandlerFunc(host.serveIngress), false)
 
-	for _, path := range []string{"/__scenery/process/v1/generations", "/api/scenery/status"} {
+	for _, path := range []string{"/__scenery/process/v1/generations", "/__SCENERY/config"} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s returned %d, want 404", path, rec.Code)
 		}
 	}
+	userRec := httptest.NewRecorder()
+	handler.ServeHTTP(userRec, httptest.NewRequest(http.MethodGet, "/api/files/mountain-scenery.png", nil))
+	if userRec.Code != http.StatusOK {
+		t.Fatalf("user path containing scenery returned %d, want 200", userRec.Code)
+	}
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+	pingReq := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
+	pingReq.Header.Set("X-Scenery-Cron-Execution", "forged")
+	pingReq.Header.Set("X-Scenery-Generation", "99")
+	handler.ServeHTTP(rec, pingReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/api/ping status = %d", rec.Code)
 	}
@@ -158,14 +176,29 @@ func TestWorkerHostHTTPDurableMapsTransportStatuses(t *testing.T) {
 	if err := workers.registerBinding(plan, binding); err != nil {
 		t.Fatal(err)
 	}
-	endpoints := listEndpoints()
-	if len(endpoints) != 1 || endpoints[0].Invoke == nil {
+	directBinding := WorkerBindingPlan{
+		Address: "orders/binding/direct_http", Operation: "orders/operation/run", Protocol: "http", Delivery: "call",
+		Policy: ContractHTTPPolicy{ServiceName: "orders", OperationAddress: "orders/operation/run", BindingAddress: "orders/binding/direct_http", AuthorizationStrategy: "public"},
+		HTTP:   &WorkerHTTPPlan{Method: "GET", Path: "/api/direct", Access: Public, Responses: map[string]WorkerResponsePlan{"result.ok": {Status: http.StatusOK, Codec: "json", Media: []string{"application/json"}}}},
+	}
+	if err := workers.registerBinding(plan, directBinding); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := make(map[string]*Endpoint)
+	for _, ep := range listEndpoints() {
+		endpoints[ep.Name] = ep
+	}
+	if len(endpoints) != 2 || endpoints[binding.Address] == nil || endpoints[directBinding.Address] == nil {
 		t.Fatalf("unexpected endpoints: %+v", endpoints)
 	}
-	_, err := endpoints[0].Invoke(t.Context(), nil, json.RawMessage(`{}`))
+	_, err := endpoints[binding.Address].Invoke(t.Context(), nil, json.RawMessage(`{}`))
 	transportErr, ok := errors.AsType[*ContractTransportError](err)
 	if !ok || transportErr.Outcome != "dispatch.rejected" || transportErr.Status != http.StatusTooManyRequests {
 		t.Fatalf("durable error = %#v (%T), want dispatch.rejected HTTP 429", err, err)
+	}
+	_, directErr := endpoints[directBinding.Address].Invoke(t.Context(), nil, json.RawMessage(`{}`))
+	if _, wrapped := errors.AsType[*ContractTransportError](directErr); wrapped || errs.Code(directErr) != errs.Unavailable {
+		t.Fatalf("direct error = %#v (%T), want unwrapped errs.Unavailable", directErr, directErr)
 	}
 }
 

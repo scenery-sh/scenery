@@ -337,7 +337,14 @@ fn watch_parent_death_fd(fd: Option<i32>) -> (watch::Receiver<bool>, Option<watc
             // SAFETY: Host passes an inherited read pipe descriptor solely to signal parent exit.
             let mut pipe = unsafe { std::fs::File::from_raw_fd(fd) };
             let mut buf = [0_u8; 1];
-            let _ = pipe.read(&mut buf);
+            loop {
+                match pipe.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                }
+            }
             let _ = parent_tx.send(true);
         });
         return (parent_rx, None);

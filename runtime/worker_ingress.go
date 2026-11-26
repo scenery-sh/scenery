@@ -13,9 +13,13 @@ type workerIngressWriter struct {
 
 func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		// Internal generation headers are trusted only after dispatch has
-		// selected a generation. Drop externally supplied spellings.
-		request.Header.Del(processGenerationHeader)
+		// Internal headers are trusted only after dispatch sets them inside
+		// the Host. Drop externally supplied X-Scenery-* spellings.
+		for name := range request.Header {
+			if strings.HasPrefix(strings.ToLower(name), "x-scenery-") {
+				delete(request.Header, name)
+			}
+		}
 		next.ServeHTTP(&workerIngressWriter{ResponseWriter: w, hideIdentity: !development}, request)
 	})
 }

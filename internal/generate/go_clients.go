@@ -19,58 +19,83 @@ type goClientBinding struct {
 }
 
 func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, error) {
-	byAddress := idx.byAddress
-	var result []goClientBinding
-	for _, client := range namedChildren(service.Spec, "client") {
-		name := stringValue(client["name"])
-		bindingRef := refString(client["binding"])
-		bindingAddress := resolveResourceRef(service, bindingRef, "binding")
-		binding, ok := byAddress[bindingAddress]
-		if name == "" || !ok || binding.Kind != "scenery.binding" {
-			return nil, fmt.Errorf("service %s client %q references unavailable binding %q", service.Address, name, bindingRef)
-		}
-		if stringValue(binding.Spec["protocol"]) != "internal" {
-			return nil, fmt.Errorf("service %s client %s requires an internal binding", service.Address, name)
-		}
-		operationAddress := resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")
-		operation, ok := byAddress[operationAddress]
-		if !ok || operation.Kind != "scenery.operation" {
-			return nil, fmt.Errorf("service %s client %s references unavailable operation", service.Address, name)
-		}
-		delivery := stringValue(binding.Spec["delivery"])
-		if delivery != "call" && delivery != "wait" && delivery != "enqueue" {
-			return nil, fmt.Errorf("service %s client %s has unsupported delivery %q", service.Address, name, delivery)
-		}
-		result = append(result, goClientBinding{
-			Name: name, Field: goName(name), InterfaceName: goName(name) + "InternalClient", Projected: operation.Module != service.Module,
-			Binding: binding, Operation: operation, Delivery: delivery,
-		})
+	byService, err := moduleGoClients(idx, service)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return byService[service.Address], nil
+}
+
+func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]goClientBinding, error) {
+	byAddress := idx.byAddress
+	module := targetService.Module
 	used := map[string]bool{}
-	for _, res := range idx.moduleResources(service.Module) {
+	var services []Resource
+	seenTarget := false
+	for _, res := range idx.moduleResources(module) {
 		switch res.Kind {
-		case "scenery.operation", "scenery.record", "scenery.enum", "scenery.union", "scenery.service":
+		case "scenery.service":
+			used[goName(res.Name)] = true
+			services = append(services, res)
+			if res.Address == targetService.Address {
+				seenTarget = true
+			}
+		case "scenery.operation", "scenery.record", "scenery.enum", "scenery.union":
 			used[goName(res.Name)] = true
 		}
 	}
-	for i := range result {
-		if !result[i].Projected {
-			result[i].OperationName = goName(result[i].Operation.Name)
-			continue
-		}
-		base := result[i].Field + "Client"
-		candidate := base
-		if used[candidate] {
-			candidate = "Projected" + base
-			for suffix := 2; used[candidate]; suffix++ {
-				candidate = fmt.Sprintf("Projected%d%s", suffix, base)
-			}
-		}
-		used[candidate] = true
-		result[i].OperationName = candidate
+	if !seenTarget && targetService.Address != "" {
+		used[goName(targetService.Name)] = true
+		services = append(services, targetService)
 	}
-	return result, nil
+	byService := make(map[string][]goClientBinding, len(services))
+	for _, service := range services {
+		var result []goClientBinding
+		for _, client := range namedChildren(service.Spec, "client") {
+			name := stringValue(client["name"])
+			bindingRef := refString(client["binding"])
+			bindingAddress := resolveResourceRef(service, bindingRef, "binding")
+			binding, ok := byAddress[bindingAddress]
+			if name == "" || !ok || binding.Kind != "scenery.binding" {
+				return nil, fmt.Errorf("service %s client %q references unavailable binding %q", service.Address, name, bindingRef)
+			}
+			if stringValue(binding.Spec["protocol"]) != "internal" {
+				return nil, fmt.Errorf("service %s client %s requires an internal binding", service.Address, name)
+			}
+			operationAddress := resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")
+			operation, ok := byAddress[operationAddress]
+			if !ok || operation.Kind != "scenery.operation" {
+				return nil, fmt.Errorf("service %s client %s references unavailable operation", service.Address, name)
+			}
+			delivery := stringValue(binding.Spec["delivery"])
+			if delivery != "call" && delivery != "wait" && delivery != "enqueue" {
+				return nil, fmt.Errorf("service %s client %s has unsupported delivery %q", service.Address, name, delivery)
+			}
+			result = append(result, goClientBinding{
+				Name: name, Field: goName(name), InterfaceName: goName(name) + "InternalClient", Projected: operation.Module != service.Module,
+				Binding: binding, Operation: operation, Delivery: delivery,
+			})
+		}
+		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+		for i := range result {
+			if !result[i].Projected {
+				result[i].OperationName = goName(result[i].Operation.Name)
+				continue
+			}
+			base := result[i].Field + "Client"
+			candidate := base
+			if used[candidate] {
+				candidate = "Projected" + base
+				for suffix := 2; used[candidate]; suffix++ {
+					candidate = fmt.Sprintf("Projected%d%s", suffix, base)
+				}
+			}
+			used[candidate] = true
+			result[i].OperationName = candidate
+		}
+		byService[service.Address] = result
+	}
+	return byService, nil
 }
 
 func moduleContractImportPath(resources []Resource, module string) (string, bool) {

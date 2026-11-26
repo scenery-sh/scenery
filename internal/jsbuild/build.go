@@ -39,10 +39,17 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 		return Artifact{}, fmt.Errorf("JavaScript build directory must remain in the application workspace")
 	}
 
-	key := sha256.Sum256([]byte(service.Name))
+	key := sha256.Sum256(fmt.Appendf(nil, "%q", service))
 	cache := filepath.Join(privateRoot, fmt.Sprintf("build-%x.json", key[:8]))
 	if !check {
-		if prior := readBuildCache(root, cache, service); prior.CacheHit {
+		var prior Artifact
+		if err := withCacheLock(privateRoot, func() error {
+			prior = readBuildCache(root, cache, service)
+			return nil
+		}); err != nil {
+			return Artifact{}, err
+		}
+		if prior.CacheHit {
 			return prior, nil
 		}
 	}
@@ -113,10 +120,6 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 		return Artifact{}, err
 	}
 	destination := filepath.Join(privateRoot, "worker-"+digest)
-	if err := os.Rename(output, destination); err != nil {
-		return Artifact{}, err
-	}
-
 	record, err := json.Marshal(buildCacheEntry{Inputs: fingerprint, Executable: digest, Dependencies: dependencies})
 	if err != nil {
 		return Artifact{}, err
@@ -125,7 +128,12 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 	if err := os.WriteFile(recordPath, record, 0o600); err != nil {
 		return Artifact{}, err
 	}
-	if err := os.Rename(recordPath, cache); err != nil {
+	if err := withCacheLock(privateRoot, func() error {
+		if err := os.Rename(recordPath, cache); err != nil {
+			return err
+		}
+		return os.Rename(output, destination)
+	}); err != nil {
 		return Artifact{}, err
 	}
 	return Artifact{Path: destination, Digest: "sha256:" + digest, Dependencies: dependencies}, nil

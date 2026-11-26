@@ -12,8 +12,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -373,8 +375,21 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	return host, nil
 }
 
+func isInternalSceneryRoute(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	for _, candidate := range []string{u.Path, u.EscapedPath(), path.Clean("/" + u.Path)} {
+		lower := strings.ToLower(candidate)
+		if lower == "/__scenery" || strings.HasPrefix(lower, "/__scenery/") {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
-	if h.workers != nil && (strings.Contains(strings.ToLower(req.URL.Path), "scenery") || strings.Contains(strings.ToLower(req.URL.RawPath), "scenery")) {
+	if h.workers != nil && isInternalSceneryRoute(req.URL) {
 		http.NotFound(w, req)
 		return
 	}

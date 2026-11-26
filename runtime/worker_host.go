@@ -104,17 +104,22 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 			Invoke: func(ctx context.Context, _ []any, input any) (any, error) {
 				result, err := invoke(ctx, input)
 				if err != nil {
-					if outcome := ContractDurableFailureOutcome(err); outcome != "" {
-						status, message := http.StatusServiceUnavailable, "durable dispatch rejected"
-						if outcome == "dispatch.wait_timeout" {
-							status, message = http.StatusGatewayTimeout, "durable wait timed out"
-						}
+					switch outcome := ContractDurableFailureOutcome(err); outcome {
+					case "dispatch.rejected":
+						status := http.StatusServiceUnavailable
 						if configured := binding.Policy.TransportStatuses[outcome]; configured != 0 {
 							status = configured
 						}
-						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: message, Cause: err}
+						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: "durable dispatch rejected", Cause: err}
+					case "dispatch.wait_timeout":
+						status := http.StatusGatewayTimeout
+						if configured := binding.Policy.TransportStatuses[outcome]; configured != 0 {
+							status = configured
+						}
+						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: "durable wait timed out", Cause: err}
+					default:
+						return nil, err
 					}
-					return nil, err
 				}
 				return result, nil
 			},
@@ -240,9 +245,6 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 			extra.API = &workerAPIDesc{Exposed: state.request.API.Exposed, AuthRequired: state.request.API.AuthRequired}
 		}
 		extra.CronIdempotencyKey = state.request.CronIdempotencyKey
-		if extra.CronIdempotencyKey == "" {
-			extra.CronIdempotencyKey = state.request.Headers.Get(sceneryCronExecutionHeader)
-		}
 		if trace := state.trace; trace != nil {
 			metadata.Traceparent = traceParentForContext(ctx)
 			extra.ParentSpanID = trace.parentSpanID
@@ -313,8 +315,10 @@ func workerPathParams(params shared.PathParams) []workerPathParam {
 func workerRequestHeaders(headers http.Header) http.Header {
 	forwarded := make(http.Header, len(headers))
 	for name, values := range headers {
-		switch http.CanonicalHeaderKey(name) {
-		case "Authorization", "Proxy-Authorization", "Cookie":
+		canonical := http.CanonicalHeaderKey(name)
+		switch {
+		case canonical == "Authorization" || canonical == "Proxy-Authorization" || canonical == "Cookie":
+		case strings.HasPrefix(strings.ToLower(name), "x-scenery-"):
 		default:
 			forwarded[name] = values
 		}

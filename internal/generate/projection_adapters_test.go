@@ -71,6 +71,9 @@ func TestProjectedGoClientDisambiguatesCollisionWithLocalOperation(t *testing.T)
 		{Address: "consumer/service/consumer", Kind: "scenery.service", Name: "consumer", Module: "consumer", Spec: map[string]any{
 			"client": []any{map[string]any{"name": "echo", "binding": map[string]any{"$ref": "provider/binding/echo_internal"}}},
 		}},
+		{Address: "consumer/service/second", Kind: "scenery.service", Name: "second", Module: "consumer", Spec: map[string]any{
+			"client": []any{map[string]any{"name": "echo", "binding": map[string]any{"$ref": "provider/binding/echo_internal"}}},
+		}},
 		{Address: "consumer/operation/echo_client", Kind: "scenery.operation", Name: "echo_client", Module: "consumer", Spec: map[string]any{
 			"service": map[string]any{"$ref": "service.consumer"}, "input": "string",
 			"result":  []any{map[string]any{"name": "ok", "type": "string"}},
@@ -87,9 +90,13 @@ func TestProjectedGoClientDisambiguatesCollisionWithLocalOperation(t *testing.T)
 		}},
 	}
 	idx := newResourceIndex(resources)
-	clients, err := serviceGoClients(idx, resources[1])
-	if err != nil || len(clients) != 1 || clients[0].operationName() != "ProjectedEchoClient" {
-		t.Fatalf("clients = %+v, err = %v", clients, err)
+	first, err := serviceGoClients(idx, resources[1])
+	if err != nil || len(first) != 1 || first[0].operationName() != "ProjectedEchoClient" {
+		t.Fatalf("first clients = %+v, err = %v", first, err)
+	}
+	second, err := serviceGoClients(idx, resources[2])
+	if err != nil || len(second) != 1 || second[0].operationName() != "Projected2EchoClient" {
+		t.Fatalf("second clients = %+v, err = %v", second, err)
 	}
 	projected, err := projectedGoClientOperations(resources, idx)
 	if err != nil {
@@ -103,7 +110,7 @@ func TestProjectedGoClientDisambiguatesCollisionWithLocalOperation(t *testing.T)
 	if _, err := parser.ParseFile(token.NewFileSet(), "contract.gen.go", contractSrc, 0); err != nil {
 		t.Fatalf("generated contract failed to parse: %v\n%s", err, contractSrc)
 	}
-	if !strings.Contains(contractSrc, "ProjectedEchoClientInput") || !strings.Contains(contractSrc, "UnmarshalEchoClientInput") {
-		t.Fatalf("expected both disambiguated and local operations:\n%s", contractSrc)
+	if !strings.Contains(contractSrc, "ProjectedEchoClientInput") || !strings.Contains(contractSrc, "Projected2EchoClientInput") || !strings.Contains(contractSrc, "UnmarshalEchoClientInput") {
+		t.Fatalf("expected all disambiguated and local operations:\n%s", contractSrc)
 	}
 }

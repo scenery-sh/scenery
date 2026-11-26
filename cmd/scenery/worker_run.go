@@ -267,6 +267,11 @@ func workerProcessEnv(inherited []string, runtime string) []string {
 		workerruntime.AssistantRuntimeConfigEnv,
 		workerruntime.AssistantTokenKeyEnv,
 		workerruntime.AssistantTokenKeyFileEnv,
+		"SCENERY_ASSISTANT_ID",
+		"SCENERY_ASSISTANT_CONTROL_ADDR",
+		"SCENERY_ASSISTANT_CONTROL_TOKEN",
+		"SCENERY_MCP_BRIDGE_SECRET",
+		"SCENERY_MCP_URL",
 	)
 	if runtime != "go" {
 		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, "SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN")

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,6 +40,9 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 	defer func() {
 		watch.retirements.Wait()
 		stopWorkers(watch.all)
+		if watch.dev != nil {
+			pruneJSWorkersByPaths(watch.dev.watch.root, nil)
+		}
 	}()
 	watch.generations.add(watch.generation, watch.active)
 	watch.exits = make(chan struct{}, 1)
@@ -108,7 +112,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 				continue
 			}
 			seen, retryCandidate = current, false
-			if err := watch.refresh(ctx, current, observed); err != nil {
+			if applied, err := watch.refresh(ctx, current, observed); err != nil {
 				fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
 				if errors.Is(err, errWorkerInputsChanged) {
 					// The next candidate must include edits even if their
@@ -116,6 +120,8 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 					reconcile, retryCandidate = true, true
 					schedule()
 				}
+			} else if applied != nil {
+				seen = applied
 			}
 		case <-watch.exits:
 			watch.restartStopped(ctx, retry)
@@ -205,10 +211,10 @@ func workerMilliseconds(duration time.Duration) float64 {
 	return float64(duration.Microseconds()) / 1000
 }
 
-func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) (returnErr error) {
+func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) (applied workerInputs, returnErr error) {
 	paths := changedWorkerInputs(watch.dev.applied, current)
 	if len(paths) == 0 {
-		return nil
+		return current, nil
 	}
 	started := time.Now()
 	edit := watch.dev.classify(paths)
@@ -262,14 +268,20 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	bundle, err := candidate.rebuild(ctx, watch.bundle, current, paths, &timing)
 	timing.CompileMS = workerMilliseconds(time.Since(started))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	nextDeps = candidate.jsDependencies()
 	if !slices.Equal(prevDeps, nextDeps) {
 		updated := maps.Clone(current)
 		watch.dev.watch.setExplicit(nextDeps, true)
+		for _, dep := range prevDeps {
+			delete(updated, dep)
+			if err := watch.dev.watch.scan(filepath.Join(watch.dev.watch.root, dep), updated, false); err != nil {
+				return nil, err
+			}
+		}
 		if err := watch.dev.watch.scanExplicit(updated, false); err != nil {
-			return err
+			return nil, err
 		}
 		appliedCurrent = updated
 	}
@@ -290,11 +302,11 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	err = watch.replace(ctx, bundle, func() error { return candidate.verify(appliedCurrent) })
 	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	candidate.applied = appliedCurrent
 	*watch.dev = candidate
-	return nil
+	return appliedCurrent, nil
 }
 
 func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
@@ -336,6 +348,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 	for _, process := range started {
 		next[process.program.Process] = process
 	}
+	watch.all = append(watch.all, started...)
 	if err := publishWorkerGeneration(ctx, watch.client, watch.token, bundle, next, watch.sequence); err != nil {
 		current, statusErr := watch.currentGeneration(ctx)
 		if statusErr != nil || current != watch.sequence {
@@ -345,7 +358,6 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 			return errors.Join(err, statusErr)
 		}
 	}
-	watch.all = append(watch.all, started...)
 	watch.all = slices.DeleteFunc(watch.all, func(process *workerProcess) bool {
 		if next[process.program.Process] == process {
 			return false
@@ -363,6 +375,9 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 		}
 	}
 	watch.generations.add(watch.sequence, next)
+	if watch.dev != nil {
+		pruneJSWorkersByPaths(watch.dev.watch.root, watch.generations.binaries())
+	}
 	previous := watch.generation
 	watch.generation, watch.active, watch.bundle = watch.sequence, next, bundle
 	for _, process := range started {
@@ -419,9 +434,6 @@ func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
 	for {
 		if err := workerControlRequest(drain, watch.client, watch.token, http.MethodDelete, path, nil, http.StatusNoContent); err == nil {
 			stopWorkers(watch.generations.remove(generation))
-			if watch.dev != nil {
-				pruneJSWorkersByPaths(watch.dev.watch.root, watch.generations.binaries())
-			}
 			return
 		}
 		select {
@@ -430,9 +442,6 @@ func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
 			defer cancelForce()
 			if err := workerControlRequest(force, watch.client, watch.token, http.MethodDelete, path+"?force=true", nil, http.StatusNoContent); err == nil {
 				stopWorkers(watch.generations.remove(generation))
-				if watch.dev != nil {
-					pruneJSWorkersByPaths(watch.dev.watch.root, watch.generations.binaries())
-				}
 			}
 			return
 		case <-ticker.C:

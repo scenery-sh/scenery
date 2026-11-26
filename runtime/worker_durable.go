@@ -42,7 +42,12 @@ func (workers *workerHost) dispatchDurable(ctx context.Context, service WorkerSe
 	if delivery == "wait" {
 		output, err := DispatchAndWaitContractDurableExecutionWithOptions(ctx, address, input, options)
 		if err != nil {
-			return workerabi.Result{}, err
+			switch ContractDurableFailureOutcome(err) {
+			case "dispatch.rejected", "dispatch.wait_timeout":
+				return workerabi.Result{}, err
+			default:
+				return workerabi.Result{}, ContractSystemError(err)
+			}
 		}
 		result := workerabi.Result{Outcome: output}
 		operation, ok := service.Operations[plan.Operation]

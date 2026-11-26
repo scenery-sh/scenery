@@ -143,43 +143,52 @@ func walkedModuleInput(module, path string) bool {
 // referenced by any cached build entry nor in keep.
 func Prune(root string, keep []string) error {
 	privateRoot := filepath.Join(root, ".scenery", "js")
-	entries, err := os.ReadDir(privateRoot)
-	if errors.Is(err, os.ErrNotExist) {
+	info, err := os.Stat(privateRoot)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && !info.IsDir()) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	retained := make(map[string]bool, len(keep))
-	for _, path := range keep {
-		if path != "" {
-			retained[filepath.Clean(path)] = true
+	return withCacheLock(privateRoot, func() error {
+		entries, err := os.ReadDir(privateRoot)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.Type().IsRegular() || !strings.HasPrefix(name, "build-") || !strings.HasSuffix(name, ".json") {
-			continue
+		if err != nil {
+			return err
 		}
-		var record buildCacheEntry
-		if raw, err := os.ReadFile(filepath.Join(privateRoot, name)); err == nil && json.Unmarshal(raw, &record) == nil &&
-			len(record.Executable) == 64 && filepath.IsLocal(record.Executable) {
-			retained[filepath.Join(privateRoot, "worker-"+record.Executable)] = true
-		}
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.Type().IsRegular() || !isJSWorkerBinaryName(name) {
-			continue
-		}
-		path := filepath.Join(privateRoot, name)
-		if !retained[filepath.Clean(path)] {
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
+		retained := make(map[string]bool, len(keep))
+		for _, path := range keep {
+			if path != "" {
+				retained[filepath.Clean(path)] = true
 			}
 		}
-	}
-	return nil
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.Type().IsRegular() || !strings.HasPrefix(name, "build-") || !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			var record buildCacheEntry
+			if raw, err := os.ReadFile(filepath.Join(privateRoot, name)); err == nil && json.Unmarshal(raw, &record) == nil &&
+				len(record.Executable) == 64 && filepath.IsLocal(record.Executable) {
+				retained[filepath.Join(privateRoot, "worker-"+record.Executable)] = true
+			}
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.Type().IsRegular() || !isJSWorkerBinaryName(name) {
+				continue
+			}
+			path := filepath.Join(privateRoot, name)
+			if !retained[filepath.Clean(path)] {
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func isJSWorkerBinaryName(name string) bool {
