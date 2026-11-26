@@ -242,27 +242,40 @@ impl Context {
     ) -> Result<EventReceipt> {
         let input = serde_json::to_vec(&EventEmitCallRef { publisher, payload })?;
         if input.len() > MAX_METADATA {
-            return Err(BindingFailure {
-                code: Some("unavailable".into()),
-                message: "capability exceeds metadata limit".into(),
-                meta: Some(serde_json::json!({ "delivery": Delivery::NotSent })),
-            }
+            return Err(unavailable_failure(
+                Delivery::NotSent,
+                "capability exceeds metadata limit",
+            )
             .into());
         }
         let mut request = self.worker_request(Method::POST, "events/emit", full(input))?;
         request
             .headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        let response = self.host.send(request).await?;
+        let response = self
+            .host
+            .send_classified(request)
+            .await
+            .map_err(|(delivery, err)| unavailable_failure(delivery, err.to_string()))?;
         let status = response.status();
         let raw = Limited::new(response.into_body(), MAX_METADATA)
             .collect()
-            .await?
+            .await
+            .map_err(|err| unavailable_failure(Delivery::Unknown, err.to_string()))?
             .to_bytes();
         if status != StatusCode::OK {
             return Err(event_emit_failure(status, &raw).into());
         }
-        Ok(serde_json::from_str(binding_output(&raw)?.get())?)
+        let reply: BindingReply = serde_json::from_slice(&raw)
+            .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event capability response"))?;
+        match (reply.output, reply.error) {
+            (Some(output), None) => serde_json::from_str(output.get())
+                .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event receipt").into()),
+            (None, Some(error)) => Err(error.into()),
+            _ => Err(
+                unavailable_failure(Delivery::Unknown, "invalid event capability response").into(),
+            ),
+        }
     }
 
     async fn call_binding<T: Serialize + ?Sized>(
@@ -337,22 +350,48 @@ struct Host {
 
 impl Host {
     async fn send(&self, request: Request<Body>) -> Result<Response<Incoming>> {
+        self.send_classified(request)
+            .await
+            .map_err(|(_, error)| error)
+    }
+
+    async fn send_classified(
+        &self,
+        request: Request<Body>,
+    ) -> std::result::Result<Response<Incoming>, (Delivery, Error)> {
         let mut guard = self.sender.lock().await;
         if guard.as_ref().is_none_or(Sender::is_closed) {
-            let socket = UnixStream::connect(&*self.socket).await?;
+            let socket = UnixStream::connect(&*self.socket)
+                .await
+                .map_err(|err| (Delivery::NotSent, err.into()))?;
             let (sender, connection) =
                 hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(socket))
-                    .await?;
+                    .await
+                    .map_err(|err| (Delivery::NotSent, err.into()))?;
             tokio::spawn(connection);
             *guard = Some(sender);
         }
         let mut sender = guard
             .as_ref()
-            .ok_or("host connection is unavailable")?
+            .ok_or_else(|| (Delivery::NotSent, "host connection is unavailable".into()))?
             .clone();
         drop(guard);
-        sender.ready().await?;
-        Ok(sender.send_request(request).await?)
+        sender
+            .ready()
+            .await
+            .map_err(|err| (Delivery::NotSent, err.into()))?;
+        sender
+            .send_request(request)
+            .await
+            .map_err(|err| (Delivery::Unknown, err.into()))
+    }
+}
+
+fn unavailable_failure(delivery: Delivery, message: impl Into<String>) -> BindingFailure {
+    BindingFailure {
+        code: Some("unavailable".into()),
+        message: message.into(),
+        meta: Some(serde_json::json!({ "delivery": delivery })),
     }
 }
 
@@ -898,40 +937,28 @@ mod tests {
             Some("unknown")
         );
 
-        let oversized = run(async {
-            let (_tx, canceled) = watch::channel(());
-            let ctx = Context {
-                invocation: InvocationContext {
-                    invocation_id: "inv".into(),
-                    scope: "scope".into(),
-                    generation: 1,
-                    contract_revision: "rev".into(),
-                    principal: None,
-                    tenant_id: None,
-                    traceparent: None,
-                    deadline: None,
-                    locale: None,
-                    execution_id: None,
-                    metadata: None,
-                },
-                host: Host {
-                    socket: Arc::new(PathBuf::from("/nonexistent")),
-                    token: Arc::from("token"),
-                    sender: Arc::new(Mutex::new(None)),
-                },
-                canceled,
-            };
-            let huge = "x".repeat(MAX_METADATA + 1);
-            ctx.emit_event("accepted", &huge).await.map(|_| ())
-        });
-        let err = oversized.unwrap_err();
-        let failure = err
-            .downcast_ref::<BindingFailure>()
-            .expect("binding failure");
-        assert_eq!(failure.code.as_deref(), Some("unavailable"));
-        assert_eq!(
-            failure.meta.as_ref().and_then(|m| m["delivery"].as_str()),
-            Some("not_sent")
-        );
+        let check_not_sent = |payload: String| {
+            let err = run(async move {
+                let (_tx, canceled) = watch::channel(());
+                let ctx = Context {
+                    invocation: InvocationContext {
+                        invocation_id: "inv".into(), scope: "scope".into(), generation: 1,
+                        contract_revision: "rev".into(), principal: None, tenant_id: None,
+                        traceparent: None, deadline: None, locale: None, execution_id: None, metadata: None,
+                    },
+                    host: Host { socket: Arc::new(PathBuf::from("/nonexistent")), token: Arc::from("token"), sender: Arc::new(Mutex::new(None)) },
+                    canceled,
+                };
+                ctx.emit_event("accepted", &payload).await.map(|_| ())
+            })
+            .unwrap_err();
+            let failure = err.downcast_ref::<BindingFailure>().expect("binding failure");
+            assert_eq!(failure.code.as_deref(), Some("unavailable"));
+            assert_eq!(failure.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("not_sent"));
+        };
+        check_not_sent("x".repeat(MAX_METADATA + 1));
+        check_not_sent("small".into());
+        let bad_reply = unavailable_failure(Delivery::Unknown, "invalid event receipt");
+        assert_eq!(bad_reply.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("unknown"));
     }
 }

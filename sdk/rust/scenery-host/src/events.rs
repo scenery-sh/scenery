@@ -7,6 +7,7 @@ use hyper::body::Incoming;
 use scenery_wire::{EventEmitCall, EventReceipt, MAX_METADATA};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 use tokio_postgres::Client;
@@ -14,7 +15,7 @@ use tokio_postgres::Client;
 use crate::durable::{DuplicateExecution, connect, dispatch_key, dispatch_memo, enqueue_job};
 use crate::host::{Call, Fault, Host, Reply, Scope, json_reply};
 use crate::plan::{Key, Policy, Service, nullable};
-use crate::process::random_hex;
+use crate::process::{hex, random_hex};
 use crate::{transport, values};
 
 const MAX_EVENT_DEPTH: u32 = 16;
@@ -198,6 +199,14 @@ pub(crate) async fn emit(
     result
 }
 
+fn event_dedupe_key(payload: &Value, keys: &[Key]) -> Result<String> {
+    let raw = dispatch_key(payload, keys)?;
+    if raw.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(format!("sha256:{}", hex(&Sha256::digest(raw.as_bytes()))))
+}
+
 impl Event {
     fn admit(&self, types: &values::Types, call: &Call, raw: &[u8]) -> Result<Value, Fault> {
         if call.event_depth >= MAX_EVENT_DEPTH {
@@ -223,7 +232,7 @@ impl Event {
         call: &Call,
         payload: &Value,
     ) -> Result<EventReceipt> {
-        let key = dispatch_key(payload, &self.dedupe)?;
+        let key = event_dedupe_key(payload, &self.dedupe)?;
         let id = random_hex::<16>()?;
         let input = values::encode(payload).into_bytes();
         let caller = call.principal_id();
@@ -346,9 +355,17 @@ mod tests {
             )
             .map_err(|fault| fault.code)
             .unwrap();
-        let key = dispatch_key(&payload, &event.dedupe).unwrap();
-        assert!(!key.is_empty());
-        assert_eq!(key, dispatch_key(&other, &event.dedupe).unwrap());
+        let key = event_dedupe_key(&payload, &event.dedupe).unwrap();
+        assert!(key.starts_with("sha256:") && key.len() == 71);
+        assert_eq!(key, event_dedupe_key(&other, &event.dedupe).unwrap());
+        let large_a = json!({"id": (0..8192).map(|i| (b'a' + ((i * 31 + 7) % 26) as u8) as char).collect::<String>()});
+        let large_b = json!({"id": (0..8192).map(|i| (b'a' + ((i * 31 + 11) % 26) as u8) as char).collect::<String>()});
+        let id_keys = vec![Key { name: "id".into(), ty: "string".into() }];
+        let digest_a = event_dedupe_key(&large_a, &id_keys).unwrap();
+        let digest_b = event_dedupe_key(&large_b, &id_keys).unwrap();
+        assert!(digest_a.starts_with("sha256:") && digest_a.len() == 71);
+        assert_ne!(digest_a, digest_b);
+        assert_eq!(event_dedupe_key(&large_a, &[]).unwrap(), "");
         assert_eq!(payload["amount"], "9007199254740993");
         for (input, status) in [
             (&br#"{"id":"denied","amount":"9007199254740993"}"#[..], 403),
