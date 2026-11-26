@@ -635,7 +635,18 @@ func renderTSTypes(resources []Resource, bindingSets ...[]Resource) string {
 		bindings = append(bindings, set...)
 	}
 	var b strings.Builder
-	b.WriteString("// Code generated for the application. DO NOT EDIT.\n\ndeclare const jsonNumberBrand: unique symbol;\nexport type JsonValue = null | boolean | string | JsonNumber | readonly JsonValue[] | { readonly [key: string]: JsonValue };\nexport interface JsonNumber { readonly coefficient: string; readonly scale: number; readonly [jsonNumberBrand]: true }\nexport type Unit = Readonly<Record<never, never>>;\nexport type UUIDString = string & { readonly __uuid: unique symbol };\nexport type DateString = string & { readonly __date: unique symbol };\nexport type DateTimeString = string & { readonly __datetime: unique symbol };\nexport type DurationString = string & { readonly __duration: unique symbol };\nexport type DecimalString = string & { readonly __decimal: unique symbol };\nexport type URLString = string & { readonly __url: unique symbol };\nexport type RelativePathString = string & { readonly __relativePath: unique symbol };\nexport interface Problem { readonly code: string; readonly message: string; readonly path?: string }\nexport interface EnqueueReceipt { readonly durableIdentity: string; readonly executionId: string; readonly acceptedRevision: string; readonly statusUrl?: URLString }\n\n")
+	b.WriteString("// Code generated for the application. DO NOT EDIT.\n\ndeclare const jsonNumberBrand: unique symbol;\nexport type JsonValue = null | boolean | string | JsonNumber | readonly JsonValue[] | { readonly [key: string]: JsonValue };\nexport interface JsonNumber { readonly coefficient: string; readonly scale: number; readonly [jsonNumberBrand]: true }\nexport type Unit = Readonly<Record<never, never>>;\nexport type UUIDString = string & { readonly __uuid: unique symbol };\nexport type DateString = string & { readonly __date: unique symbol };\nexport type DateTimeString = string & { readonly __datetime: unique symbol };\nexport type DurationString = string & { readonly __duration: unique symbol };\nexport type DecimalString = string & { readonly __decimal: unique symbol };\nexport type URLString = string & { readonly __url: unique symbol };\nexport type RelativePathString = string & { readonly __relativePath: unique symbol };\nexport interface Problem { readonly code: string; readonly message: string; readonly path?: string }\nexport interface EnqueueReceipt { readonly durableIdentity: string; readonly executionId: string; readonly acceptedRevision: string; readonly statusUrl?: URLString }\n")
+	hasStreamOut := false
+	for _, binding := range bindings {
+		if stringValue(binding.Spec["protocol"]) == "http" && stringValue(binding.Spec["delivery"]) == "stream_out" {
+			hasStreamOut = true
+			break
+		}
+	}
+	if hasStreamOut {
+		b.WriteString("export interface ServerSentEvent<T> { readonly data: T; readonly id?: string; readonly event?: string }\n")
+	}
+	b.WriteString("\n")
 	for _, r := range resources {
 		switch r.Kind {
 		case "scenery.record":
@@ -704,15 +715,20 @@ func renderTSTypes(resources []Resource, bindingSets ...[]Resource) string {
 		if len(variants) == 0 && len(transportVariants) == 0 {
 			b.WriteString("  never\n")
 		}
+		streamOut := operationUsesHTTPStreamOut(r, bindings)
 		for i, v := range variants {
 			variant, _ := v["name"].(string)
 			kind := "result"
 			field := "value"
+			valueType := tsType(v["type"])
 			if i >= len(namedChildren(r.Spec, "result")) {
 				kind = "error"
 				field = "problem"
+			} else if streamOut {
+				field = "events"
+				valueType = "AsyncIterable<ServerSentEvent<" + valueType + ">>"
 			}
-			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", kind, variant, field, tsType(v["type"]))
+			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", kind, variant, field, valueType)
 		}
 		for _, variant := range transportVariants {
 			if variant.Kind != "failure" {

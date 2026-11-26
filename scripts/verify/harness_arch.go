@@ -177,6 +177,16 @@ var packageLayerRules = []packageLayerRule{
 		},
 	},
 	{
+		Name:         "OpenAPI projection consumes the canonical graph without compiler or generation orchestration",
+		PathPrefixes: []string{"internal/openapiprojection/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/compiler", "scenery.sh/internal/generate",
+			"scenery.sh/internal/generate/api", "scenery.sh/internal/workspacetx",
+			"scenery.sh/runtime", "scenery.sh/auth",
+		},
+		AllowTestImports: []string{"scenery.sh/internal/compiler"},
+	},
+	{
 		Name:             "backend compilation and runtime stay free of optional UI rendering and assets",
 		PathPrefixes:     []string{"internal/compiler/", "internal/graph/", "runtime/"},
 		ForbiddenImports: []string{"scenery.sh/internal/uigen", "scenery.sh/ui"},

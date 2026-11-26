@@ -309,6 +309,8 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		method, _ := handler["method"].(string)
 		if operationUsesHTTPStream(operation, bindings) {
 			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, scenery.ByteStream, error)\n", method, goName(operation.Name), goName(operation.Name))
+		} else if operationUsesHTTPStreamOut(operation, bindings) {
+			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, contract.%sStream, error)\n", method, goName(operation.Name), goName(operation.Name), goName(operation.Name))
 		} else {
 			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, error)\n", method, goName(operation.Name), goName(operation.Name))
 		}

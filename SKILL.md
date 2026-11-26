@@ -9,7 +9,7 @@ Scenery runs one supervised runtime per canonical app root: `scenery up`
 supervises the Rust application host, which serves every worker over Worker ABI
 v1 and rebuilds edited workers itself. `.scenery.json` marks the root; `app.scn`
 and package-local `package.scn` declare the canonical resource graph; Go, Rust,
-JavaScript, and TypeScript implement generated contracts. `scenery build`
+JavaScript/TypeScript, and Python implement generated contracts. `scenery build`
 writes the deployable host bundle and `scenery build --oci` a Linux image of
 it; [docs/spec/SPEC.md](docs/spec/SPEC.md) section 8 lists its production
 configuration (`--config`, `$env` secrets, S3 storage, OTLP, schedules).
@@ -29,7 +29,7 @@ with `scenery help <command> -o json`.
 | Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json`, `scenery telemetry report` |
 | Query a service's PostgreSQL schema | `scenery db query --service <module> '<sql>' --param <value> -o json` |
 | Trigger a durable execution or schedule | `scenery durable run <target> --input '<json>' -o json` |
-| Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js -o json` |
+| Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js\|python -o json` |
 | Regenerate clients / UI | `scenery generate -o json` |
 | Package for deployment | `scenery build -o json`, `scenery build --oci <image> [--platform linux/amd64\|linux/arm64] [--oci-context <dir>] -o json` |
 | Assistants | `scenery assistant status <name> -o json` |

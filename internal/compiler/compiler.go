@@ -20,6 +20,7 @@ var rootSingletons = map[string]bool{"application": true, "workspace": true}
 var rootResourceKinds = map[string]bool{
 	"go_module": true, "go_toolchain": true, "go_target": true,
 	"js_workspace": true, "js_toolchain": true, "js_target": true,
+	"python_workspace": true, "python_toolchain": true, "python_target": true,
 	"rust_workspace": true, "rust_toolchain": true, "rust_target": true,
 	"http_gateway": true, "authentication": true, "authorization": true,
 	"pipeline": true, "provider": true, "data_source": true,
@@ -708,6 +709,7 @@ func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateGoTargets(root, resources)...)
 	diagnostics = append(diagnostics, validateRustTargets(root, resources)...)
 	diagnostics = append(diagnostics, validateJSTargets(root, resources)...)
+	diagnostics = append(diagnostics, validatePythonTargets(root, resources)...)
 	diagnostics = append(diagnostics, validateSecurityResources(resources)...)
 	diagnostics = append(diagnostics, validateReferences(resources)...)
 	diagnostics = append(diagnostics, validateResourceSemantics(resources)...)

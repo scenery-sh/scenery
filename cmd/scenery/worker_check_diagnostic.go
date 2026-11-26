@@ -18,6 +18,10 @@ func workerCheckDiagnostic(result *compiler.Result, err error) graph.Diagnostic 
 		diagnostic.Code = "SCN6167"
 		address = failure.service
 	}
+	if failure, ok := errors.AsType[*workerPythonBuildError](err); ok {
+		diagnostic.Code = "SCN6171"
+		address = failure.service
+	}
 	if failure, ok := errors.AsType[*rustbuild.CommandError](err); ok {
 		g := agentGraph{Result: result}
 		modules, _ := g.modules()

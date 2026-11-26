@@ -38,7 +38,7 @@ func prepareHarnessWorkerIncremental(repo, app string) error {
 	}
 	declarations := filepath.Join(app, "app.scn")
 	if err := harnessReplaceInFile(declarations, `"echo/scenerycontract",`,
-		`"echo/scenerycontract", "idle/scenerycontract", "pricing/scenerycontract", "backup/scenerycontract", "echo_ts/scenerycontract",`); err != nil {
+		`"echo/scenerycontract", "idle/scenerycontract", "pricing/scenerycontract", "backup/scenerycontract", "echo_ts/scenerycontract", "echo_py/scenerycontract",`); err != nil {
 		return err
 	}
 	write := func(name string, data []byte) error {
@@ -83,6 +83,16 @@ func prepareHarnessWorkerIncremental(repo, app string) error {
 		}
 		source := strings.ReplaceAll(string(data), `"/echo"`, `"/echo-ts"`)
 		if err := write("echo_ts/"+file, []byte(source)); err != nil {
+			return err
+		}
+	}
+	for _, file := range []string{"package.scn", "service.py"} {
+		data, err := read("python-only", "echo/"+file)
+		if err != nil {
+			return err
+		}
+		source := strings.ReplaceAll(string(data), `"/echo"`, `"/echo-py"`)
+		if err := write("echo_py/"+file, []byte(source)); err != nil {
 			return err
 		}
 	}
@@ -140,6 +150,17 @@ module "echo_ts" {
   source = "./echo_ts"
   inputs = { gateway = http_gateway.public_api }
 }
+python_workspace "application" { root = "echo_py" }
+python_toolchain "application" { version = "3.14.6" }
+python_target "development" {
+  role = "development"
+  workspace = python_workspace.application
+  toolchain = python_toolchain.application
+}
+module "echo_py" {
+  source = "./echo_py"
+  inputs = { gateway = http_gateway.public_api }
+}
 `...))
 }
 
@@ -155,8 +176,30 @@ type harnessWorkerRebuild struct {
 	GoLinks      []string `json:"go_links"`
 	Cargo        []string
 	JS           []string
+	Python       []string
 	Rebuilt      []string
 	Skipped      int
+}
+
+func extractWorkerBinaryFromPS(psArgs string) (string, bool) {
+	before, _, ok := strings.Cut(strings.TrimSpace(psArgs), " /tmp/app-workers-")
+	if !ok {
+		return "", false
+	}
+	if info, err := os.Stat(before); err == nil && info.Mode().IsRegular() {
+		return before, true
+	}
+	// Interpreted executables (such as #! Python zipapps) appear in `ps -o args=`
+	// as `<interpreter> <script> <launch.json>`.
+	for idx := 0; idx < len(before); idx++ {
+		if before[idx] == ' ' {
+			candidate := strings.TrimSpace(before[idx+1:])
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
 }
 
 func runHarnessWorkerIncremental(parent context.Context, repo string) (map[string]any, error) {
@@ -219,7 +262,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		}
 		return reply, json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&reply.Body)
 	}
-	routes := map[string]string{"/echo": `{"message":"probe"}`, "/greet": `{"name":"probe"}`, "/idle": `{"message":"probe"}`, "/quote": `{"amount":"7"}`, "/backup": `{"amount":"7"}`, "/echo-ts": `{"amount":"7"}`}
+	routes := map[string]string{"/echo": `{"message":"probe"}`, "/greet": `{"name":"probe"}`, "/idle": `{"message":"probe"}`, "/quote": `{"amount":"7"}`, "/backup": `{"amount":"7"}`, "/echo-ts": `{"amount":"7"}`, "/echo-py": `{"amount":"7"}`}
 	workerPIDs := make(map[int]bool)
 	readWorkers := func() (map[string]harnessWorkerReply, error) {
 		workers := make(map[string]harnessWorkerReply)
@@ -241,9 +284,9 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 			if err != nil {
 				return nil, err
 			}
-			// argv is the absolute executable followed by the private launch
-			// config. Split at the latter so executable paths may have spaces.
-			binary, _, ok := strings.Cut(strings.TrimSpace(string(process)), " /tmp/app-workers-")
+			// argv is the absolute executable (or interpreter + zipapp) followed
+			// by the private launch config.
+			binary, ok := extractWorkerBinaryFromPS(string(process))
 			if !ok {
 				return nil, fmt.Errorf("worker %s has no executable in ps: %s", route, process)
 			}
@@ -296,19 +339,29 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if output, err := wire.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("JavaScript wire conformance: %w: %s", err, output)
 	}
-	summary := map[string]any{"js_wire_cases": 33}
+	pyBin, err := exec.CommandContext(ctx, "uv", "python", "find", "--no-python-downloads", "3.14.6").Output()
+	if err != nil {
+		return nil, fmt.Errorf("resolve Python 3.14.6 for wire conformance: %w", err)
+	}
+	pyWire := exec.CommandContext(ctx, strings.TrimSpace(string(pyBin)), "-B", filepath.Join(repo, "sdk/python/tests/test_worker_wire.py"))
+	if output, err := pyWire.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("python wire conformance: %w: %s", err, output)
+	}
+	summary := map[string]any{"js_wire_cases": 33, "python_wire_cases": 33}
 	for _, trial := range []struct {
 		name, file, old, new, route, key, want string
-		replaced, links, cargo, js             []string
+		replaced, links, cargo, js, python     []string
 		declarations                           bool
 	}{
-		{"Go", "echo/api.go", `text.Label("echo",`, `text.Label("next",`, "/echo", "message", "next:probe", []string{"/echo"}, []string{"echo/service/echo"}, nil, nil, false},
-		{"Rust", "pricing/src/lib.rs", "amount: input.amount,", "amount: sdk::Int64(input.amount.0 + 1),", "/quote", "amount", "8", []string{"/quote"}, nil, []string{"pricing"}, nil, false},
+		{"Go", "echo/api.go", `text.Label("echo",`, `text.Label("next",`, "/echo", "message", "next:probe", []string{"/echo"}, []string{"echo/service/echo"}, nil, nil, nil, false},
+		{"Rust", "pricing/src/lib.rs", "amount: input.amount,", "amount: sdk::Int64(input.amount.0 + 1),", "/quote", "amount", "8", []string{"/quote"}, nil, []string{"pricing"}, nil, nil, false},
 		{"Go shared", "internal/text/text.go", `service + ":" + message`, `service + "::" + message`, "/echo", "message", "next::probe",
-			[]string{"/echo", "/greet"}, []string{"echo/service/echo", "greeter/service/greeter"}, nil, nil, false},
+			[]string{"/echo", "/greet"}, []string{"echo/service/echo", "greeter/service/greeter"}, nil, nil, nil, false},
 		{"TypeScript", "echo_ts/service.ts", "value: input", "value: { ...input, amount: input.amount + 1n }", "/echo-ts", "amount", "8",
-			[]string{"/echo-ts"}, nil, nil, []string{"echo_ts/service/echo"}, false},
-		{"declaration", "app.scn", "application \"multiservice\" {", "# declaration refresh\napplication \"multiservice\" {", "", "", "", nil, nil, nil, nil, true},
+			[]string{"/echo-ts"}, nil, nil, []string{"echo_ts/service/echo"}, nil, false},
+		{"Python", "echo_py/service.py", "return EchoOk(value=input)", "return EchoOk(value=EchoInput(amount=input.amount + 1, note=input.note))", "/echo-py", "amount", "8",
+			[]string{"/echo-py"}, nil, nil, nil, []string{"echo_py/service/echo"}, false},
+		{"declaration", "app.scn", "application \"multiservice\" {", "# declaration refresh\napplication \"multiservice\" {", "", "", "", nil, nil, nil, nil, nil, true},
 	} {
 		stat, err := output.Stat()
 		if err != nil {
@@ -352,6 +405,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		slices.Sort(timing.GoLinks)
 		if timing.Declarations != trial.declarations || timing.Go != (len(trial.links) != 0 || trial.declarations) ||
 			!slices.Equal(timing.GoLinks, trial.links) || !slices.Equal(timing.Cargo, trial.cargo) || !slices.Equal(timing.JS, trial.js) ||
+			!slices.Equal(timing.Python, trial.python) ||
 			timing.Skipped != len(routes)-len(trial.replaced) || len(timing.Rebuilt) != len(trial.replaced) {
 			return nil, fmt.Errorf("%s selected unexpected builds: %+v", trial.name, timing)
 		}
@@ -452,7 +506,7 @@ func verifyWorkerRebuildTelemetry(ctx context.Context, repo, app, home, generati
 		}
 		build := event.Rebuild
 		if build.OK && build.TriggerKind == "body_only" && slices.Equal(build.RebuiltModules, []string{"echo_ts"}) &&
-			len(build.SkippedModules) == 5 && build.EditToReadyMS != nil && *build.EditToReadyMS >= build.ReadyMS {
+			len(build.SkippedModules) == 6 && build.EditToReadyMS != nil && *build.EditToReadyMS >= build.ReadyMS {
 			return event, nil
 		}
 	}

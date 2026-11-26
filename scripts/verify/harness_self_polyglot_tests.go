@@ -78,7 +78,7 @@ func verifyPolyglotTests(ctx context.Context, repo string) (map[string]any, erro
 		}
 	}
 	slices.Sort(modules)
-	if !slices.Equal(modules, []string{"consumer:go", "mirror:ts", "native:go", "pricing:rust", "typescript:ts"}) {
+	if !slices.Equal(modules, []string{"consumer:go", "mirror:ts", "native:go", "pricing:rust", "python:python", "typescript:ts"}) {
 		return nil, fmt.Errorf("unexpected passing native test modules: %v", modules)
 	}
 	return map[string]any{"modules": result.Modules}, nil

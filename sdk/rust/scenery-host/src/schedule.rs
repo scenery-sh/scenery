@@ -351,7 +351,7 @@ async fn invoke(host: &Host, service: &Service, schedule: &Schedule) -> Result<(
         let outcome = host
             .invoke(&call, service, &schedule.operation, None, "direct", &input)
             .await?;
-        if outcome.stream.is_some() {
+        if outcome.is_streamed() {
             return Err(Fault::internal("scheduled operation returned a stream"));
         }
     }

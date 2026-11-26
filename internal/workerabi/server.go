@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -91,7 +92,7 @@ func (launch Launch) serveInvocation(w http.ResponseWriter, request *http.Reques
 		defer closeStream()
 		defer stop()
 	}
-	if err != nil || len(result.Outcome) == 0 || result.Stream != nil && result.StreamSize < 0 {
+	if err != nil || len(result.Outcome) == 0 || result.Stream != nil && result.StreamSize < 0 || result.Stream != nil && result.Events != nil {
 		writeFault(w, http.StatusInternalServerError)
 		return
 	}
@@ -100,6 +101,36 @@ func (launch Launch) serveInvocation(w http.ResponseWriter, request *http.Reques
 	}{Outcome: result.Outcome})
 	if err != nil || len(metadata) > MaxMetadataBytes {
 		writeFault(w, http.StatusInternalServerError)
+		return
+	}
+	if result.Events != nil {
+		w.Header().Set("Content-Type", EventsMediaType)
+		header := binary.BigEndian.AppendUint32(nil, uint32(len(metadata)))
+		if _, err := w.Write(header); err != nil {
+			return
+		}
+		if _, err := w.Write(metadata); err != nil {
+			return
+		}
+		controller := http.NewResponseController(w)
+		if err := controller.Flush(); err != nil {
+			return
+		}
+		if err := runEventProducer(ctx, result.Events, func(data []byte, id, event string) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			line, err := encodeEventLine(data, id, event)
+			if err != nil {
+				return err
+			}
+			if _, err := w.Write(line); err != nil {
+				return err
+			}
+			return controller.Flush()
+		}); err != nil {
+			panic(http.ErrAbortHandler)
+		}
 		return
 	}
 	if result.Stream == nil {
@@ -141,4 +172,40 @@ func writeFault(w http.ResponseWriter, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, `{"error":"worker request failed"}`)
+}
+
+func runEventProducer(
+	ctx context.Context,
+	produce func(context.Context, func([]byte, string, string) error) error,
+	emit func([]byte, string, string) error,
+) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = ErrImplementation
+		}
+	}()
+	return produce(ctx, emit)
+}
+
+func encodeEventLine(data []byte, id, event string) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty event payload")
+	}
+	if strings.ContainsAny(id, "\r\n\x00") || strings.ContainsAny(event, "\r\n\x00") {
+		return nil, fmt.Errorf("event metadata contains forbidden control character")
+	}
+	frame := struct {
+		Data  json.RawMessage `json:"data"`
+		ID    string          `json:"id,omitempty"`
+		Event string          `json:"event,omitempty"`
+	}{
+		Data:  json.RawMessage(data),
+		ID:    id,
+		Event: event,
+	}
+	line, err := json.Marshal(frame)
+	if err != nil {
+		return nil, err
+	}
+	return append(line, '\n'), nil
 }

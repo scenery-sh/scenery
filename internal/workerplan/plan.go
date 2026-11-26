@@ -101,6 +101,7 @@ type WorkerResponsePlan struct {
 	Body    WorkerResponseValue
 	Options ContractResponseOptions
 	Stream  bool
+	Events  bool
 	Headers []WorkerResponseHeader
 	Cookies []WorkerResponseCookie
 }

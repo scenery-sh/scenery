@@ -20,18 +20,36 @@ import (
 // shutdown of its services.
 const workerShutdownGrace = 5 * time.Second
 
+// RawEventProducer is the worker-ABI event streaming callback registered by generated adapters.
+type RawEventProducer = shared.RawEventProducer
+
 // RegisterWorkerOperation installs a generated, typed operation adapter in
 // the worker. The Host owns its bindings and execution policy.
 func RegisterWorkerOperation(address string, invoke func(context.Context, []byte) ([]byte, shared.ByteStream, error)) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
-	if address == "" || invoke == nil || global.workerOperations[address] != nil {
+	if address == "" || invoke == nil || global.workerOperations[address] != nil || global.workerEventOperations[address] != nil {
 		return fmt.Errorf("invalid or duplicate worker operation %q", address)
 	}
 	if global.workerOperations == nil {
 		global.workerOperations = make(map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error))
 	}
 	global.workerOperations[address] = invoke
+	return nil
+}
+
+// RegisterWorkerEventOperation installs a generated, typed stream_out operation
+// adapter in the worker.
+func RegisterWorkerEventOperation(address string, invoke func(context.Context, []byte) ([]byte, RawEventProducer, error)) error {
+	global.mu.Lock()
+	defer global.mu.Unlock()
+	if address == "" || invoke == nil || global.workerOperations[address] != nil || global.workerEventOperations[address] != nil {
+		return fmt.Errorf("invalid or duplicate worker operation %q", address)
+	}
+	if global.workerEventOperations == nil {
+		global.workerEventOperations = make(map[string]func(context.Context, []byte) ([]byte, RawEventProducer, error))
+	}
+	global.workerEventOperations[address] = invoke
 	return nil
 }
 
@@ -158,8 +176,9 @@ type workerPathParam struct {
 func invokeGoWorker(ctx context.Context, invocation workerabi.Invocation) (workerabi.Result, error) {
 	global.mu.RLock()
 	operation := global.workerOperations[invocation.Operation]
+	eventOperation := global.workerEventOperations[invocation.Operation]
 	global.mu.RUnlock()
-	if operation == nil {
+	if operation == nil && eventOperation == nil {
 		return workerabi.Result{}, fmt.Errorf("worker operation is not registered")
 	}
 	ctx, state, err := goWorkerContext(ctx, invocation)
@@ -167,6 +186,10 @@ func invokeGoWorker(ctx context.Context, invocation workerabi.Invocation) (worke
 		return workerabi.Result{}, err
 	}
 	defer enterState(state)()
+	if eventOperation != nil {
+		outcome, events, err := eventOperation(ctx, invocation.Input)
+		return workerabi.Result{Outcome: outcome, Events: events}, err
+	}
 	outcome, stream, err := operation(ctx, invocation.Input)
 	return workerabi.Result{Outcome: outcome, Stream: stream.Reader, StreamSize: stream.Size}, err
 }

@@ -167,3 +167,39 @@ test("returns ok", async () => {
 });
 `, contextType, context))
 }
+
+func (s *moduleScaffold) addPythonFiles() {
+	s.create(s.Module+"/service.py", `from __future__ import annotations
+
+from scenerycontract import ConstructorInput, Context, PingInput, PingOk, PingOutcome
+
+
+class Service:
+    async def ping(self, ctx: Context, input: PingInput) -> PingOutcome:
+        return PingOk(value="ok")
+
+
+def new_service(input: ConstructorInput) -> Service:
+    return Service()
+`)
+	s.create(s.Module+"/test_service.py", `from __future__ import annotations
+
+import asyncio
+import unittest
+from typing import Any, cast
+
+from scenerycontract import ConstructorInput, Context, PingOk, clients
+from service import new_service
+
+
+class ServiceTests(unittest.TestCase):
+    def test_returns_ok(self) -> None:
+        service = new_service(ConstructorInput(clients=clients, config=None, databases={}))
+        outcome = asyncio.run(service.ping(cast(Context, cast(Any, None)), {}))
+        self.assertEqual(outcome, PingOk(value="ok"))
+
+
+if __name__ == "__main__":
+    unittest.main()
+`)
+}

@@ -8,11 +8,11 @@ type PayloadIdentity struct {
 }
 
 var payloadSchemaRevisions = map[string]string{
-	"scenery.add.module.result":         "sha256:8a2c549600d635d4a2cbfac7b50220b8bbe65e29686e8c25802aade225733d11",
+	"scenery.add.module.result":         "sha256:f744aabae9ddab0da0bff9fddf2437c817ab4f190e232ae40b088428410994fa",
 	"scenery.durable.run.result":        "sha256:52be1b17481ad2e3b0b97647802b9c76959c80e0ae792aab927dbb90c0040f5c",
 	"scenery.db.query.result":           "sha256:0ac6740ae588d177b3789c216b2e3ea81a085fa4b7336a6f5b229d82c7465ecc",
-	"scenery.test.result":               "sha256:d10e7c5c2090bfdfef132ef89233d788e106d93f000c7c6a3f76c031c669d511",
-	"scenery.context":                   "sha256:8741784f13af8c758e8afe7ccd427d1e88a59fc71ccae265a7ab85618f711bd4",
+	"scenery.test.result":               "sha256:4528f02466b4289cce33722ec47b25b3be80418ae7e63b90af9958cf748acf99",
+	"scenery.context":                   "sha256:c2457f90eacc44cf3dbfb33ba924f45ac317471c473bb1144866f1cac7fd5211",
 	"scenery.call.result":               "sha256:b6430d42ccbb5f3d5e8e3790bcdf65549a3c7070028c27a2b048ff32883e2e48",
 	"scenery.feature":                   "sha256:1986097fb2b2a03fb11d3fa83bba5bf3485664b58ec20439ce3f7ffc572069dd",
 	"scenery.harness.verification":      "sha256:0b17c6f9d5e265127a577656afb8e61b39462dcb5dec09042a015c9bd79bac8a",
@@ -42,6 +42,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.validation.plan":           "sha256:70fcd06fd152aeb86afc4d71920d09068a85e9f9a7a5ae00b808d85942efca06",
 	"scenery.validation.result":         "sha256:139558e468ee2afaf721b0f1a1b4b1fde798cd6f98748af96246c8fa6de2e0da",
 	"scenery.inspect.routes":            "sha256:000c440270d6bfe7bde83bbba963e0a4614aa830b284c4fca8424e82c1ca5bd0",
+	"scenery.openapi.export":            "sha256:486da0d23e908517d94b431b6a34b5ddb55b6f2d7edc94212d9740851f02ad05",
 	"scenery.inspect.metrics":           "sha256:6af4d264dbb1fd08f82a3b69eac6114dd400100145476bae5f8cdd2fb8f337bd",
 	"scenery.inspect.traces":            "sha256:af813a0069ad6f07983cf15ba3c67300dd6952d41a4af67450ef45c3321723be",
 	"scenery.inspect.ui":                "sha256:16c903f6ec1b17894cd23150bd387876af888fb957cabe010f1ba9219a24cb50",
@@ -65,7 +66,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.build.result":              "sha256:ec81503bb7e8d37ae0b258b779649b1e474dd32e0b2d5c98ba1d6d6b20f1a76b",
 	"scenery.build.desktop":             "sha256:7cfea8f3c11ee0afce6b9718565506a3ef86ae2de7da0265f896c67ca3eccfe7",
 	"scenery.run.event":                 "sha256:783d6c49d9a0f2b57acebc0d1c11f9e155a7b2d9a3c70bc171f4a7d48e6d8138",
-	"scenery.dev-runtime.wait":          "sha256:a5cc428e7d4d58de1f60eaba29ba6f572ee99edf46ef6ce70842e227eeda6d4a",
+	"scenery.dev-runtime.wait":          "sha256:5af3ad92479f7dba849334ba8175ce38d157da809a999882431f6673676ae427",
 	"scenery.dev.event":                 "sha256:88d7bd9bd7e38e93de754e8508bde933e9d49d48a5391c29686e11737bb5ba2e",
 	"scenery.dev.detach":                "sha256:3ba4e45cfd425a451b8a6caf3d7217014fc9d48055d00c9a158a500a255f1742",
 	"scenery.edge.trust":                "sha256:5b028667b235c96636e9f3dd51f311600201534cd3bfe8d47afdf084c233eabe",

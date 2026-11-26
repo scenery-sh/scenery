@@ -13,6 +13,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/pythonbuild"
 	"scenery.sh/internal/rustbuild"
 	"scenery.sh/internal/workerplan"
 	workerruntime "scenery.sh/runtime"
@@ -108,6 +109,18 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 			entry := filepath.Join(dev.watch.root, target.Directory, "scenerycontract", "main.ts")
 			command.Args = []string{"build", "--no-env-file", "--target=bun", "--packages=bundle", "--outfile={output}", "--metafile={metafile}",
 				"--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", entry}
+		case "python":
+			index := slices.IndexFunc(dev.python, func(item workerPythonBuild) bool { return item.program.Service == program.Service })
+			target := dev.python[index].service
+			interpreter := dev.python[index].interpreter
+			if interpreter == "" {
+				interpreter, err = pythonbuild.ResolveInterpreter(context.Background(), dev.watch.root, target)
+			}
+			command.Program = interpreter
+			command.Directory, command.Workspace = target.Directory, target.Workspace
+			command.Environment = envpolicy.Environ()
+			builder := filepath.Join(dev.watch.root, target.Directory, "scenerycontract", "_build.py")
+			command.Args = []string{"-B", builder, "--output", "{output}", "--interpreter", interpreter}
 		}
 		if err != nil {
 			return plan, err
@@ -179,6 +192,12 @@ func refreshWorkerRebuildPlan(args []string) error {
 		for _, js := range dev.js {
 			if js.program.Service == service.Address {
 				program = js.program
+				break
+			}
+		}
+		for _, py := range dev.python {
+			if py.program.Service == service.Address {
+				program = py.program
 				break
 			}
 		}

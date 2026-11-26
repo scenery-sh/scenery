@@ -275,3 +275,84 @@ func TestHTTPMultipartFileRecordsRequireExactRetainedMetadata(t *testing.T) {
 		t.Fatalf("file record without retained metadata was accepted: %#v", diagnostics)
 	}
 }
+
+func TestHTTPValidationTypedStreamOutSSE(t *testing.T) {
+	baseResources := func(delivery string, execMode string, responses any) []Resource {
+		return []Resource{
+			{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"exposure": "internet", "base_path": "/"}},
+			{Address: "house/service/ticker", Module: "house", Kind: "scenery.service"},
+			{Address: "house/record/tick", Module: "house", Kind: "scenery.record", Spec: map[string]any{
+				"field": []any{
+					map[string]any{"name": "symbol", "type": map[string]any{"$ref": "string"}},
+					map[string]any{"name": "seq", "type": map[string]any{"$ref": "int64"}},
+				},
+			}},
+			{Address: "house/operation/watch", Module: "house", Name: "watch", Kind: "scenery.operation", Spec: map[string]any{
+				"service": map[string]any{"$ref": "service.ticker"},
+				"input":   map[string]any{"$ref": "std.type.unit"},
+				"handler": map[string]any{"method": "Watch"},
+				"result":  map[string]any{"name": "event", "type": map[string]any{"$ref": "record.tick"}},
+				"error":   map[string]any{"name": "not_found", "type": map[string]any{"$ref": "std.type.problem"}},
+			}},
+			{Address: "house/execution/watch", Module: "house", Kind: "scenery.execution", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.watch"}, "mode": execMode}},
+			{Address: "house/binding/watch", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
+				"gateway": map[string]any{"$ref": "app/http_gateway/public"}, "operation": map[string]any{"$ref": "operation.watch"}, "execution": map[string]any{"$ref": "execution.watch"},
+				"protocol": "http", "delivery": delivery,
+				"authentication": map[string]any{"$ref": "std.authentication.none"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
+				"http": map[string]any{"method": "GET", "path": "/ticks", "codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"}, "response": responses},
+			}},
+		}
+	}
+
+	validResponses := []any{
+		map[string]any{"name": "event", "when": map[string]any{"$ref": "result.event"}, "status": "200", "body": map[string]any{"codec": "sse", "from": map[string]any{"$ref": "result.event"}}},
+		map[string]any{"name": "not_found", "when": map[string]any{"$ref": "error.not_found"}, "status": "404", "body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.not_found"}}},
+	}
+	valid := baseResources("stream_out", "direct", validResponses)
+	for _, d := range validateHTTPResources(valid) {
+		if d.Code == "SCN2111" || d.Code == "SCN2113" || d.Code == "SCN2114" || d.Code == "SCN2115" || d.Code == "SCN2404" {
+			t.Fatalf("valid stream_out SSE binding rejected: %#v", d)
+		}
+	}
+	if d := validateExecutionBindings(valid, resourcesByAddress(&Manifest{Resources: valid})); hasDiagnostic(d, "SCN2404") {
+		t.Fatalf("direct stream_out execution rejected: %#v", d)
+	}
+
+	durable := baseResources("stream_out", "durable", validResponses)
+	if !hasDiagnostic(validateExecutionBindings(durable, resourcesByAddress(&Manifest{Resources: durable})), "SCN2404") {
+		t.Fatal("durable stream_out execution was accepted")
+	}
+
+	mixed := append(baseResources("stream_out", "direct", validResponses), Resource{
+		Address: "house/binding/watch_call", Module: "house", Kind: "scenery.binding",
+		Spec: map[string]any{"operation": map[string]any{"$ref": "operation.watch"}, "protocol": "internal", "delivery": "call"},
+	})
+	if !hasDiagnostic(validateHTTPResources(mixed), "SCN2404") {
+		t.Fatal("mixed stream_out and call bindings on same operation were accepted")
+	}
+
+	sseOnCall := baseResources("call", "direct", validResponses)
+	if !hasDiagnostic(validateHTTPResources(sseOnCall), "SCN2114") {
+		t.Fatal("sse codec on delivery = call binding was accepted")
+	}
+
+	withHeader := baseResources("stream_out", "direct", []any{
+		map[string]any{
+			"name": "event", "when": map[string]any{"$ref": "result.event"}, "status": "200",
+			"body":   map[string]any{"codec": "sse", "from": map[string]any{"$ref": "result.event"}},
+			"header": map[string]any{"name": "x-symbol", "encoding": "repeated", "from": map[string]any{"$ref": "result.event.symbol"}},
+		},
+		map[string]any{"name": "not_found", "when": map[string]any{"$ref": "error.not_found"}, "status": "404", "body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.not_found"}}},
+	})
+	if !hasDiagnostic(validateHTTPResources(withHeader), "SCN2115") {
+		t.Fatal("stream_out SSE response with mapped header was accepted")
+	}
+
+	badMedia := baseResources("stream_out", "direct", []any{
+		map[string]any{"name": "event", "when": map[string]any{"$ref": "result.event"}, "status": "200", "body": map[string]any{"codec": "sse", "from": map[string]any{"$ref": "result.event"}, "produced_media_types": []any{"application/json"}}},
+		map[string]any{"name": "not_found", "when": map[string]any{"$ref": "error.not_found"}, "status": "404", "body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.not_found"}}},
+	})
+	if !hasDiagnostic(validateHTTPResources(badMedia), "SCN2114") {
+		t.Fatal("stream_out SSE response with non-SSE media type was accepted")
+	}
+}

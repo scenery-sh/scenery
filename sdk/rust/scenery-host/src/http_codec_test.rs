@@ -129,6 +129,7 @@ async fn response_projects_exact_header_numbers_and_cookie_defaults() {
         payload: values::parse(br#"{"cookie":"two words","data":{"ids":[9007199254740993,2]}}"#)
             .unwrap(),
         stream: None,
+        events: None,
         worker: None,
     };
     let response = encode_response(&plan, outcome, &HeaderMap::new())
@@ -201,6 +202,7 @@ async fn streaming_responses_negotiate_gzip_and_reject_unacceptable_encodings() 
         name: "ok".into(),
         payload: json!(null),
         stream: Some(crate::abi::Stream::for_test(incoming, raw.len() as u64)),
+        events: None,
         worker: None,
     };
     let mut headers = HeaderMap::new();
@@ -221,6 +223,7 @@ async fn streaming_responses_negotiate_gzip_and_reject_unacceptable_encodings() 
         name: "ok".into(),
         payload: json!(null),
         stream: Some(crate::abi::Stream::for_test(incoming, raw.len() as u64)),
+        events: None,
         worker: None,
     };
     let mut reject = HeaderMap::new();
@@ -289,6 +292,7 @@ async fn request_and_response_media_type_parameters_are_matched() -> Result<()> 
         name: "ok".into(),
         payload: values::parse(br#"{"data":{"ok":true}}"#).unwrap(),
         stream: None,
+        events: None,
         worker: None,
     };
 
@@ -429,6 +433,7 @@ async fn mime_structured_suffix_and_encoding_negotiation_match_contract_rules() 
         payload: values::parse(br#"{"data":{"detail":"long enough for compression threshold"}}"#)
             .unwrap(),
         stream: None,
+        events: None,
         worker: None,
     };
 

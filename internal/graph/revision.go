@@ -106,6 +106,7 @@ func ContractResourceProjection(resource Resource) (Resource, bool) {
 					delete(contractMetadata, "go_contract")
 					delete(contractMetadata, "rust_contract")
 					delete(contractMetadata, "js_contract")
+					delete(contractMetadata, "python_contract")
 					value = contractMetadata
 				}
 			}

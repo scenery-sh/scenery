@@ -141,12 +141,12 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		if op.Kind != "scenery.operation" {
 			continue
 		}
-		renderOperationAPI(&b, op, typeResolver.Type)
+		renderOperationAPI(&b, op, typeResolver.Type, operationUsesHTTPStreamOut(op, idx.all))
 	}
 	return b.String(), nil
 }
 
-func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) string) {
+func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) string, streamOut bool) {
 	name := goName(op.Name)
 	inputType := typeName(op.Spec["input"])
 	if inputType != name+"Input" {
@@ -157,9 +157,20 @@ func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) stri
 	fmt.Fprintf(b, "func Clone%sInput(value %sInput) (%sInput, error) {\n", name, name, name)
 	fmt.Fprintf(b, "\traw, err := scenery.MarshalContractValue(value, %q); if err != nil { return value, err }\n", goWireTypeExpression(op.Spec["input"]))
 	fmt.Fprintf(b, "\treturn Unmarshal%sInput(raw)\n}\n\n", name)
+	if streamOut {
+		if resultVariant, ok := operationStreamOutResult(op); ok {
+			eventType := typeName(resultVariant["type"])
+			fmt.Fprintf(b, "type %sStream = scenery.EventStream[%s]\n\n", name, eventType)
+			fmt.Fprintf(b, "func Marshal%sEvent(value %s) ([]byte, error) {\n\treturn scenery.MarshalContractValue(value, %q)\n}\n\n", name, eventType, goWireTypeExpression(resultVariant["type"]))
+		}
+	}
 	fmt.Fprintf(b, "type %sOutcome interface { is%sOutcome() }\n\n", name, name)
 	wrappers := operationVariantWrappers(name, op)
 	for _, entry := range wrappers {
+		if streamOut && entry.Kind == "result" {
+			fmt.Fprintf(b, "type %s struct{}\nfunc (%s) is%sOutcome() {}\n\n", entry.WrapperName, entry.WrapperName, name)
+			continue
+		}
 		valueType := typeName(entry.Spec["type"])
 		field := "Value"
 		if entry.Kind == "error" {
@@ -169,6 +180,12 @@ func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) stri
 	}
 	fmt.Fprintf(b, "func Marshal%sOutcome(value %sOutcome) ([]byte, error) {\n\tswitch typed := value.(type) {\n", name, name)
 	for _, entry := range wrappers {
+		if streamOut && entry.Kind == "result" {
+			wire := fmt.Sprintf(`{"kind":"result","name":%s,"value":null}`, strconv.Quote(entry.VariantName))
+			fmt.Fprintf(b, "\tcase %s: return []byte(%q), nil\n", entry.WrapperName, wire)
+			fmt.Fprintf(b, "\tcase *%s: if typed == nil { return nil, fmt.Errorf(\"nil %s outcome\") }; return []byte(%q), nil\n", entry.WrapperName, entry.WrapperName, wire)
+			continue
+		}
 		field := "Value"
 		if entry.Kind == "error" {
 			field = "Problem"
@@ -180,6 +197,10 @@ func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) stri
 	fmt.Fprintf(b, "func Unmarshal%sOutcome(data []byte) (%sOutcome, error) {\n", name, name)
 	b.WriteString("\tkind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data); if err != nil { return nil, err }\n\tswitch {\n")
 	for _, entry := range wrappers {
+		if streamOut && entry.Kind == "result" {
+			fmt.Fprintf(b, "\tcase kind == %q && name == %q:\n\t\treturn %s{}, nil\n", entry.Kind, entry.VariantName, entry.WrapperName)
+			continue
+		}
 		valueType := typeName(entry.Spec["type"])
 		field := "Value"
 		if entry.Kind == "error" {

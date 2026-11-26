@@ -42,6 +42,24 @@ export function unpack(output) {
   return output?.[streamMarker] === true ? output : { outcome: output };
 }
 
+const eventStreamMarker = Symbol("worker event stream");
+const sseEventMarker = Symbol("worker sse event");
+export function sseEvent(data, meta = undefined) {
+  return { data, id: meta?.id, event: meta?.event, [sseEventMarker]: true };
+}
+
+export function eventStream(outcome, events) {
+  return { outcome, events, [eventStreamMarker]: true };
+}
+
+export function unpackEvents(output) {
+  return output?.[eventStreamMarker] === true ? output : { outcome: output };
+}
+
+export function isSSEEvent(value) {
+  return value?.[sseEventMarker] === true;
+}
+
 export async function serve(launch, parse, dispatch) {
   const host = new Host(launch);
   const server = createServer();
@@ -125,6 +143,22 @@ export async function serve(launch, parse, dispatch) {
       if (canceled.signal.aborted || request.destroyed) return;
       const metadata = Buffer.from('{"outcome":' + output.outcome + '}');
       if (metadata.length > MAX_METADATA) return fault(500);
+      if (output.events !== undefined) {
+        const prefix = Buffer.alloc(4);
+        prefix.writeUInt32BE(metadata.length);
+        request.respond({
+          ...attestation, ":status": 200,
+          "content-type": "application/vnd.worker.events",
+        });
+        await writeChunk(request, Buffer.concat([prefix, metadata]), canceled.signal);
+        for await (const line of output.events) {
+          if (canceled.signal.aborted || request.destroyed) return;
+          if (typeof line !== "string") throw new TypeError("worker event streams must yield encoded JSON lines");
+          await writeChunk(request, Buffer.from(line + "\n"), canceled.signal);
+        }
+        if (!canceled.signal.aborted && !request.destroyed) request.end();
+        return;
+      }
       if (output.body === undefined) return respond(200, metadata);
       const prefix = Buffer.alloc(4);
       prefix.writeUInt32BE(metadata.length);
@@ -172,6 +206,13 @@ export async function serve(launch, parse, dispatch) {
       parentPipe.destroy();
     }
     host.close();
+  }
+}
+
+async function writeChunk(stream, chunk, signal) {
+  if (signal.aborted || stream.destroyed) return;
+  if (!stream.write(chunk)) {
+    await once(stream, "drain", { signal });
   }
 }
 

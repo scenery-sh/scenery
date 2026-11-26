@@ -384,7 +384,7 @@ async fn bounded<T>(
 }
 
 async fn serve_route(
-    host: &Host,
+    host: &Arc<Host>,
     request: Request<Incoming>,
     selected: &Match<'_>,
     call: &mut Call,
@@ -429,11 +429,29 @@ async fn serve_route(
     } else {
         String::new()
     };
-    Ok((
-        encode_response(response, outcome, &reply_headers)?,
-        worker,
-        code,
-    ))
+    let reply = if response.events {
+        let Some(events) = outcome.events else {
+            return Err(Fault::internal(
+                "worker's response mode differs from mapping",
+            ));
+        };
+        if outcome.stream.is_some() {
+            return Err(Fault::internal(
+                "worker's response mode differs from mapping",
+            ));
+        }
+        let event_type = selected
+            .service
+            .operations
+            .get(&selected.binding.operation)
+            .and_then(|op| op.outcomes.get(&key))
+            .cloned()
+            .ok_or_else(|| Fault::internal("event stream outcome has no declared type"))?;
+        crate::http_sse::encode_sse_response(host, response, event_type, events, &reply_headers)?
+    } else {
+        encode_response(response, outcome, &reply_headers)?
+    };
+    Ok((reply, worker, code))
 }
 
 pub(crate) async fn dev_binding(
@@ -463,7 +481,7 @@ pub(crate) async fn dev_binding(
     host.telemetry.started(&call, service, &binding.address);
     let result = call_binding(host, &mut call, service, binding, request).await;
     let (mut reply, worker, error) = match result {
-        Ok(outcome) if outcome.stream.is_none() => {
+        Ok(outcome) if !outcome.is_streamed() => {
             let value = if binding.delivery == "enqueue" {
                 outcome.payload.clone()
             } else {

@@ -237,6 +237,9 @@ export interface BindingCall {
   readonly cookies?: readonly BindingFieldMapping[];
 /*__scenery_runtime_request_cookie_end__*/
   readonly body?: BindingRequestBody;
+/*__scenery_runtime_sse_start__*/
+  readonly streamOut?: true;
+/*__scenery_runtime_sse_end__*/
   readonly responseLimitBytes: number;
   readonly responses: readonly BindingResponseCase[];
 }

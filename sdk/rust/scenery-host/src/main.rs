@@ -24,6 +24,7 @@ mod gateway;
 mod gitignore;
 mod host;
 mod http_codec;
+mod http_sse;
 mod http_timeout;
 mod json;
 mod local_storage;

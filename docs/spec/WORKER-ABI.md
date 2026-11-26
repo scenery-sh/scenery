@@ -1,7 +1,7 @@
 # Worker ABI v1
 
-The manifest-driven Host and its Go, Rust, JavaScript, and TypeScript workers
-use HTTP/2 with prior knowledge over private Unix domain sockets. They use distinct listeners and pool connections across
+The manifest-driven Host and its Go, Rust, JavaScript/TypeScript, and Python
+workers use HTTP/2 with prior knowledge over private Unix domain sockets. They use distinct listeners and pool connections across
 invocations. The supervisor provides the two socket paths and a bearer token
 unique to the worker instance through its private launch configuration. Each
 request carries the token in `Authorization`. The Host authenticates instance
@@ -66,8 +66,9 @@ trace identity, and authenticated identity data in metadata. For an invocation
 admitted over HTTP, metadata also carries the request `method`, `path`,
 `path_params` as `{"name","value"}` pairs in route order, and `headers` as
 lists of values by case-insensitive name. The `Authorization`,
-`Proxy-Authorization`, and `Cookie` headers stay at the Host. Go and JavaScript/TypeScript workers receive database connection information
-at startup and connect directly to PostgreSQL.
+`Proxy-Authorization`, and `Cookie` headers stay at the Host. Go,
+JavaScript/TypeScript, and Python workers receive database connection
+information at startup and connect directly to PostgreSQL.
 
 A successful JSON response contains `outcome`, the contract outcome envelope
 with `kind`, `name` and `value` for a declared result or `problem` for a
@@ -82,6 +83,18 @@ by that many bytes of the same JSON outcome response. The remaining body is
 the byte stream. The metadata has a 32 MiB limit. Both peers stream the
 remaining body with bounded buffering and HTTP/2 flow control.
 `X-Worker-Stream-Size` carries the exact decimal byte length of the stream.
+
+A typed event-stream result (`delivery = "stream_out"`) uses
+`Content-Type: application/vnd.worker.events` without `X-Worker-Stream-Size`.
+The response body begins with the same 4-byte unsigned big-endian length and
+outcome JSON metadata (`{"outcome":{"kind":"result","name":"<variant>","value":null}}`),
+followed by newline-delimited JSON event frames
+(`{"data":<canonical JSON>,"id":"optional","event":"optional"}\n`) flushed per
+event. The Host validates and canonicalizes each `data` value against the
+declared result type before writing `text/event-stream` SSE frames; pre-stream
+declared errors use ordinary `Content-Type: application/json`. Client
+disconnect, deadline expiry, or Host shutdown cancels the HTTP/2 stream and
+the worker's invocation context.
 
 Workers send `X-Worker-Contract` and `X-Worker-Implementation` on every
 authenticated response. The Host rejects mismatched attestations. The Host
@@ -133,9 +146,9 @@ after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
 wire conformance corpus covers integer bounds, exact scalars, canonical
 floats, presence, closed and unknown-preserving records, enums, and outcomes
-in Go, the Rust wire crate and SDK, and JavaScript/TypeScript. The generator
-embeds the wire crate inside the generated Rust SDK so the Rust paths are
-local to the application workspace.
+in Go, the Rust wire crate and SDK, JavaScript/TypeScript, and Python. The
+generator embeds the wire crate inside the generated Rust SDK so the Rust paths
+are local to the application workspace.
 
 ## Delivery and cancellation
 

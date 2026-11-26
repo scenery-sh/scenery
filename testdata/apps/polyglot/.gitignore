@@ -6,4 +6,7 @@
 /consumer/scenerycontract/
 /typescript/scenerycontract/
 /mirror/scenerycontract/
+/python/scenerycontract/
 /web/dist/
+__pycache__/
+.venv/

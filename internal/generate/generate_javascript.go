@@ -119,8 +119,8 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 		"import * as SDK from \"./worker.mjs\";\n" +
 		"import type * as Types from \"./types.js\";\n" +
 		"export * from \"./types.js\";\n" +
-		"export { CapabilityError, stream } from \"./worker.mjs\";\n" +
-		"export type { Context, ConfigSnapshot, Stream } from \"./worker.mjs\";\n" +
+		"export { CapabilityError, eventStream, sseEvent, stream } from \"./worker.mjs\";\n" +
+		"export type { Context, ConfigSnapshot, EventStream, EventStreamBody, SSEEvent, Stream } from \"./worker.mjs\";\n" +
 		"export { date, dateTime, decimal, duration, jsonNumber, relativePath, url, uuid } from \"./codec.js\";\n")
 	api.WriteString(renderTSRegistry(shapes))
 	for _, shape := range shapes {
@@ -139,6 +139,7 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 		entry.WriteString(`// JavaScript object literals infer string discriminants without annotations.
 type JSOutput<T> = T extends Promise<infer R> ? Promise<JSOutput<R>>
   : T extends SDK.Stream<infer R> ? SDK.Stream<JSOutput<R>>
+  : T extends SDK.EventStream<infer R, infer E> ? SDK.EventStream<JSOutput<R>, E>
   : T extends { kind: string; name: string } ? Omit<T, "kind" | "name"> & { kind: string; name: string }
   : T;
 type JSService = { [K in keyof Contract.Service]: (...args: Parameters<Contract.Service[K]>) => JSOutput<ReturnType<Contract.Service[K]>> };
@@ -171,12 +172,41 @@ const service = await create({ clients: Contract.clients, ...SDK.startupInputs(p
 		if method == "" {
 			return "", "", "", fmt.Errorf("JavaScript operation %s requires a handler method", operation.Address)
 		}
-		projection.renderOperation(&types, operation, name)
-		codecName := name + "Codec"
 		canStream := operationUsesHTTPStream(operation, resources)
-		fmt.Fprintf(&api, "  %s;\n", jsOperationSignature(method, name, canStream))
+		canStreamOut := operationUsesHTTPStreamOut(operation, resources)
+		projection.renderOperation(&types, operation, name, canStreamOut)
+		codecName := name + "Codec"
+		fmt.Fprintf(&api, "  %s;\n", jsOperationSignature(method, name, canStream, canStreamOut))
 		fmt.Fprintf(&entry, "if (typeof service[%q] !== \"function\") throw new Error(\"missing worker handler\");\n", method)
 		fmt.Fprintf(&handlers, "const %s = SDK.outcomeCodec(Runtime, typeRegistry, %s as const);\n", codecName, jsOutcomeDescriptors(operation))
+		if canStreamOut {
+			resultVariant, _ := operationStreamOutResult(operation)
+			resultName := stringValue(resultVariant["name"])
+			eventDescBytes, _ := json.Marshal(tsDescriptor(resultVariant["type"], operation.Module))
+			fmt.Fprintf(&handlers, "const %sEventDescriptor = %s as const;\n", name, string(eventDescBytes))
+			fmt.Fprintf(&handlers, "async function dispatch%s(service: Service, input: unknown, ctx: SDK.Context) {\n"+
+				"  const decoded = Runtime.decodeWorkerValue(input, %s, typeRegistry) as Types.%sInput;\n"+
+				"  const output = await service[%q](ctx, decoded);\n"+
+				"  const { outcome, events } = SDK.unpackEvents<Types.%sOutcome, Types.%sEvent>(output);\n"+
+				"  if (outcome !== null && typeof outcome === \"object\" && outcome.kind === \"result\" && outcome.name === %q) {\n"+
+				"    if (events === undefined) throw new Error(\"stream_out result requires an EventStream\");\n"+
+				"    const encodedEvents = (async function* () {\n"+
+				"      for await (const item of events) {\n"+
+				"        const ev = SDK.isSSEEvent<Types.%sEvent>(item) ? item : { data: item, id: undefined, event: undefined };\n"+
+				"        const data = Runtime.encodeTypedJSON(ev.data, %sEventDescriptor, typeRegistry);\n"+
+				"        let line = '{\"data\":' + data;\n"+
+				"        if (ev.id !== undefined) line += ',\"id\":' + JSON.stringify(ev.id);\n"+
+				"        if (ev.event !== undefined) line += ',\"event\":' + JSON.stringify(ev.event);\n"+
+				"        yield line + '}';\n"+
+				"      }\n"+
+				"    })();\n"+
+				"    return { outcome: '{\"kind\":\"result\",\"name\":' + JSON.stringify(%q) + ',\"value\":null}', events: encodedEvents };\n"+
+				"  }\n"+
+				"  if (events !== undefined) throw new Error(\"stream_out error outcome cannot attach an EventStream\");\n"+
+				"  return { outcome: %s.encode(outcome) };\n}\n",
+				name, jsInputDescriptor(operation), name, method, name, name, resultName, name, name, resultName, codecName)
+			continue
+		}
 		fmt.Fprintf(&handlers, "async function dispatch%s(service: Service, input: unknown, ctx: SDK.Context) {\n"+
 			"  const decoded = Runtime.decodeWorkerValue(input, %s, typeRegistry) as Types.%sInput;\n"+
 			"  const output = await service[%q](ctx, decoded);\n", name, jsInputDescriptor(operation), name, method)
@@ -210,7 +240,7 @@ func (p jsProjection) renderClients(types, api *strings.Builder, clients []goCli
 	for _, client := range clients {
 		op := client.Operation
 		name := client.Field + "Client"
-		p.renderOperation(types, op, name)
+		p.renderOperation(types, op, name, false)
 		if client.Delivery == "enqueue" {
 			fmt.Fprintf(api, "  %q: { async enqueue(ctx: SDK.Context, input: Types.%sInput): Promise<Types.EnqueueReceipt> {\n"+
 				"    const wire = Runtime.encodeTypedJSON(input, %s, typeRegistry);\n"+
@@ -228,10 +258,15 @@ func (p jsProjection) renderClients(types, api *strings.Builder, clients []goCli
 	api.WriteString("});\n")
 }
 
-func (p jsProjection) renderOperation(source *strings.Builder, operation Resource, name string) {
+func (p jsProjection) renderOperation(source *strings.Builder, operation Resource, name string, streamOut bool) {
 	input := p.typeExpression(operation.Spec["input"], operation.Module)
 	if input != name+"Input" {
 		fmt.Fprintf(source, "export type %sInput = %s;\n", name, input)
+	}
+	if streamOut {
+		if resultVariant, ok := operationStreamOutResult(operation); ok {
+			fmt.Fprintf(source, "export type %sEvent = %s;\n", name, p.typeExpression(resultVariant["type"], operation.Module))
+		}
 	}
 	fmt.Fprintf(source, "export type %sOutcome =\n", name)
 	count := 0
@@ -241,6 +276,11 @@ func (p jsProjection) renderOperation(source *strings.Builder, operation Resourc
 			field = "problem"
 		}
 		for _, variant := range namedChildren(operation.Spec, kind) {
+			if streamOut && kind == "result" {
+				fmt.Fprintf(source, "  | { readonly kind: %q; readonly name: %q }\n", kind, stringValue(variant["name"]))
+				count++
+				continue
+			}
 			fmt.Fprintf(source, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", kind,
 				stringValue(variant["name"]), field, p.typeExpression(variant["type"], operation.Module))
 			count++

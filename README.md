@@ -24,7 +24,7 @@
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
 
-**Scenery is a runtime, toolchain, and agent harness for Go, Rust, and JavaScript/TypeScript backends.**
+**Scenery is a runtime, toolchain, and agent harness for Go, Rust, JavaScript/TypeScript, and Python backends.**
 Describe *what your app is* (APIs, durable jobs, data, auth, schedules) in small
 `.scn` files and write *what it does* in plain Go. Scenery generates the typed
 contracts and TypeScript clients, runs the whole app and its frontends with one
@@ -95,7 +95,7 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 | `scenery call <target> -o json` | Invoke the current local runtime and retrieve its logs and spans |
 | `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, cap returned rows with `--limit`, and bound the statement with `--timeout` |
 | `scenery durable run <target> -o json` | Run a durable execution or schedule in the worker development Host and collect its result, logs, and spans. Use `--wait=false` to return after dispatch |
-| `scenery add module <name> --runtime <go\|rust\|ts\|js> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
+| `scenery add module <name> --runtime <go\|rust\|ts\|js\|python> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
 | `scenery build [--oci <image>]` | Build the deployable Host bundle, or a Linux container image of it |
 | `scenery logs --follow` | Stream application logs |
 | `scenery check` | Validate `.scn` declarations and Go contracts |

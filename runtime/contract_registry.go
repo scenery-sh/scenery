@@ -168,10 +168,11 @@ func cloneContractStringMap(values map[string]string) map[string]string {
 }
 
 type contractRuntimeSnapshot struct {
-	workerOperations    map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
-	serviceInitializers map[string]serviceInitializer
-	serviceInitOrder    map[string]int
-	serviceShutdowns    map[string]serviceShutdown
+	workerOperations      map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
+	workerEventOperations map[string]func(context.Context, []byte) ([]byte, shared.RawEventProducer, error)
+	serviceInitializers   map[string]serviceInitializer
+	serviceInitOrder      map[string]int
+	serviceShutdowns      map[string]serviceShutdown
 }
 
 // snapshotContractRuntimeState keeps the registrations before the adapters
@@ -180,10 +181,11 @@ func snapshotContractRuntimeState() contractRuntimeSnapshot {
 	global.mu.RLock()
 	defer global.mu.RUnlock()
 	return contractRuntimeSnapshot{
-		workerOperations:    maps.Clone(global.workerOperations),
-		serviceInitializers: maps.Clone(global.serviceInitializers),
-		serviceInitOrder:    maps.Clone(global.serviceInitOrder),
-		serviceShutdowns:    maps.Clone(global.serviceShutdowns),
+		workerOperations:      maps.Clone(global.workerOperations),
+		workerEventOperations: maps.Clone(global.workerEventOperations),
+		serviceInitializers:   maps.Clone(global.serviceInitializers),
+		serviceInitOrder:      maps.Clone(global.serviceInitOrder),
+		serviceShutdowns:      maps.Clone(global.serviceShutdowns),
 	}
 }
 
@@ -191,6 +193,7 @@ func restoreContractRuntimeState(snapshot contractRuntimeSnapshot) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	global.workerOperations = snapshot.workerOperations
+	global.workerEventOperations = snapshot.workerEventOperations
 	global.serviceInitializers = snapshot.serviceInitializers
 	global.serviceInitOrder = snapshot.serviceInitOrder
 	global.serviceShutdowns = snapshot.serviceShutdowns

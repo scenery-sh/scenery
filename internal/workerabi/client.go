@@ -96,6 +96,7 @@ type Result struct {
 	Outcome                json.RawMessage
 	Stream                 io.ReadCloser
 	StreamSize             int64
+	Events                 func(ctx context.Context, emit func(data []byte, id, event string) error) error
 	ProcessID              int
 	ImplementationRevision string
 }
@@ -190,7 +191,7 @@ func (c *Client) readInvocationResult(response *http.Response) (Result, error) {
 	switch mediaType {
 	case "application/json":
 		data, err = readMetadata(response.Body)
-	case StreamMediaType:
+	case StreamMediaType, EventsMediaType:
 		data, err = readStreamMetadata(response.Body)
 	default:
 		return Result{}, fmt.Errorf("unsupported worker content type %q", mediaType)
@@ -210,13 +211,17 @@ func (c *Client) readInvocationResult(response *http.Response) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Outcome: outcome}
-	if mediaType == StreamMediaType {
+	switch mediaType {
+	case StreamMediaType:
 		size, err := strconv.ParseInt(response.Header.Get(StreamSizeHeader), 10, 64)
 		if err != nil || size < 0 {
 			return Result{}, fmt.Errorf("worker streamed response has no exact length")
 		}
 		result.Stream = response.Body
 		result.StreamSize = size
+	case EventsMediaType:
+		result.Stream = response.Body
+		result.StreamSize = -1
 	}
 	return result, nil
 }

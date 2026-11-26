@@ -231,7 +231,7 @@ func (g agentGraph) contextData(module agentModule, options appconfig.FrameworkO
 	}
 	sources := []string{}
 	scope := workerInputScope{root: g.Root, generated: generated}
-	exts := map[string][]string{"go": {".go"}, "rust": {".rs"}, "ts": {".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"}, "js": {".js", ".jsx", ".mjs", ".cjs"}}
+	exts := map[string][]string{"go": {".go"}, "rust": {".rs"}, "ts": {".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"}, "js": {".js", ".jsx", ".mjs", ".cjs"}, "python": {".py", ".pyi"}}
 	if err := filepath.WalkDir(filepath.Join(g.Root, module.Directory), func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err

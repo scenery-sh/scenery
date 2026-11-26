@@ -155,14 +155,15 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 			continue
 		}
 		streaming := operationUsesHTTPStream(operation, resources)
-		expected := expectedSignature(goHandlerSignature(methodName, operation.Name, named.Obj().Name(), streaming))
+		streamOut := operationUsesHTTPStreamOut(operation, resources)
+		expected := expectedSignature(goHandlerSignature(methodName, operation.Name, named.Obj().Name(), streaming, streamOut))
 		selection := types.NewMethodSet(types.NewPointer(named)).Lookup(nil, methodName)
 		if selection == nil {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6103", Severity: "error", Message: "native handler method " + methodName + " not found", Address: operation.Address, Suggestions: []string{expected}})
 			continue
 		}
 		wantResults := 2
-		if streaming {
+		if streaming || streamOut {
 			wantResults = 3
 		}
 		signature, ok := selection.Obj().Type().(*types.Signature)
@@ -178,6 +179,8 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		if streaming {
 			stream := types.TypeString(signature.Results().At(1).Type(), packageQualifier)
 			valid = valid && (stream == "scenery.sh.ByteStream" || strings.HasSuffix(stream, "/runtime.ContractByteStream"))
+		} else if streamOut {
+			valid = valid && contractStreamTypeMatches(signature.Results().At(0).Type(), signature.Results().At(1).Type(), name+"Stream")
 		}
 		if !valid {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: observed, Address: operation.Address, Suggestions: []string{expected}})
@@ -199,6 +202,15 @@ func contractTypeMatches(got types.Type, want string) bool {
 		return true
 	}
 	named, ok := types.Unalias(got).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || !strings.HasSuffix(named.Obj().Pkg().Path(), "/scenerycontract") {
+		return false
+	}
+	expected, ok := named.Obj().Pkg().Scope().Lookup(want).(*types.TypeName)
+	return ok && types.Identical(types.Unalias(expected.Type()), types.Unalias(got))
+}
+
+func contractStreamTypeMatches(outcomeType, got types.Type, want string) bool {
+	named, ok := types.Unalias(outcomeType).(*types.Named)
 	if !ok || named.Obj().Pkg() == nil || !strings.HasSuffix(named.Obj().Pkg().Path(), "/scenerycontract") {
 		return false
 	}

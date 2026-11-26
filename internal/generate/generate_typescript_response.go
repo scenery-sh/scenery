@@ -339,6 +339,9 @@ func tsBindingCall(binding, operation Resource, resources []Resource) map[string
 	if body := tsBindingRequestBody(httpSpec, operation, resources); body != nil {
 		call["body"] = body
 	}
+	if stringValue(binding.Spec["delivery"]) == "stream_out" {
+		call["streamOut"] = true
+	}
 	return call
 }
 

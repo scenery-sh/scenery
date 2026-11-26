@@ -61,7 +61,7 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 			policy.TransportStatuses[outcome] = status
 			continue
 		}
-		mapped, err := p.httpResponse(response, outcome, operation, policy, cp.StringValue(binding.Spec["delivery"]) == "stream")
+		mapped, err := p.httpResponse(response, outcome, operation, policy, cp.StringValue(binding.Spec["delivery"]))
 		if err != nil {
 			return plan, err
 		}
@@ -210,7 +210,7 @@ func workerStrings(value any) []string {
 	return result
 }
 
-func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, operation graph.Resource, policy *workerplan.ContractHTTPPolicy, stream bool) (workerplan.WorkerResponsePlan, error) {
+func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, operation graph.Resource, policy *workerplan.ContractHTTPPolicy, delivery string) (workerplan.WorkerResponsePlan, error) {
 	result := workerplan.WorkerResponsePlan{
 		Status: int(workerInt(spec["status"])),
 		Options: workerplan.ContractResponseOptions{
@@ -242,9 +242,10 @@ func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, 
 	}
 	result.Codec = cp.StringValue(body["codec"])
 	result.Media = workerStrings(body["produced_media_types"])
-	result.Stream = stream && strings.HasPrefix(outcome, "result.") && result.Codec == "bytes"
+	result.Stream = delivery == "stream" && strings.HasPrefix(outcome, "result.") && result.Codec == "bytes"
+	result.Events = delivery == "stream_out" && strings.HasPrefix(outcome, "result.") && result.Codec == "sse"
 	if len(result.Media) == 0 {
-		defaults := map[string]string{"problem_json": "application/problem+json", "text": "text/plain", "bytes": "application/octet-stream", "json": "application/json"}
+		defaults := map[string]string{"problem_json": "application/problem+json", "text": "text/plain", "bytes": "application/octet-stream", "sse": "text/event-stream", "json": "application/json"}
 		result.Media = []string{defaults[result.Codec]}
 	}
 	var err error

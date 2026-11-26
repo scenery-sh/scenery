@@ -17,6 +17,7 @@ const (
 	ScopeHeader          = "X-Worker-Scope"
 	StreamSizeHeader     = "X-Worker-Stream-Size"
 	StreamMediaType      = "application/vnd.worker.stream"
+	EventsMediaType      = "application/vnd.worker.events"
 	MaxMetadataBytes     = 32 << 20
 )
 

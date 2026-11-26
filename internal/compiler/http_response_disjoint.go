@@ -25,7 +25,7 @@ func httpResponseDecodersDisjoint(resources map[string]Resource, operation Resou
 	if httpResponseCodecFamily(leftCodec) != httpResponseCodecFamily(rightCodec) {
 		return false
 	}
-	if httpResponseCodecFamily(leftCodec) == "bytes" {
+	if family := httpResponseCodecFamily(leftCodec); family == "bytes" || family == "sse" {
 		return false
 	}
 	leftType, _, leftErr := httpOutcomeMappedValueType(resources, operation, refOrString(left["when"]), refOrString(leftBody["from"]))
@@ -74,6 +74,8 @@ func httpResponseCodecFamily(codec string) string {
 		return "text"
 	case "bytes":
 		return "bytes"
+	case "sse":
+		return "sse"
 	default:
 		return "unknown"
 	}

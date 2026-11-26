@@ -407,6 +407,8 @@ pub(crate) struct ResponsePlan {
     pub media: Vec<String>,
     pub body: Selection,
     pub stream: bool,
+    #[serde(default)]
+    pub events: bool,
     pub options: ResponseOptions,
     #[serde(deserialize_with = "nullable")]
     pub headers: Vec<ResponseHeader>,
@@ -553,7 +555,7 @@ impl Artifact {
             "go" => (!configuration.is_null())
                 .then(|| to_raw_value(&configuration))
                 .transpose()?,
-            "ts" | "js" => {
+            "ts" | "js" | "python" => {
                 let databases = self
                     .databases
                     .iter()
@@ -818,7 +820,7 @@ mod tests {
             "SCENERY_ASSISTANT_TOKEN_KEY_FILE",
             "SCENERY_MCP_BRIDGE_SECRET",
         ] {
-            for runtime in ["go", "rust", "ts", "js"] {
+            for runtime in ["go", "rust", "ts", "js", "python"] {
                 assert!(
                     !production_worker_env(forbidden, runtime),
                     "{forbidden} leaked to {runtime}"
@@ -838,6 +840,7 @@ mod tests {
         ] {
             assert!(!production_worker_env(secret, "rust"), "{secret}");
             assert!(!production_worker_env(secret, "ts"), "{secret}");
+            assert!(!production_worker_env(secret, "python"), "{secret}");
         }
         assert!(production_worker_env("SCENERY_APP_ID", "rust"));
         assert!(production_worker_env("LC_ALL", "ts"));

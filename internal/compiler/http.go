@@ -80,6 +80,9 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			if stringValue(binding.Spec["delivery"]) == "stream" {
 				diagnostics = append(diagnostics, validateHTTPByteStreamBinding(resources, byAddress, binding, operation, httpSpec)...)
 			}
+			if stringValue(binding.Spec["delivery"]) == "stream_out" {
+				diagnostics = append(diagnostics, validateHTTPStreamOutBinding(resources, byAddress, binding, operation, httpSpec)...)
+			}
 		}
 		basePath, _ := gateway.Spec["base_path"].(string)
 		effectivePath := joinHTTPPath(basePath, bindingPath)
@@ -135,6 +138,56 @@ func validateHTTPByteStreamBinding(resources []Resource, byAddress map[string]Re
 	}
 	if resultBodies == 0 {
 		diagnostics = append(diagnostics, Diagnostic{Code: "SCN2111", Severity: "error", Message: "streaming HTTP binding requires a result response", Address: binding.Address})
+	}
+	return diagnostics
+}
+
+func validateHTTPStreamOutBinding(resources []Resource, byAddress map[string]Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, candidate := range resources {
+		if candidate.Kind != "scenery.binding" || candidate.Address == binding.Address {
+			continue
+		}
+		candidateOperation := resolveResourceRef(candidate, refString(candidate.Spec["operation"]), "operation")
+		if candidateOperation == operation.Address && (stringValue(candidate.Spec["delivery"]) != "stream_out" || stringValue(candidate.Spec["protocol"]) != "http") {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2404", Severity: "error", Message: "event-streaming operation cannot also use a non-stream_out binding", Address: binding.Address, Related: []Related{{Address: candidate.Address}}})
+		}
+	}
+	resultBodies := 0
+	for _, response := range namedChildren(httpSpec, "response") {
+		when := refOrString(response["when"])
+		body, _ := response["body"].(map[string]any)
+		if strings.HasPrefix(when, "result.") {
+			resultBodies++
+			if body == nil || stringValue(body["codec"]) != "sse" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "stream_out result responses require an sse body", Address: binding.Address})
+			} else {
+				if valueType, path, err := httpOutcomeMappedValueType(byAddress, operation, when, refOrString(body["from"])); err == nil {
+					if len(path) > 0 {
+						diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "stream_out sse body must map the whole result variant", Address: binding.Address})
+					} else if !httpResponseBodyCodecSupports("sse", valueType) {
+						diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "stream_out sse body requires a JSON-compatible event type", Address: binding.Address})
+					}
+				}
+				for _, mediaType := range literalStringListFromValue(body["produced_media_types"]) {
+					parsed, _, parseErr := mime.ParseMediaType(mediaType)
+					if parseErr == nil && parsed != "text/event-stream" {
+						diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "sse response produced_media_types must use text/event-stream", Address: binding.Address})
+						break
+					}
+				}
+			}
+			if len(namedChildren(response, "header")) > 0 || len(namedChildren(response, "cookie")) > 0 {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2115", Severity: "error", Message: "stream_out result responses cannot map headers or cookies from streamed events", Address: binding.Address})
+			}
+		} else if body != nil && stringValue(body["codec"]) == "sse" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "only result responses may use the sse codec", Address: binding.Address})
+		}
+	}
+	if resultBodies == 0 {
+		diagnostics = append(diagnostics, Diagnostic{Code: "SCN2111", Severity: "error", Message: "stream_out HTTP binding requires a result response", Address: binding.Address})
+	} else if resultBodies > 1 {
+		diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "stream_out HTTP binding supports a single result response; model multiple event kinds with a union", Address: binding.Address})
 	}
 	return diagnostics
 }
@@ -263,7 +316,7 @@ func exactHTTPMappingNames(want, got map[string]int) bool {
 func validateHTTPResponses(resources map[string]Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
 	needed := map[string]bool{}
 	delivery := stringValue(binding.Spec["delivery"])
-	if delivery == "call" || delivery == "wait" || delivery == "stream" {
+	if delivery == "call" || delivery == "wait" || delivery == "stream" || delivery == "stream_out" {
 		for _, kind := range []string{"result", "error"} {
 			for _, outcome := range namedChildren(operation.Spec, kind) {
 				needed[kind+"."+stringValue(outcome["name"])] = true
@@ -299,6 +352,9 @@ func validateHTTPResponses(resources map[string]Resource, binding, operation Res
 		if body, _ := response["body"].(map[string]any); body != nil {
 			if body["codec"] == "raw" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2103", Severity: "error", Message: "codec = raw is not part of scenery.http-codec", Address: binding.Address})
+			}
+			if body["codec"] == "sse" && delivery != "stream_out" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "sse response codec requires delivery = stream_out", Address: binding.Address})
 			}
 			seenMedia := map[string]bool{}
 			for _, mediaType := range literalStringListFromValue(body["produced_media_types"]) {
@@ -522,6 +578,8 @@ func httpResponseBodyCodecSupports(codec string, value any) bool {
 		return expression == "string" || strings.HasPrefix(expression, "enum.")
 	case "bytes":
 		return expression == "bytes"
+	case "sse":
+		return expression != "std.type.problem"
 	default:
 		return false
 	}

@@ -1,7 +1,7 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:ad48ffa3ae97b8682cd4cb03820aed930441f3e95f85d7e07366bb26a0160823",
-  "contract_revision": "sha256:091ad52f9ce52282df01b623674d2e91b5ef200a5a31498709fa19f57bf8e027",
+  "content_digest": "sha256:5aeced9833f83a94e9860a1fb6c4174dd74f20b8a7df390c0eb270e6a86577db",
+  "contract_revision": "sha256:11e1e170a5f2e6f01c056a80c086cc0354b6c212e824316e2b4749a3c5109f69",
   "covered_bindings": [
     "house/binding/process_scene_http"
   ],
@@ -25,22 +25,24 @@
   ],
   "generator": "scenery.generate.typescript",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:9bcbfb0c95d951638d56feb35aeefa504555a26e98e0eee4270331d8e75691a2"
+    "app/http_gateway/public_api": "sha256:deca5d45c15828b732ab839e30257f3e2cd510ee1de00d5be723a04f53f752d8"
   },
   "javascript_target": null,
   "kind": "scenery.typescript-client-generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:031920ef6613f37945c8b35fc700c79384a1318f9b98e9ea8aa167d9e6d1dc78"
+    "app/http_gateway/public_api": "sha256:cadb20c578a8e853c7df184e03c4f4365260a1aeff61c481e9d3aaac3dcc63da"
   },
   "package": "@example/native-client",
   "producer": {
-    "version": "dev",
+    "version": "v0.3.7-0.20261126120119-69393b379996+dirty",
+    "commit": "69393b379996733c9f04920eaa2e8807c564dd50",
+    "built_at": "2026-11-26T12:01:19Z",
     "toolchain": {
       "go_version": "go1.27.0"
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
-  "spec_revision": "sha256:0e2895ce2b109a06f117fa3c578d114428136e797c7844df18154253556d0a4a",
+  "spec_revision": "sha256:19aa387710814fba22fdc4ea6dd38a663cab2ed17275594fe53ee3aadcef6fab",
   "target": "app/typescript_client/public_api",
   "typescript_client_revision": "sha256:e3e81eddcbc20a35cff41244bbcdbd4a13b5421fe47c85cb5f8f19aaa86f3ea6",
   "typescript_version": null,

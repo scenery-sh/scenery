@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/pythonbuild"
 	"scenery.sh/internal/rustbuild"
 	"scenery.sh/internal/workerplan"
 )
@@ -47,8 +49,8 @@ func TestOCIImageReferencesAndPlatforms(t *testing.T) {
 func TestOCIDockerfileForGoOnlyApplication(t *testing.T) {
 	t.Parallel()
 
-	dockerfile := renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil)
-	if dockerfile != renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil) {
+	dockerfile := renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil, nil)
+	if dockerfile != renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil, nil) {
 		t.Fatal("rendering is not deterministic")
 	}
 	for _, want := range []string{
@@ -79,8 +81,8 @@ func TestOCIDockerfileCompilesAndSealsRustWorkers(t *testing.T) {
 		{Workspace: "native", Crate: "pricing", Binary: "scenery-worker-quote", Process: "quote", Toolchain: "1.95.0", Placeholder: "@rust-worker-1@"},
 		{Workspace: ".", Crate: "ledger", Binary: "scenery-worker-ledger", Process: "ledger", Toolchain: "1.99.1", Placeholder: "@rust-worker-0@"},
 	}
-	dockerfile := renderOCIDockerfile(ociPlatforms["linux/arm64"], "1.99.1", workers)
-	reversed := renderOCIDockerfile(ociPlatforms["linux/arm64"], "1.99.1", []ociRustWorker{workers[1], workers[0]})
+	dockerfile := renderOCIDockerfile(ociPlatforms["linux/arm64"], "1.99.1", workers, nil)
+	reversed := renderOCIDockerfile(ociPlatforms["linux/arm64"], "1.99.1", []ociRustWorker{workers[1], workers[0]}, nil)
 	if dockerfile != reversed {
 		t.Fatal("worker order changes the Dockerfile")
 	}
@@ -184,7 +186,7 @@ func TestOCIContextIsSelfContainedAndReproducible(t *testing.T) {
 	first, second := filepath.Join(output, "first"), filepath.Join(output, "second")
 	platform := ociPlatforms["linux/amd64"]
 	for _, destination := range []string{first, second} {
-		if err := writeOCIContext(bundle, workers, export, destination, platform); err != nil {
+		if err := writeOCIContext(bundle, workers, nil, export, nil, destination, platform); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -224,7 +226,7 @@ func TestOCIContextIsSelfContainedAndReproducible(t *testing.T) {
 	if !strings.Contains(read("host/scenery-host/Cargo.toml"), `name = "scenery-host"`) || read("host/scenery-host/Cargo.lock") == "" || read("host/scenery-sdk/scenery-wire/Cargo.toml") == "" {
 		t.Fatal("the Host sources are incomplete")
 	}
-	if read("Dockerfile") != renderOCIDockerfile(platform, rustbuild.HostToolchain, workers) {
+	if read("Dockerfile") != renderOCIDockerfile(platform, rustbuild.HostToolchain, workers, nil) {
 		t.Fatal("the context Dockerfile differs from its rendering")
 	}
 	for relative, mode := range map[string]os.FileMode{"bundle/services/api": 0o755, "bundle/manifest.json": 0o644, "host/scenery-host/src/main.rs": 0o644, "bundle": 0o755 | fs.ModeDir} {
@@ -244,7 +246,7 @@ func TestOCIContextReplacesOnlyAPreviousContext(t *testing.T) {
 	output := t.TempDir()
 	context := filepath.Join(output, "image")
 	for range 2 {
-		if err := writeOCIContext(bundle, workers, export, context, platform); err != nil {
+		if err := writeOCIContext(bundle, workers, nil, export, nil, context, platform); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -252,7 +254,7 @@ func TestOCIContextReplacesOnlyAPreviousContext(t *testing.T) {
 	if err := os.MkdirAll(occupied, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeOCIContext(bundle, workers, export, occupied, platform); err == nil || !strings.Contains(err.Error(), "not an image build context") {
+	if err := writeOCIContext(bundle, workers, nil, export, nil, occupied, platform); err == nil || !strings.Contains(err.Error(), "not an image build context") {
 		t.Fatalf("occupied destination: %v", err)
 	}
 	// A hand-authored directory that happens to contain a Dockerfile and
@@ -267,7 +269,7 @@ func TestOCIContextReplacesOnlyAPreviousContext(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(handAuthored, "bundle", "manifest.json"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeOCIContext(bundle, workers, export, handAuthored, platform); err == nil || !strings.Contains(err.Error(), "not a generated image build context") {
+	if err := writeOCIContext(bundle, workers, nil, export, nil, handAuthored, platform); err == nil || !strings.Contains(err.Error(), "not a generated image build context") {
 		t.Fatalf("hand-authored destination: %v", err)
 	}
 	entries, err := os.ReadDir(output)
@@ -282,15 +284,91 @@ func TestOCIContextOfAGoOnlyApplication(t *testing.T) {
 	bundle, _, export := ociFixture(t)
 	bundle.Programs = bundle.Programs[:1]
 	context := filepath.Join(t.TempDir(), "image")
-	if err := writeOCIContext(bundle, nil, export, context, ociPlatforms["linux/amd64"]); err != nil {
+	if err := writeOCIContext(bundle, nil, nil, export, nil, context, ociPlatforms["linux/amd64"]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(context, "rust")); !os.IsNotExist(err) {
 		t.Fatalf("Go-only context has Rust sources: %v", err)
 	}
 	dockerfile, err := os.ReadFile(filepath.Join(context, "Dockerfile"))
-	if err != nil || strings.Contains(string(dockerfile), "COPY rust/") {
+	if err != nil || strings.Contains(string(dockerfile), "COPY rust/") || strings.Contains(string(dockerfile), "COPY python/") {
 		t.Fatalf("Go-only Dockerfile: %v\n%s", err, dockerfile)
+	}
+}
+
+func TestOCIDockerfileAndContextForPythonWorkers(t *testing.T) {
+	t.Parallel()
+
+	pyWorkers := []ociPythonWorker{
+		{Workspace: "ml", Directory: "ml", Process: "rank", Version: "3.12.9", HasProject: true, HasLock: true, EnvSlug: "ml-3.12.9", Placeholder: "@python-worker-1@"},
+		{Workspace: ".", Directory: "echo", Process: "echo", Version: "3.14.6", HasProject: false, EnvSlug: "root-3.14.6", Placeholder: "@python-worker-0@"},
+	}
+	dockerfile := renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil, pyWorkers)
+	reversed := renderOCIDockerfile(ociPlatforms["linux/amd64"], "1.99.1", nil, []ociPythonWorker{pyWorkers[1], pyWorkers[0]})
+	if dockerfile != reversed {
+		t.Fatal("Python worker order changes the Dockerfile")
+	}
+	for _, want := range []string{
+		"COPY --from=" + ociUVImage + " /uv /usr/local/bin/uv\n",
+		"uv python install --no-bin 3.12.9",
+		"uv python install --no-bin 3.14.6",
+		"COPY bundle/manifest.json /out/manifest.json\nCOPY python/ python/\n",
+		"UV_PROJECT_ENVIRONMENT=/opt/scenery-python-envs/ml-3.12.9 UV_LINK_MODE=copy uv sync --python 3.12.9 --no-install-project --no-dev --frozen",
+		"/opt/scenery-python-envs/ml-3.12.9/bin/python -B /build/python/ml/scenerycontract/_build.py --output /out/services/rank",
+		`sed -i "s|@python-worker-0@|sha256:$(sha256sum /out/services/echo | cut -d ' ' -f 1)|g" /out/manifest.json`,
+		"COPY --from=build /opt/scenery-python /opt/scenery-python\n",
+		"COPY --from=build /opt/scenery-python-envs /opt/scenery-python-envs\n",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("Python Dockerfile lacks %q:\n%s", want, dockerfile)
+		}
+	}
+
+	appRoot := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(appRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("echo/service.py", "def new_service(input):\n    return object()\n")
+	write("echo/scenerycontract/_build.py", "# builder\n")
+	write("echo/test_service.py", "# test\n")
+	write("ml/pyproject.toml", "[project]\nname = \"ml\"\n")
+	write("ml/uv.lock", "version = 1\n")
+	write("ml/service.py", "def new_service(input):\n    return object()\n")
+	write("ml/scenerycontract/_build.py", "# builder\n")
+	services := []pythonbuild.Service{
+		{PythonWorkerTarget: compiler.PythonWorkerTarget{Workspace: ".", Directory: "echo", Entry: "service.py", Version: "3.14.6"}, Name: "echo/service/echo"},
+		{PythonWorkerTarget: compiler.PythonWorkerTarget{Workspace: "ml", Directory: "ml", Entry: "service.py", Version: "3.12.9"}, Name: "ml/service/rank"},
+	}
+	bundle := workerBundle{
+		Version: 1, ContractRevision: "sha256:contract", Reports: workerReportIdentity{SchemaRevision: "sha256:report", ProducerVersion: "test"},
+		Host: workerHostPlan{Name: "pyapp", Workers: []workerplan.WorkerServicePlan{}},
+		Programs: []workerProgram{
+			{Service: "echo/service/echo", Process: "echo", Binary: "services/echo", Digest: "@python-worker-0@", Runtime: "python"},
+			{Service: "ml/service/rank", Process: "rank", Binary: "services/rank", Digest: "@python-worker-1@", Runtime: "python"},
+		},
+	}
+	exportPy := func(directory string, exclude ...string) error {
+		return pythonbuild.ExportWorkerSources(appRoot, services, directory, exclude...)
+	}
+	contextDir := filepath.Join(appRoot, "oci-out")
+	if err := writeOCIContext(bundle, nil, pyWorkers, nil, exportPy, contextDir, ociPlatforms["linux/amd64"]); err != nil {
+		t.Fatal(err)
+	}
+	for _, present := range []string{"python/echo/service.py", "python/echo/scenerycontract/_build.py", "python/ml/pyproject.toml", "python/ml/uv.lock"} {
+		if _, err := os.Stat(filepath.Join(contextDir, filepath.FromSlash(present))); err != nil {
+			t.Errorf("missing %s in Python OCI context: %v", present, err)
+		}
+	}
+	for _, absent := range []string{"python/echo/test_service.py", "python/oci-out", "bundle/services/echo"} {
+		if _, err := os.Stat(filepath.Join(contextDir, filepath.FromSlash(absent))); !os.IsNotExist(err) {
+			t.Errorf("unexpected %s in Python OCI context: %v", absent, err)
+		}
 	}
 }
 
@@ -319,7 +397,7 @@ func TestOCIContextInsideAppRootExcludesSelfAndRootSecrets(t *testing.T) {
 		return rustbuild.ExportWorkerSources(t.Context(), appRoot, services, directory, exclude...)
 	}
 	contextDir := filepath.Join(appRoot, "oci-out")
-	if err := writeOCIContext(bundle, workers, export, contextDir, ociPlatforms["linux/amd64"]); err != nil {
+	if err := writeOCIContext(bundle, workers, nil, export, nil, contextDir, ociPlatforms["linux/amd64"]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(contextDir, "rust", "prod-config.json")); !os.IsNotExist(err) {

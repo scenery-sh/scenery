@@ -91,7 +91,12 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"prune":     {ignoreParse(parsePruneArgs)},
 		"doctor":    {ignoreParse(parseDoctorArgs)},
 		"logs":      {ignoreParse(parseLogsArgs), ignoreParse(parseLogsQueryArgs)},
-		"generate":  {func(args []string) error { return runContractGenerate(io.Discard, args) }, func(args []string) error { _, err := parseGenerateArgs(append([]string{"sqlc"}, args...)); return err }},
+		"generate": {
+			func(args []string) error { return runContractGenerate(io.Discard, args) },
+			func(args []string) error { _, err := parseGenerateArgs(append([]string{"sqlc"}, args...)); return err },
+			ignoreParse(parseGenerateOpenAPIArgs),
+		},
+		"openapi": {ignoreParse(parseOpenAPIArgs)},
 		"validate":  {ignoreParse(parseValidateArgs)},
 		"worktree":  {ignoreParse(parseWorktreeArgs)},
 		"feature":   {ignoreParse(parseFeatureArgs)},

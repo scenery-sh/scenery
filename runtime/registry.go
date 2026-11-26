@@ -40,11 +40,12 @@ type NativeServiceRegistration struct {
 }
 
 type registry struct {
-	mu                  sync.RWMutex
-	workerOperations    map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
-	serviceInitializers map[string]serviceInitializer
-	serviceInitOrder    map[string]int
-	serviceShutdowns    map[string]serviceShutdown
+	mu                    sync.RWMutex
+	workerOperations      map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
+	workerEventOperations map[string]func(context.Context, []byte) ([]byte, shared.RawEventProducer, error)
+	serviceInitializers   map[string]serviceInitializer
+	serviceInitOrder      map[string]int
+	serviceShutdowns      map[string]serviceShutdown
 }
 
 var global = &registry{

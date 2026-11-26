@@ -301,6 +301,162 @@ export async function assertEmptyResponse(response: Response, bindingAddress: st
   }
 }
 
+/*__scenery_runtime_sse_start__*/
+function responseMatchesSSE(response: Response, producedMediaTypes: readonly string[]): boolean {
+  const media = response.headers.get("content-type") ?? "";
+  try {
+    return producedMediaTypes.some((expected) => mediaTypeMatches(media, expected));
+  } catch {
+    return false;
+  }
+}
+
+export async function* decodeSSEStream(
+  response: Response,
+  descriptor: TypeDescriptor,
+  registry: TypeRegistry,
+  bindingAddress: string,
+  maximumBytes: number,
+  signal?: AbortSignal,
+  onClose?: () => void,
+): AsyncIterable<{ readonly data: unknown; readonly id?: string; readonly event?: string }> {
+  if (signal?.aborted) {
+    onClose?.();
+    await response.body?.cancel().catch(() => {});
+    throw new ClientError("cancelled", bindingAddress, "request cancelled");
+  }
+  if (response.body === null) {
+    onClose?.();
+    return;
+  }
+  const reader = response.body.getReader();
+  const onAbort = (): void => { void reader.cancel().catch(() => {}); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const encoder = new TextEncoder();
+  let lineBuffer = "";
+  let dataLines: string[] = [];
+  let dataBytes = 0;
+  let eventId: string | undefined;
+  let eventName: string | undefined;
+  let pendingCR = false;
+  let firstChunk = true;
+
+  const parseLine = (line: string): { readonly data: unknown; readonly id?: string; readonly event?: string } | undefined => {
+    if (line === "") {
+      if (dataLines.length === 0) {
+        eventId = undefined;
+        eventName = undefined;
+        return undefined;
+      }
+      const rawData = dataLines.join("\n");
+      const id = eventId;
+      const event = eventName;
+      dataLines = [];
+      dataBytes = 0;
+      eventId = undefined;
+      eventName = undefined;
+      let decoded: unknown;
+      try {
+        decoded = decodeTypedValue(parseExactJSON(rawData), descriptor, registry, "$", new Set());
+      } catch (cause) {
+        throw new ClientError("contract_violation", bindingAddress, "malformed event stream frame", safeCause(cause));
+      }
+      return {
+        data: decoded,
+        ...(id !== undefined ? { id } : {}),
+        ...(event !== undefined ? { event } : {}),
+      };
+    }
+    if (line.startsWith(":")) return undefined;
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    let value = colon === -1 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "data") {
+      dataBytes += encoder.encode(value).byteLength + (dataLines.length > 0 ? 1 : 0);
+      if (dataBytes > maximumBytes) {
+        throw new ClientError("contract_violation", bindingAddress, "event stream frame exceeds the contract byte limit");
+      }
+      dataLines.push(value);
+    } else if (field === "event") {
+      eventName = value;
+    } else if (field === "id") {
+      if (!value.includes("\0")) eventId = value;
+    }
+    return undefined;
+  };
+
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new ClientError("cancelled", bindingAddress, "request cancelled");
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (cause) {
+        if (signal?.aborted) throw new ClientError("cancelled", bindingAddress, "request cancelled", cause);
+        throw new ClientError("network", bindingAddress, "event stream failed", cause);
+      }
+      if (chunk.done) break;
+      if (chunk.value === undefined || chunk.value.byteLength === 0) continue;
+      let text: string;
+      try {
+        text = decoder.decode(chunk.value, { stream: true });
+      } catch (cause) {
+        throw new ClientError("contract_violation", bindingAddress, "malformed event stream UTF-8", safeCause(cause));
+      }
+      let start = 0;
+      if (firstChunk) {
+        firstChunk = false;
+        if (text.startsWith("\uFEFF")) start = 1;
+      }
+      if (pendingCR) {
+        pendingCR = false;
+        if (start < text.length && text[start] === "\n") start++;
+      }
+      for (let index = start; index < text.length; index++) {
+        const ch = text[index]!;
+        if (ch === "\n" || ch === "\r") {
+          const line = lineBuffer + text.slice(start, index);
+          lineBuffer = "";
+          if (ch === "\r") {
+            if (index + 1 < text.length) {
+              if (text[index + 1] === "\n") index++;
+            } else {
+              pendingCR = true;
+            }
+          }
+          start = index + 1;
+          const item = parseLine(line);
+          if (item !== undefined) yield item;
+        }
+      }
+      if (start < text.length) {
+        lineBuffer += text.slice(start);
+        if (encoder.encode(lineBuffer).byteLength + dataBytes > maximumBytes) {
+          throw new ClientError("contract_violation", bindingAddress, "event stream frame exceeds the contract byte limit");
+        }
+      }
+    }
+    let tail: string;
+    try {
+      tail = decoder.decode();
+    } catch (cause) {
+      throw new ClientError("contract_violation", bindingAddress, "malformed event stream UTF-8", safeCause(cause));
+    }
+    if (tail.length > 0) lineBuffer += tail;
+    if (lineBuffer.length > 0) {
+      const item = parseLine(lineBuffer);
+      if (item !== undefined) yield item;
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    onClose?.();
+    await reader.cancel().catch(() => {});
+  }
+}
+/*__scenery_runtime_sse_end__*/
+
 /*__scenery_runtime_retry_start__*/
 export async function fetchWithRetry(
   fetchImplementation: typeof globalThis.fetch,

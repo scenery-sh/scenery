@@ -595,7 +595,7 @@ fn request_media_matches(actual: &mime_guess::mime::Mime, pattern: &str) -> bool
             == normalized_media_params(&expected, ignore_boundary)
 }
 
-fn negotiate_media<'a>(headers: &HeaderMap, produced: &'a [String]) -> Option<&'a str> {
+pub(crate) fn negotiate_media<'a>(headers: &HeaderMap, produced: &'a [String]) -> Option<&'a str> {
     if produced.is_empty() {
         return None;
     }
@@ -671,7 +671,7 @@ fn selection(payload: &Value, select: &Selection) -> Result<Option<Value>, Fault
     Ok(Some(value.clone()))
 }
 
-fn not_acceptable() -> Fault {
+pub(crate) fn not_acceptable() -> Fault {
     Fault::new(
         406,
         "transport.not_acceptable",
@@ -686,7 +686,7 @@ pub(crate) fn encode_response(
 ) -> Result<Reply, Fault> {
     let status = StatusCode::from_u16(plan.status).map_err(Fault::internal)?;
     let mut response = empty(status);
-    if plan.stream != outcome.stream.is_some() {
+    if plan.stream != outcome.stream.is_some() || plan.events || outcome.events.is_some() {
         return Err(Fault::internal(
             "worker's response mode differs from mapping",
         ));

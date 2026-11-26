@@ -1,0 +1,276 @@
+package "python" {
+  python_contract {
+    entry = "service.py"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+input "rust" { type = resource_ref("binding") }
+input "database" { type = resource_ref("data_source") }
+input "native" { type = resource_ref("binding") }
+input "session" { type = resource_ref("authentication") }
+input "currency" {
+  type    = string
+  phase   = "deployment"
+  default = "EUR"
+}
+input "jobs" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
+
+service "python" {
+  runtime = "python"
+  implementation {
+    constructor = "new_service"
+  }
+  lifecycle { stop = "stop" }
+  client "native" { binding = var.native }
+  client "rust" { binding = var.rust }
+  dependency "database" { instance = var.database }
+  config { currency = var.currency }
+}
+
+record "py_quote_input" {
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+  field "delay_ms" { type = optional(int32) }
+}
+
+record "py_quote_result" {
+  field "vendor" { type = string }
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
+  field "currency" { type = optional(string) }
+}
+
+operation "py_quote" {
+  service = service.python
+  input   = record.py_quote_input
+  handler { method = "quote" }
+  result "ok" { type = record.py_quote_result }
+  error "negative_amount" { type = std.type.problem }
+}
+
+execution "quote_direct" {
+  operation = operation.py_quote
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "quote_http" {
+  gateway        = var.gateway
+  operation      = operation.py_quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/py/quote"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.py_quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "quote_session_http" {
+  gateway        = var.gateway
+  operation      = operation.py_quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/py/quote/session"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.py_quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "quote_internal" {
+  operation      = operation.py_quote
+  execution      = execution.quote_direct
+  protocol       = "internal"
+  exposure       = "application"
+  delivery       = "call"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+export "quote_internal" { value = binding.quote_internal }
+
+operation "py_download" {
+  service = service.python
+  input   = std.type.unit
+  handler { method = "download" }
+  result "ok" { type = bytes }
+}
+
+execution "py_download" {
+  operation = operation.py_download
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "download_http" {
+  gateway        = var.gateway
+  operation      = operation.py_download
+  execution      = execution.py_download
+  protocol       = "http"
+  delivery       = "stream"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/py/download"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "bytes"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+record "py_settlement_input" {
+  field "id" { type = string }
+  field "delay_ms" { type = optional(int32) }
+}
+
+operation "py_settle" {
+  service = service.python
+  input   = record.py_settlement_input
+  handler { method = "settle" }
+  result "ok" { type = std.type.unit }
+  idempotency {
+    mode = "keyed"
+    key  = [input.id]
+  }
+}
+
+execution "py_settle" {
+  operation     = operation.py_settle
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "python.settle"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "2s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "200ms"
+    factor   = 2
+    maximum  = "1s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+binding "settle_http" {
+  gateway        = var.gateway
+  operation      = operation.py_settle
+  execution      = execution.py_settle
+  protocol       = "http"
+  delivery       = "enqueue"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/py/settlements"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.py_settle.input
+    }
+    response "accepted" {
+      when   = dispatch.enqueued
+      status = 202
+      body {
+        codec = "json"
+        from  = dispatch.receipt
+      }
+    }
+    response "rejected" {
+      when   = dispatch.rejected
+      status = 503
+      body {
+        codec = "problem_json"
+        from  = dispatch.problem
+      }
+    }
+  }
+}
