@@ -35,6 +35,7 @@ mod policy;
 mod process;
 mod s3_storage;
 mod schedule;
+mod schedule_slots;
 mod storage;
 mod supervisor;
 mod telemetry;

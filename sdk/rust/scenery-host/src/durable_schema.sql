@@ -128,3 +128,31 @@ ALTER TABLE scenery.durable_jobs
   ADD COLUMN IF NOT EXISTS failure_retention_ms BIGINT NOT NULL DEFAULT 2592000000,
   ADD COLUMN IF NOT EXISTS dedupe_expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS concurrency_key TEXT;
+
+-- One row per claimed schedule slot. A slot is the UTC instant its period
+-- divides; whoever inserts it first runs it, so replicas never double-fire.
+-- A running slot holds a renewable lease: a crashed replica's slot expires
+-- instead of blocking its schedule. Rows are pruned after a day.
+CREATE TABLE IF NOT EXISTS scenery.schedule_slots (
+  service TEXT NOT NULL,
+  schedule TEXT NOT NULL,
+  slot_at TIMESTAMPTZ NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('claimed', 'running', 'queued', 'done', 'replaced', 'expired')),
+  owner TEXT NOT NULL,
+  lease_until TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (service, schedule, slot_at)
+);
+
+-- At most one run of a schedule holds a lease at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_slots_running_idx
+ON scenery.schedule_slots(service, schedule)
+WHERE state = 'running';
+
+CREATE INDEX IF NOT EXISTS schedule_slots_queued_idx
+ON scenery.schedule_slots(service, schedule, slot_at)
+WHERE state = 'queued';
+
+CREATE INDEX IF NOT EXISTS schedule_slots_retention_idx
+ON scenery.schedule_slots(slot_at);

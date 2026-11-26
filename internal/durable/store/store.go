@@ -117,7 +117,7 @@ func (s *Store) init(ctx context.Context) error {
 			var installed bool
 			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
 SELECT 1 FROM scenery.durable_schema_migrations WHERE version = $1 AND checksum = $2
-)`, schemaVersion, "durable-postgres-v2").Scan(&installed); err != nil {
+)`, schemaVersion, "durable-postgres-v3").Scan(&installed); err != nil {
 				return fmt.Errorf("durable store: inspect schema version: %w", err)
 			}
 			if installed {
@@ -131,7 +131,7 @@ SELECT 1 FROM scenery.durable_schema_migrations WHERE version = $1 AND checksum 
 INSERT INTO scenery.durable_schema_migrations (version, name, checksum)
 VALUES ($1, $2, $3)
 ON CONFLICT(version) DO NOTHING
-`, schemaVersion, "retention", "durable-postgres-v2"); err != nil {
+`, schemaVersion, "schedule_slots", "durable-postgres-v3"); err != nil {
 			return fmt.Errorf("durable store: record schema migration: %w", err)
 		}
 		return nil

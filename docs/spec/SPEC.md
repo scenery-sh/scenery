@@ -189,3 +189,11 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   `OTEL_EXPORTER_OTLP_HEADERS`. URLs must be http or https without
   credentials. Delivery is queued and drops records when the queue is full;
   stopping flushes the queue within 5 seconds.
+- **Schedules.** Slots are the UTC instants a schedule's `every` divides.
+  With `DATABASE_URL`, replicas claim each slot in
+  `scenery.schedule_slots` and run it once between them; `skip`, `replace`,
+  and `queue` runs hold a 30-second lease renewed every 10 seconds, so a
+  crashed replica's run expires instead of blocking its schedule, a stopping
+  Host releases its leases, and `replace` ends the leased run it supersedes. Claims older than a day are
+  pruned. Without a database the Host schedules alone, in memory, and an
+  unavailable database skips a slot rather than risk running it twice.
