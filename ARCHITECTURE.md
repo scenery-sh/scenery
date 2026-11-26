@@ -1,6 +1,6 @@
 # scenery Architecture
 
-Scenery is a local runtime, compiler, and agent harness for
+Scenery is a polyglot application runtime, compiler, and agent harness for
 applications declared in `app.scn` and package-local `package.scn` files, with
 independent runtime config in `.scenery.json`.
 

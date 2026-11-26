@@ -649,7 +649,9 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": []
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
     },
     {
       "name": "SCENERY_DEV_CACHE_DIR",
@@ -950,7 +952,9 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": []
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
     },
     {
       "name": "SCENERY_LOG_FORMAT",

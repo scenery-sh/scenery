@@ -6,9 +6,10 @@ language and runtime contract.
 
 ## 1. Files & Graph Model
 
-- `.scenery.json`: app root marker and independent runtime configuration (`envs`,
-  `frontends`, `build`, `watch`, `validation`). `framework_version` can select
-  an exact prebuilt framework version without a `go.mod`.
+- `.scenery.json`: app root marker and independent runtime configuration (`name`,
+  `id`, `envs`, `frontends`, `build`, `watch`, `storage`, `generators`,
+  `database`, `validation`, `auth`, `observability`). `framework_version` can
+  select an exact prebuilt framework version without a `go.mod`.
 - `app.scn`: root application declarations (`workspace`, `application`,
   `go_module`, `go_toolchain`, `go_target`, `rust_workspace`, `rust_toolchain`,
   `rust_target`, `js_workspace`, `js_toolchain`, `js_target`,
@@ -40,7 +41,7 @@ operation + binding + execution + policy
 
 - **operation**: logical capability bound to a `service`, with typed `input`,
   named `result` variants (`outcomes`), optional `error` variants, optional
-  `idempotency { mode = "keyed"; key = [...] }`, and `handler { method = ... }`.
+  `idempotency` (`mode = "keyed"`, `key = [...]`), and `handler { method = ... }`.
 - **binding**: exposes an operation via `protocol = "http"` (on an
   `http_gateway`), `protocol = "internal"` (`visibility = "application" |
   "package"`), or `protocol = "mcp"` (for `mcp_server` capabilities and
@@ -51,8 +52,8 @@ operation + binding + execution + policy
   execution supports `enqueue` and `wait`.
 - **execution**: `mode = "direct"` (timeout) or `mode = "durable"` (`engine`,
   `external_name`, `revision`, `timeout`, `lease`, `attempts`, `retry`,
-  `retention`, `deduplication`). Changing persisted input while keeping
-  `external_name` requires bumping `revision`.
+  `retention`, `deduplication`, `concurrency`). Changing persisted input while
+  keeping `external_name` requires bumping `revision`.
 - **policy**: explicit `authentication`, `authorization` (rules evaluated by
   `internal/contractpolicy`), and `pipeline` middleware ordering.
 
@@ -93,8 +94,9 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 - `optional(nullable(T))` preserves the distinction between absent fields and
   explicit `null`.
 - Unknown fields are rejected by default (`unknown_fields = "reject"`).
-- Large integers (`int64`/`uint64`) and `decimal` preserve exact precision in
-  JSON and TypeScript (`bigint` / exact string representations).
+- Integers wider than 32 bits (`int`, `int64`, `uint64`) and `decimal` preserve
+  exact precision on the JSON wire and in TypeScript (`bigint` / exact string
+  representations).
 - Floats use the shortest text that reads back as the same `float32` or
   `float64`, in Go `strconv.FormatFloat(v, 'g', -1, bits)` form (`1`, `0.1`,
   `1e+06`, `1.5e-07`). NaN, infinities and negative zero are invalid.
@@ -107,7 +109,8 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   sealed outcome interfaces/structs, constructor input (dependencies, declared
   `service.client` and `service.publisher` handles, config), and internal client
   wrappers.
-- Service constructor: `func New<Service>(context.Context, contract.<Service>ConstructorInput) (*Service, error)`.
+- Service constructor (named by `service.implementation.constructor`, e.g.
+  `NewService`): `func <Constructor>(context.Context, contract.<Service>ConstructorInput) (*Service, error)`.
 - Operation handler: `func (*Service) <Method>(context.Context, contract.<Op>Input) (contract.<Op>Outcome, error)`.
 - `internal/parse` verifies constructor and handler signatures against the
   compiled graph. Operation-to-operation calls across services go through
@@ -115,9 +118,10 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   pinning are preserved.
 - A Rust module declares `rust_contract { crate = "..." }` and services with
   `runtime = "rust"`. The generated contract crate exports service traits,
-  typed outcomes, and clients derived from the caller's declarations. The
-  selected Cargo target checks the implementation and links it to the
-  [Worker ABI v1 adapter](WORKER-ABI.md).
+  typed outcomes, and clients derived from the caller's declarations, mapping
+  `service.implementation.constructor` to a snake_case constructor function
+  (for example `NewService` → `new_service`). The selected Cargo target checks
+  the implementation and links it to the [Worker ABI v1 adapter](WORKER-ABI.md).
 - A JavaScript or TypeScript service declares `runtime = "js"` or
   `runtime = "ts"` and package metadata `js_contract { entry = "service.ts" }`.
   The entry is a regular module-relative `.js`/`.mjs` or `.ts`/`.mts` file
@@ -147,8 +151,8 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   `service.implementation.constructor`. Each Python service has its own
   module directory. The nearest covering `python_workspace { root = "..." }`
   selects its `python_target` with role `development` or `artifact`, referencing
-  the workspace and a `python_toolchain` with an exact CPython `version` (3.11+,
-  for example `"3.14.6"`). Generation publishes `<module>/scenerycontract`
+  the workspace and a `python_toolchain` with an exact CPython `version` (for
+  example `"3.14.6"`; the compiler requires an exact release version). Generation publishes `<module>/scenerycontract`
   beneath a declared `managed_generated_roots` entry with typed frozen
   dataclasses, `Service` protocol, exact wire codecs, pure-stdlib Worker ABI v1
   HTTP/2 SDK, and deterministic `_build.py` zipapp packager. `uv` resolves the
@@ -215,7 +219,11 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 `scenery build` writes a bundle that starts as
 `<bundle>/scenery-kernel --listen <host:port> [--config <file>]`. `--listen`
 falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
-`127.0.0.1:4000`; a container binds `0.0.0.0:4000`.
+`127.0.0.1:4000`; a container binds `0.0.0.0:4000`. Setting
+`SCENERY_LISTEN_NETWORK=unix` binds a Unix domain socket instead, requiring an
+absolute socket path in `--listen` or `SCENERY_LISTEN_ADDR`. In production,
+browser CORS origins are allowed only when listed as a comma-separated list in
+`SCENERY_CORS_ALLOW_ORIGINS`.
 
 - **Configuration.** The runtime configuration snapshot
   (`kind = "scenery.config.snapshot"`, at most 4 MiB) comes from `--config`,

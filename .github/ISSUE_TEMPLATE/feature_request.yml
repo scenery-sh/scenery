@@ -31,13 +31,14 @@ body:
       label: Area
       options:
         - CLI
-        - Runtime
+        - Application host (scenery-kernel)
+        - Workers & SDKs (Go/Rust/JS/Python)
         - Parser/codegen
-        - Dashboard
+        - Domain events & schedules
+        - Development runtime RPC
         - Observability
         - Local proxy
         - TypeScript client
-        - Pub/Sub or cron
         - Documentation
         - Other
     validations:

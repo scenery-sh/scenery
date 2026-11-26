@@ -5,7 +5,7 @@ set -Eeuo pipefail
 example_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scenery_root="$(cd "$example_root/../.." && pwd)"
 scenery_cli="${1:-$scenery_root/.scenery/harness/bin/scenery}"
-for command in docker go bun curl jq; do command -v "$command" >/dev/null; done
+for command in docker go cargo bun curl jq; do command -v "$command" >/dev/null; done
 test -x "$scenery_cli"
 proof_root="$(mktemp -d "${TMPDIR:-/tmp}/scenery-webhook-proof.XXXXXX")"
 container="scenery-webhook-proof-$(basename "$proof_root" | tr '[:upper:]' '[:lower:]')"

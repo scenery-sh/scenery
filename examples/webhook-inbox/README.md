@@ -19,7 +19,7 @@ email delivery, refresh sessions, or authorization isolation.
 
 ## Run The Complete Proof
 
-From the Scenery source checkout, with Go, Docker, Bun, curl, and jq available:
+From the Scenery source checkout, with Go, Rust (`rustup` toolchain `1.99.1`), Docker, Bun, curl, and jq available:
 
 ```sh
 go build -o .scenery/harness/bin/scenery ./cmd/scenery

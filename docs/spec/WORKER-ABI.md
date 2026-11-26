@@ -203,9 +203,11 @@ requiring approval can consume one grant bound to the run, tool, and proposed
 arguments. Control endpoints and MCP assertions stay on loopback.
 
 Development uses the CLI's managed assistant supervisor. A production host can
-use a separate supervisor via the existing private assistant runtime descriptor
-and token key settings. The bundle manifest contains the declarations and expected
-revisions. Runtime credentials stay in the private descriptor file.
+use a separate supervisor via the private assistant runtime descriptor
+(`SCENERY_ASSISTANT_RUNTIME_CONFIG`) and token key settings
+(`SCENERY_ASSISTANT_TOKEN_KEY` or `SCENERY_ASSISTANT_TOKEN_KEY_FILE`). The
+bundle manifest contains the declarations and expected revisions. Runtime
+credentials stay in the private descriptor file.
 
 The manifest's `reports` member carries the schema revision and producer
 version of `scenery.failure.report`. The Host stamps them on every failure

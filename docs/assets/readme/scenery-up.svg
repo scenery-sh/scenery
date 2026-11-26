@@ -119,7 +119,7 @@
     <circle cx="82" cy="260" r="22" fill="#A78BFA" fill-opacity="0.14" stroke="#A78BFA" stroke-opacity="0.55"/>
     <circle cx="82" cy="260.0" r="8" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M82 255.5 V260.0 L85.5 262.0" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="118" y="255" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Background work</text>
-    <text x="118" y="279" class="sans" font-size="15" fill="#A9B2D6">jobs, cron, events</text>
+    <text x="118" y="279" class="sans" font-size="15" fill="#A9B2D6">jobs, schedules, events</text>
   </g>
   <g>
     <rect x="40" y="388" width="280" height="92" rx="18" fill="#111836" stroke="#27305C"/>

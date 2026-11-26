@@ -55,9 +55,9 @@ runtime. It is an **application host** with a strict capability boundary:
       ┌───────▼──┐   ┌──────▼───┐   ┌─────▼────┐   ┌────▼─────┐
       │    Go    │   │   Rust   │   │ TS / JS  │   │  Python  │
       │  worker  │   │  worker  │   │  (Bun)   │   │   (uv)   │
-      └───────┬──┘   └──────┬───┘   └─────┬────┘   └────┬─────┘
-              └─────────────┴──────┬──────┴─────────────┘
-                            native PostgreSQL
+      └───────┬──┘   └──────────┘   └─────┬────┘   └────┬─────┘
+              └────────────────────┬──────┴─────────────┘
+                           native PostgreSQL
 ```
 
 - **Capability boundary, not a VM sandbox** — `scenery-kernel` keeps
@@ -68,12 +68,14 @@ runtime. It is an **application host** with a strict capability boundary:
   events, and OAuth tokens only through scoped `/host/v1/*` capabilities (see
   [Worker ABI v1](docs/spec/WORKER-ABI.md)).
 - **Long-lived native workers, not cold-start functions** — Each service runs
-  as a warm OS process with native database pools (`pgx`, `sqlx`, etc.),
-  supports binary streaming and typed SSE (`stream_out`), and hot-swaps
-  independently with graceful drain when code changes.
+  as a warm OS process—Go, JS/TS, and Python workers open native PostgreSQL
+  pools (`pgx`, etc.; Rust SQL supply is planned)—supports
+  binary streaming and typed SSE (`stream_out`), and hot-swaps independently
+  with graceful drain when code changes.
 - **Same topology in dev and production** — Local `scenery up` and production
-  `scenery build` / `--oci` bundles execute the exact same manifest-driven
-  `scenery-kernel` + worker processes + static frontend bundle.
+  `scenery build` / `--oci` bundles run the same manifest-driven
+  `scenery-kernel` + worker topology (with Vite HMR proxied in dev and static
+  frontend assets served directly by `scenery-kernel` in production).
 
 ## How it works
 
@@ -81,7 +83,9 @@ runtime. It is an **application host** with a strict capability boundary:
   <img src="docs/assets/readme/how-it-works.svg" alt="Declare .scn files, implement typed workers, run scenery up." width="100%">
 </p>
 
-**1. Declare what exists** in `package.scn` (one canonical graph for every language):
+**1. Declare what exists** in `package.scn` (one canonical graph for every language;
+abridged—see [`testdata/apps/polyglot/pricing/package.scn`](testdata/apps/polyglot/pricing/package.scn)
+for the complete declaration):
 
 ```hcl
 service "pricing" {
@@ -99,7 +103,10 @@ operation "quote" {
 binding "quote_http" {
   operation = operation.quote
   protocol  = "http"
-  http { method = "POST"; path = "/quote" }
+  http {
+    method = "POST"
+    path   = "/quote"
+  }
 }
 ```
 
@@ -134,7 +141,7 @@ scenery add module billing --runtime rust -o json
 
 ```sh
 scenery up
-curl --json '{"amount":42}' http://localhost:4624/api/quote
+curl --json '{"amount":"42"}' http://localhost:4624/api/quote
 ```
 
 ## What you get
@@ -177,7 +184,7 @@ curl --json '{"amount":42}' http://localhost:4624/api/quote
 | `scenery up` | Build, start, and watch `scenery-kernel`, workers, Postgres, and frontends |
 | `scenery ps` | List running apps and URLs (`--wait -o json` waits for the current source revision) |
 | `scenery context --for <target> -o json` | Read a structured briefing by module, service, route, or source file |
-| `scenery test [<module>...] -o json` | Refresh contracts and run native module tests (with PostgreSQL template branching) |
+| `scenery test [<module>...] [--branch-db] [--with-host] -o json` | Refresh contracts and run native module tests (add `--branch-db` or `--with-host` for PostgreSQL template branching) |
 | `scenery call <target> -o json` | Invoke the current local runtime and return its result, logs, and spans |
 | `scenery replay <token> [--emit-test] -o json` | Deterministically replay an `SCN9xxx` failure report and optionally emit a regression test |
 | `scenery db query --service <module> '<sql>' -o json` | Run one parameterized statement in the module's PostgreSQL schema (`--param`, `--limit`, `--timeout`) |
@@ -261,8 +268,10 @@ scenery ps
 
 ## Quick start
 
-Building the Scenery CLI from source requires **Go 1.27+** (plus **Docker** for
-managed PostgreSQL, and the toolchains for whichever service runtimes you use).
+Building and running Scenery from source requires **Go 1.27+** and **Rust via
+`rustup` with toolchain `1.99.1`** (every app builds the `scenery-kernel` host
+on first run), plus **Docker** for managed PostgreSQL and **Bun** / **`uv`**
+for JS/TS or Python services.
 
 ```sh
 git clone https://github.com/scenery-sh/scenery.git
@@ -271,7 +280,8 @@ go install ./cmd/scenery
 scenery doctor
 ```
 
-Explore [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md) and
+Explore [examples/shortlink/README.md](examples/shortlink/README.md),
+[examples/webhook-inbox/README.md](examples/webhook-inbox/README.md), and
 [testdata/apps/polyglot](testdata/apps/polyglot), or read
 [docs/spec/SPEC.md](docs/spec/SPEC.md),
 [docs/spec/WORKER-ABI.md](docs/spec/WORKER-ABI.md),
