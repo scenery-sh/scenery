@@ -1,7 +1,9 @@
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use bytes::Bytes;
+use flate2::{Compression, write::GzEncoder};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::client::conn::http2::{SendRequest, handshake};
@@ -225,6 +227,107 @@ impl hyper::body::Body for ScopedBody {
             .inner
             .as_ref()
             .map_or_else(hyper::body::SizeHint::default, hyper::body::Body::size_hint)
+    }
+}
+
+pub(crate) struct GzipStream<B> {
+    inner: B,
+    encoder: Option<GzEncoder<Vec<u8>>>,
+    pending_trailers: Option<hyper::body::Frame<Bytes>>,
+    finished: bool,
+}
+
+impl<B> GzipStream<B> {
+    pub(crate) fn new(inner: B) -> Self {
+        Self {
+            inner,
+            encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
+            pending_trailers: None,
+            finished: false,
+        }
+    }
+}
+
+impl<B: hyper::body::Body<Data = Bytes> + Unpin> hyper::body::Body for GzipStream<B>
+where
+    B::Error: Into<std::io::Error>,
+{
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<std::io::Result<hyper::body::Frame<Bytes>>>> {
+        use std::task::Poll::{Pending, Ready};
+        let this = self.get_mut();
+        if let Some(trailers) = this.pending_trailers.take() {
+            this.finished = true;
+            return Ready(Some(Ok(trailers)));
+        }
+        if this.finished {
+            return Ready(None);
+        }
+        loop {
+            match std::pin::Pin::new(&mut this.inner).poll_frame(cx) {
+                Pending => return Pending,
+                Ready(Some(Ok(frame))) => {
+                    if let Some(data) = frame.data_ref() {
+                        if data.is_empty() {
+                            continue;
+                        }
+                        let Some(encoder) = this.encoder.as_mut() else {
+                            this.finished = true;
+                            return Ready(None);
+                        };
+                        if let Err(error) = encoder.write_all(data) {
+                            this.finished = true;
+                            return Ready(Some(Err(error)));
+                        }
+                        let out = std::mem::take(encoder.get_mut());
+                        if !out.is_empty() {
+                            return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(out)))));
+                        }
+                    } else if frame.is_trailers() {
+                        if let Some(encoder) = this.encoder.take() {
+                            match encoder.finish() {
+                                Ok(out) if !out.is_empty() => {
+                                    this.pending_trailers = Some(frame);
+                                    return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(
+                                        out,
+                                    )))));
+                                }
+                                Err(error) => {
+                                    this.finished = true;
+                                    return Ready(Some(Err(error)));
+                                }
+                                Ok(_) => {}
+                            }
+                        }
+                        this.finished = true;
+                        return Ready(Some(Ok(frame)));
+                    }
+                }
+                Ready(Some(Err(error))) => {
+                    this.finished = true;
+                    this.encoder = None;
+                    return Ready(Some(Err(error.into())));
+                }
+                Ready(None) => {
+                    this.finished = true;
+                    let Some(encoder) = this.encoder.take() else {
+                        return Ready(None);
+                    };
+                    return Ready(match encoder.finish() {
+                        Ok(out) if !out.is_empty() => {
+                            Some(Ok(hyper::body::Frame::data(Bytes::from(out))))
+                        }
+                        Ok(_) => return Ready(None),
+                        Err(error) => Some(Err(error)),
+                    });
+                }
+            }
+        }
     }
 }
 

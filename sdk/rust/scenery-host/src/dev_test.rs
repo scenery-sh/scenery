@@ -101,7 +101,7 @@ async fn a_new_embed_of_an_unchanged_file_builds_on_the_first_rebuild() -> Resul
     materialize_go(&root, &workspace, &mut held, &edited, &plan)?;
     // Without the embedded file the build fails on its pattern.
     plan.commands[0]
-        .compile(&root, &artifacts, &program, "embed")
+        .compile(&root, &artifacts, &[], &program, "embed")
         .await?;
     Ok(())
 }
@@ -290,5 +290,292 @@ async fn wait_returns_only_the_failure_for_the_requested_source() -> Result<()> 
     let next: Value = serde_json::from_slice(&next.into_body().collect().await?.to_bytes())?;
     assert_eq!(next["outcome"], "building");
     assert!(next.get("build_failure").is_none());
+    Ok(())
+}
+
+fn write_test_worker_responder(state: &Path) -> Result<(PathBuf, PathBuf)> {
+    let out = std::process::Command::new("/bin/sh")
+        .args(["-c", "command -v node"])
+        .output()?;
+    ensure!(out.status.success(), "node must be installed");
+    let node = PathBuf::from(String::from_utf8(out.stdout)?.trim());
+    let responder = state.join("responder.mjs");
+    fs::write(
+        &responder,
+        concat!(
+            "import fs from 'node:fs';\n",
+            "import http2 from 'node:http2';\n",
+            "const launch = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));\n",
+            "const body = JSON.stringify(launch.identity);\n",
+            "const srv = http2.createServer();\n",
+            "srv.on('stream', (s) => {\n",
+            "  s.respond({\n",
+            "    ':status': 200,\n",
+            "    'content-type': 'application/json',\n",
+            "    'x-worker-contract': launch.identity.contract_revision,\n",
+            "    'x-worker-implementation': launch.identity.implementation_revision,\n",
+            "  });\n",
+            "  s.end(body);\n",
+            "});\n",
+            "srv.listen(launch.worker_socket);\n",
+            "fs.createReadStream(null, { fd: 4 }).on('end', () => process.exit(0)).resume();\n",
+            "process.on('SIGTERM', () => process.exit(0));\n",
+        ),
+    )?;
+    Ok((node, responder))
+}
+
+#[tokio::test]
+async fn pending_migration_blocks_worker_publication_when_has_migrations_set() -> Result<()> {
+    let temp = tempfile::Builder::new().prefix("dev-").tempdir_in("/tmp")?;
+    let base = temp.path().canonicalize()?;
+    let root = base.join("app");
+    let state = base.join("state");
+    let bin_dir = state.join("bin");
+    fs::create_dir_all(&root)?;
+    fs::create_dir_all(&bin_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o700))?;
+    }
+    let (node, responder) = write_test_worker_responder(&state)?;
+    let worker_bin = state.join("worker.sh");
+    fs::write(&worker_bin, "#!/bin/sh\nexit 1\n")?;
+    let fake_go = bin_dir.join("go");
+    fs::write(
+        &fake_go,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"list\" ]; then\n  exit 0\nfi\nSUM=$(cat '{root}/worker.go')\ncat <<SH > \"$3\"\n#!/bin/sh\n# $SUM\nexec '{node}' '{responder}' \"\\$1\"\nSH\nchmod +x \"$3\"\n",
+            root = root.display(),
+            node = node.display(),
+            responder = responder.display(),
+        ),
+    )?;
+    let helper = state.join("fake-cli.sh");
+    let gate = state.join("migration-pending");
+    fs::write(&gate, "1")?;
+    fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"worker-check-migrations\" ]; then\n  if [ -f '{gate}' ]; then\n    echo 'schema migration for orders is pending' >&2\n    exit 3\n  fi\n  exit 0\nfi\nexit 1\n",
+            gate = gate.display()
+        ),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for file in [&worker_bin, &fake_go, &helper] {
+            fs::set_permissions(file, fs::Permissions::from_mode(0o755))?;
+        }
+    }
+
+    fs::write(root.join("worker.go"), "package main // v1\n")?;
+    let scanner = Scanner::new(root.clone());
+    let initial = scanner.scan(&[])?;
+    let digest = dev_inputs::digest(&initial);
+    let config: Development = serde_json::from_value(json!({
+        "root": root,
+        "app": {},
+        "cli": helper,
+        "cli_environment": [],
+        "environment": "development",
+        "frontend_pid": 0,
+        "report_fd": -1,
+        "lock_fds": [],
+        "session_id": "s1",
+        "wait_schema": "sha256:test",
+        "rebuild": {
+            "generated": [],
+            "declarations": {},
+            "has_migrations": true,
+            "sql_requirements": [{"kind":"data_source","name":"orders_db","schema":"orders"}],
+            "commands": [{
+                "process": "orders", "module": "orders", "directory": root,
+                "program": fake_go, "args": ["build", "-o", "{output}", "."], "roots": ["."]
+            }],
+            "programs": [{
+                "service": "app/service/orders", "process": "orders", "binary": worker_bin,
+                "digest": "", "runtime": "go",
+                "identity": {"contract_revision": "c", "implementation_revision": "", "build_input_digest": "", "go_target": ""},
+                "environment": []
+            }],
+            "source_digest": digest,
+            "host_config": {}
+        }
+    }))?;
+    let mut watcher = WatcherLoop::start(config)?;
+    let expected = std::collections::BTreeMap::from([(
+        "orders".to_owned(),
+        ("app/service/orders".to_owned(), "go".to_owned()),
+    )]);
+    let control =
+        crate::supervisor::Control::bind(&state, "c".into(), Some("t".repeat(32)), expected, None)?;
+    let publication = control.publication().await;
+    let publisher = control.publisher(publication.clone());
+    let stop = CancellationToken::new();
+    let supervisor_task = tokio::spawn(control.serve(stop.clone().cancelled_owned()));
+
+    // Edit non-declaration source and attempt rebuild while migration is pending.
+    fs::write(root.join("worker.go"), "package main // v2\n")?;
+    let edited = watcher.scanner.scan(&[])?;
+    let _ = watcher
+        .process_change(&state, &publisher, "c", edited, Instant::now())
+        .await;
+    assert_eq!(publisher.generation(), 0);
+    let reply = watcher.status().reply(None, &publication).await?;
+    let body: Value = serde_json::from_slice(&reply.into_body().collect().await?.to_bytes())?;
+    assert_eq!(body["outcome"], "failed");
+    assert!(
+        body["compile_error"]
+            .as_str()
+            .is_some_and(|text| text.contains("pending")),
+        "{body}"
+    );
+
+    // Clear the pending migration gate and verify the next edit publishes cleanly.
+    fs::remove_file(&gate)?;
+    fs::write(root.join("worker.go"), "package main // v3\n")?;
+    let ready = watcher.scanner.scan(&[])?;
+    let _ = watcher
+        .process_change(&state, &publisher, "c", ready, Instant::now())
+        .await;
+    assert_eq!(publisher.generation(), 1);
+    stop.cancel();
+    let _ = supervisor_task.await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wait_status()
+-> Result<()> {
+    let temp = tempfile::Builder::new().prefix("dev-").tempdir_in("/tmp")?;
+    let base = temp.path().canonicalize()?;
+    let root = base.join("app");
+    let state = base.join("state");
+    fs::create_dir_all(root.join("svc/dist"))?;
+    fs::create_dir_all(root.join("node_modules/pkg"))?;
+    fs::create_dir_all(&state)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o700))?;
+    }
+    let (node, responder) = write_test_worker_responder(&state)?;
+    fs::write(root.join("svc/index.ts"), "export const v = 1;\n")?;
+    fs::write(root.join("svc/dist/vendor.ts"), "export const dep = 'a';\n")?;
+    fs::write(root.join("svc/dist/extra.ts"), "export const extra = 1;\n")?;
+    fs::write(
+        root.join("node_modules/pkg/index.js"),
+        "module.exports = 'p1';\n",
+    )?;
+
+    // Fake `bun` bundler reading arguments `--outfile=...` and `--metafile=...` and emitting an executable worker wrapper.
+    let fake_bun = state.join("bun");
+    fs::write(
+        &fake_bun,
+        format!(
+            "#!/bin/sh\nOUT=''\nMETA=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    --outfile=*) OUT=\"${{arg#--outfile=}}\" ;;\n    --metafile=*) META=\"${{arg#--metafile=}}\" ;;\n  esac\ndone\n{{\n  echo '#!/bin/sh'\n  cat '{root}/svc/index.ts' '{root}/svc/dist/vendor.ts' '{root}/node_modules/pkg/index.js' | sed 's/^/# /'\n  EXTRA=''\n  if grep -q 'extra' '{root}/svc/index.ts'; then\n    cat '{root}/svc/dist/extra.ts' | sed 's/^/# /'\n    EXTRA=',\"'{root}'/svc/dist/extra.ts\":{{}}'\n  fi\n  echo \"exec '{node}' '{responder}' \\\"\\$1\\\"\"\n}} > \"$OUT\"\nchmod +x \"$OUT\"\nprintf '{{\"inputs\":{{\"{root}/svc/index.ts\":{{}},\"{root}/svc/dist/vendor.ts\":{{}},\"{root}/node_modules/pkg/index.js\":{{}}%s}}}}' \"$EXTRA\" > \"$META\"\n",
+            root = root.display(),
+            node = node.display(),
+            responder = responder.display(),
+        ),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&fake_bun, fs::Permissions::from_mode(0o755))?;
+    }
+
+    let scanner = Scanner::new(root.clone());
+    scanner.set_explicit(BTreeSet::from([
+        PathBuf::from("svc/dist/vendor.ts"),
+        PathBuf::from("node_modules/pkg/index.js"),
+    ]));
+    let initial = scanner.scan(&[])?;
+    let digest = dev_inputs::digest(&initial);
+    let config: Development = serde_json::from_value(json!({
+        "root": root,
+        "app": {},
+        "cli": "/usr/bin/false",
+        "cli_environment": [],
+        "environment": "development",
+        "frontend_pid": 0,
+        "report_fd": -1,
+        "lock_fds": [],
+        "session_id": "s1",
+        "wait_schema": "sha256:test",
+        "rebuild": {
+            "generated": [],
+            "declarations": {},
+            "js_dependencies": ["svc/dist/vendor.ts", "node_modules/pkg/index.js"],
+            "commands": [{
+                "process": "jsw", "module": "svc", "directory": "svc", "workspace": ".",
+                "program": fake_bun,
+                "args": ["build", "--outfile={output}", "--metafile={metafile}", "svc/index.ts"],
+                "dependencies": ["svc/dist/vendor.ts", "node_modules/pkg/index.js"]
+            }],
+            "programs": [{
+                "service": "app/service/jsw", "process": "jsw", "binary": fake_bun,
+                "digest": "", "runtime": "ts",
+                "identity": {"contract_revision": "c", "implementation_revision": "", "build_input_digest": "", "go_target": "bun"},
+                "environment": []
+            }],
+            "source_digest": digest,
+            "host_config": {}
+        }
+    }))?;
+
+    let mut watcher = WatcherLoop::start(config)?;
+    let expected = std::collections::BTreeMap::from([(
+        "jsw".to_owned(),
+        ("app/service/jsw".to_owned(), "ts".to_owned()),
+    )]);
+    let control =
+        crate::supervisor::Control::bind(&state, "c".into(), Some("t".repeat(32)), expected, None)?;
+    let publication = control.publication().await;
+    let publisher = control.publisher(publication.clone());
+    let stop = CancellationToken::new();
+    let supervisor_task = tokio::spawn(control.serve(stop.clone().cancelled_owned()));
+
+    // Edit `node_modules/pkg/index.js`: scanner sees the change, status moves to
+    // building, rebuild runs, and status reaches served.
+    fs::write(
+        root.join("node_modules/pkg/index.js"),
+        "module.exports = 'p2';\n",
+    )?;
+    let building = watcher.status().reply(None, &publication).await?;
+    let building: Value =
+        serde_json::from_slice(&building.into_body().collect().await?.to_bytes())?;
+    assert_eq!(building["outcome"], "building");
+
+    let edited = watcher.scanner.scan(&[])?;
+    watcher
+        .process_change(&state, &publisher, "c", edited, Instant::now())
+        .await;
+    assert_eq!(publisher.generation(), 1);
+    let served = watcher.status().reply(None, &publication).await?;
+    let served: Value = serde_json::from_slice(&served.into_body().collect().await?.to_bytes())?;
+    assert_eq!(served["outcome"], "served");
+
+    // Edit `svc/index.ts` so the bundle picks up `svc/dist/extra.ts`.
+    fs::write(root.join("svc/index.ts"), "export const extra = true;\n")?;
+    let with_extra = watcher.scanner.scan(&[])?;
+    let sync_seen = watcher
+        .process_change(&state, &publisher, "c", with_extra, Instant::now())
+        .await;
+    assert!(sync_seen);
+    assert_eq!(publisher.generation(), 2);
+    assert!(watcher.scanner.is_explicit(Path::new("svc/dist/extra.ts")));
+
+    // Editing `svc/dist/extra.ts` now triggers generation 3 automatically.
+    fs::write(root.join("svc/dist/extra.ts"), "export const extra = 2;\n")?;
+    let edited_extra = watcher.scanner.scan(&[])?;
+    watcher
+        .process_change(&state, &publisher, "c", edited_extra, Instant::now())
+        .await;
+    assert_eq!(publisher.generation(), 3);
+    stop.cancel();
+    let _ = supervisor_task.await;
     Ok(())
 }

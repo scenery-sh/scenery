@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/rustbuild"
@@ -21,6 +22,7 @@ var errWorkerInputsChanged = errors.New("application changed while workers were 
 type workerDevelopment struct {
 	watch        *workerInputScope
 	applied      workerInputs
+	cfg          app.Config
 	compiled     *compiler.Result
 	declarations map[string]bool
 	goWorkspace  *build.Result
@@ -52,12 +54,15 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs
 		return nil, workerBundle{}, err
 	}
 	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
-	for _, build := range dev.js {
-		program, _, err := build.run(ctx, watch.root, false)
+	for i := range dev.js {
+		program, _, err := (&dev.js[i]).run(ctx, watch.root, false)
 		if err != nil {
 			return nil, workerBundle{}, err
 		}
 		bundle.Programs = append(bundle.Programs, program)
+	}
+	if err := watch.addExplicit(inputs, dev.jsDependencies()); err != nil {
+		return nil, workerBundle{}, err
 	}
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
 	if err != nil {
@@ -97,6 +102,27 @@ func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Resu
 		dev.rust.jsModules = append(dev.rust.jsModules, build.service.Directory)
 	}
 	return bundle, nil
+}
+
+func (dev *workerDevelopment) filterExplicit(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		clean := filepath.Clean(filepath.FromSlash(path))
+		if clean == "." || (dev.watch != nil && dev.watch.alwaysIgnored(clean)) {
+			continue
+		}
+		out = append(out, filepath.ToSlash(clean))
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func (dev *workerDevelopment) jsDependencies() []string {
+	var all []string
+	for _, item := range dev.js {
+		all = append(all, item.dependencies...)
+	}
+	return dev.filterExplicit(all)
 }
 
 func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, current workerInputs, rediscover bool) ([]string, error) {

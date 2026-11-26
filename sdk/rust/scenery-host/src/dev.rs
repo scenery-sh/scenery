@@ -221,7 +221,10 @@ impl WatcherLoop {
                     let ignored = event_status.ignore.read().expect("generated roots");
                     event.paths.iter().any(|path| {
                         path.strip_prefix(event_status.scanner.root())
-                            .is_ok_and(|path| !dev_inputs::ignored(path, &ignored))
+                            .is_ok_and(|path| {
+                                !dev_inputs::ignored(path, &ignored)
+                                    || event_status.scanner.is_explicit(path)
+                            })
                     })
                 }
             };
@@ -231,6 +234,7 @@ impl WatcherLoop {
             }
         })?;
         watcher.watch(&config.root, RecursiveMode::Recursive)?;
+        scanner.set_explicit(config.rebuild.explicit_js_dependencies());
         let active = scanner.scan(&config.rebuild.generated)?;
         ensure!(
             dev_inputs::digest(&active) == config.rebuild.source_digest,
@@ -405,12 +409,15 @@ impl WatcherLoop {
         if declarations && times[3] == 0.0 {
             times[3] = times[0];
         }
-        let (generation, rebuilt, failure) = match result {
-            Ok(Some((generation, rebuilt))) => (generation, rebuilt, None),
+        let (generation, rebuilt, committed, failure) = match result {
+            Ok(Some((generation, rebuilt, committed))) => {
+                (generation, rebuilt, Some(committed), None)
+            }
             Ok(None) => return true,
             Err(error) => (
                 publisher.generation(),
                 BTreeSet::new(),
+                None,
                 Some(format!("{error:#}")),
             ),
         };
@@ -460,6 +467,7 @@ impl WatcherLoop {
         if failure.is_none() {
             timing["edit_to_ready_ms"] = json!(elapsed);
         }
+        let mut sync_seen = false;
         if let Some(error) = failure {
             let failure = diagnostic(&self.config, module, &error);
             self.status.update.send_modify(|status| {
@@ -468,8 +476,11 @@ impl WatcherLoop {
             });
             eprintln!("application update failed: {error}");
         } else {
-            self.active = inputs;
-            self.publish(digest, Some(timing.clone()));
+            let committed = committed.unwrap_or_else(|| inputs.clone());
+            sync_seen = committed != inputs;
+            let published_digest = dev_inputs::digest(&committed);
+            self.active = committed;
+            self.publish(published_digest, Some(timing.clone()));
         }
         eprintln!("worker rebuild {timing}");
         if let Some(path) = self
@@ -488,7 +499,7 @@ impl WatcherLoop {
                 eprintln!("could not record rebuild telemetry: {error:#}");
             }
         }
-        false
+        sync_seen
     }
 
     async fn restore_mirrors(
@@ -510,6 +521,7 @@ impl WatcherLoop {
         self.go_materialized = inputs.clone();
         self.rust_materialized = inputs.clone();
         *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
+        self.scanner.set_explicit(plan.explicit_js_dependencies());
         self.config.rebuild = plan;
         self.declarations_dirty = false;
         Ok(())
@@ -519,6 +531,22 @@ impl WatcherLoop {
         self.declarations_dirty = true;
         let staging = tempfile::tempdir_in(directory)?;
         let file = staging.path().join("rebuild.json");
+        let explicit_file = staging.path().join("explicit.json");
+        let commands: std::collections::BTreeMap<&str, &BTreeSet<PathBuf>> = self
+            .config
+            .rebuild
+            .commands
+            .iter()
+            .filter(|build| build.tool() == "bun" && !build.dependencies.is_empty())
+            .map(|build| (build.process.as_str(), &build.dependencies))
+            .collect();
+        serde_json::to_writer(
+            fs::File::create(&explicit_file)?,
+            &json!({
+                "js_dependencies": self.scanner.explicit_paths(),
+                "commands": commands,
+            }),
+        )?;
         dev_build::run(
             &self.config.cli,
             &[
@@ -527,6 +555,7 @@ impl WatcherLoop {
                 revision.into(),
                 self.config.environment.clone(),
                 file.display().to_string(),
+                explicit_file.display().to_string(),
             ],
             &self.config.root,
             Some(&self.config.cli_environment),
@@ -534,6 +563,33 @@ impl WatcherLoop {
         )
         .await?;
         Ok(serde_json::from_reader(fs::File::open(file)?)?)
+    }
+
+    async fn check_migrations(&self, directory: &Path, selected: &Plan) -> Result<()> {
+        if !selected.has_migrations {
+            return Ok(());
+        }
+        let staging = tempfile::tempdir_in(directory)?;
+        let sql_file = staging.path().join("sql.json");
+        let raw = selected
+            .sql_requirements
+            .as_deref()
+            .map_or("[]", serde_json::value::RawValue::get);
+        fs::write(&sql_file, raw)?;
+        dev_build::run(
+            &self.config.cli,
+            &[
+                "worker-check-migrations".into(),
+                self.config.root.display().to_string(),
+                self.config.environment.clone(),
+                sql_file.display().to_string(),
+            ],
+            &self.config.root,
+            Some(&self.config.cli_environment),
+            staging.path(),
+        )
+        .await?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -547,7 +603,7 @@ impl WatcherLoop {
         declarations: bool,
         module: &mut String,
         times: &mut [f64; 4],
-    ) -> Result<Option<(u64, BTreeSet<String>)>> {
+    ) -> Result<Option<(u64, BTreeSet<String>, Inputs)>> {
         let begin = Instant::now();
         let plan = if declarations {
             let mut plan = self.load_refresh_plan(directory, revision).await?;
@@ -617,6 +673,7 @@ impl WatcherLoop {
         let mut next = self.programs.clone();
         let mut rebuilt = BTreeSet::new();
         let mut go_dependencies = Vec::new();
+        let mut bun_dependencies = Vec::new();
         for (index, command) in selected.commands.iter().enumerate() {
             let program = next
                 .iter_mut()
@@ -643,7 +700,7 @@ impl WatcherLoop {
                 identity.update(&program.identity.contract_revision);
                 let identity = format!("sha256:{}", hex(&identity.finalize()));
                 let built = command
-                    .compile(root, directory, &candidate, &identity)
+                    .compile(root, directory, &selected.generated, &candidate, &identity)
                     .await;
                 times[1] += if program.runtime == "go" {
                     ms(start.elapsed())
@@ -651,7 +708,11 @@ impl WatcherLoop {
                     0.0
                 };
                 times[0] = ms(begin.elapsed());
-                candidate = built?;
+                let (built, deps) = built?;
+                candidate = built;
+                if let Some(deps) = deps {
+                    bun_dependencies.push((index, deps));
+                }
                 if command.tool() == "go" {
                     let mut updated = command.clone();
                     let embeds = updated.refresh_go_roots(directory).await?;
@@ -668,7 +729,26 @@ impl WatcherLoop {
         }
         drop(workspace);
         drop(cargo_lock);
+        self.check_migrations(directory, selected).await?;
         times[0] = ms(begin.elapsed());
+        let mut next_explicit = BTreeSet::new();
+        for (index, command) in selected.commands.iter().enumerate() {
+            if command.tool() == "bun" {
+                if let Some((_, deps)) = bun_dependencies.iter().find(|(i, _)| *i == index) {
+                    next_explicit.extend(deps.iter().cloned());
+                } else {
+                    next_explicit.extend(command.dependencies.iter().cloned());
+                }
+            }
+        }
+        if !selected.commands.iter().any(|c| c.tool() == "bun") {
+            next_explicit.clone_from(&selected.js_dependencies);
+        }
+        let previous_explicit = self.scanner.explicit_paths();
+        let next_explicit_for_scan = next_explicit.clone();
+        let explicit_changed = next_explicit_for_scan != previous_explicit;
+        let committed_slot = Arc::new(std::sync::Mutex::new(None));
+        let committed_write = committed_slot.clone();
         let ready = Instant::now();
         let scanner = self.scanner.clone();
         let generated = selected.generated.clone();
@@ -681,9 +761,35 @@ impl WatcherLoop {
                 // The check walks the tree: it runs on a blocking thread and
                 // reads only what changed since the scan that started this.
                 || async move {
-                    let current =
-                        tokio::task::spawn_blocking(move || scanner.scan(&generated)).await??;
-                    Ok(current == *inputs)
+                    let (current, updated) =
+                        tokio::task::spawn_blocking(move || -> Result<(Inputs, Option<Inputs>)> {
+                            let current = scanner.scan(&generated)?;
+                            let updated = explicit_changed
+                                .then(|| {
+                                    scanner.scan_with_explicit(&generated, &next_explicit_for_scan)
+                                })
+                                .transpose()?;
+                            Ok((current, updated))
+                        })
+                        .await??;
+                    if current != *inputs {
+                        return Ok(false);
+                    }
+                    let committed = if let Some(updated) = updated {
+                        let stable = updated.iter().all(|(path, input)| {
+                            current.get(path).is_none_or(|prev| prev == input)
+                        }) && current.iter().all(|(path, input)| {
+                            updated.get(path) == Some(input) || previous_explicit.contains(path)
+                        });
+                        if !stable {
+                            return Ok(false);
+                        }
+                        updated
+                    } else {
+                        current
+                    };
+                    *committed_write.lock().expect("committed inputs") = Some(committed);
+                    Ok(true)
                 },
             )
             .await?;
@@ -700,8 +806,18 @@ impl WatcherLoop {
             self.config.rebuild.commands[index] = command;
             self.config.rebuild.go_inputs.extend(embeds);
         }
+        for (index, deps) in bun_dependencies {
+            self.config.rebuild.commands[index].dependencies = deps;
+        }
+        self.config.rebuild.js_dependencies = next_explicit.clone();
+        self.scanner.set_explicit(next_explicit);
         self.programs = next;
-        Ok(Some((generation, rebuilt)))
+        let committed = committed_slot
+            .lock()
+            .expect("committed inputs")
+            .take()
+            .unwrap_or_else(|| inputs.clone());
+        Ok(Some((generation, rebuilt, committed)))
     }
 }
 

@@ -435,6 +435,9 @@ impl Gateway {
         mount: &str,
         call: Call,
     ) -> Result<Reply, Error> {
+        if matches!(route, Route::Events(_) | Route::Cancel(_, _)) {
+            crate::http_timeout::request_body_finished(request.extensions());
+        }
         let principal = call.principal_id().ok_or(Error::Unauthorized)?;
         let owner = token::owner(principal);
         if matches!(route, Route::Create) {

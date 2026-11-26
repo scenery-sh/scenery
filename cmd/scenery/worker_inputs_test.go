@@ -50,3 +50,42 @@ func TestWorkerInputScopeMatchesTheHostFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"svc/index.ts":                "import './dist/vendor.ts';",
+		"svc/dist/vendor.ts":          "export const v = 1;",
+		"node_modules/pkg/index.js":   "export const p = 2;",
+		"svc/scenerycontract/main.ts": "export {}",
+		".scenery/secret.txt":         "no",
+		".env.local":                  "SECRET=1",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := &workerInputScope{root: root}
+	inputs, err := scope.capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.addExplicit(inputs, []string{
+		"svc/dist/vendor.ts",
+		"node_modules/pkg/index.js",
+		"svc/scenerycontract/main.ts",
+		".scenery/secret.txt",
+		".env.local",
+		"../outside.ts",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"node_modules/pkg/index.js", "svc/dist/vendor.ts", "svc/index.ts"}
+	if got := slices.Sorted(maps.Keys(inputs)); !slices.Equal(got, want) {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+}

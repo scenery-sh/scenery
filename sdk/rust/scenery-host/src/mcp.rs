@@ -234,6 +234,7 @@ impl Gateway {
         match parts.method {
             Method::DELETE if session.is_some() => return empty(StatusCode::NO_CONTENT),
             Method::GET if session.is_some() => {
+                crate::http_timeout::request_body_finished(&parts.extensions);
                 if !accepts(headers, "text/event-stream") {
                     return empty(StatusCode::NOT_ACCEPTABLE);
                 }
@@ -266,7 +267,9 @@ impl Gateway {
         {
             return empty(StatusCode::UNSUPPORTED_MEDIA_TYPE);
         }
-        let input = match transport::read(body, MAX_BODY).await {
+        let input = transport::read(body, MAX_BODY).await;
+        crate::http_timeout::request_body_finished(&parts.extensions);
+        let input = match input {
             Ok(input) => input,
             Err(_) => return empty(StatusCode::PAYLOAD_TOO_LARGE),
         };

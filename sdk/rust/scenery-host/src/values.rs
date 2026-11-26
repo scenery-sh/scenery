@@ -476,9 +476,15 @@ fn validate_string(ty: &str, text: &str) -> Result<String> {
             let url = url::Url::parse(text)?;
             ensure!(url.host().is_some(), "URL requires an authority");
             let canonical = url.as_str();
+            let slashless = (url.path() == "/").then(|| {
+                format!(
+                    "{}{}",
+                    &url[..url::Position::BeforePath],
+                    &url[url::Position::AfterPath..]
+                )
+            });
             ensure!(
-                canonical == text
-                    || (url.path() == "/" && canonical.strip_suffix('/') == Some(text)),
+                canonical == text || slashless.as_deref() == Some(text),
                 "noncanonical URL"
             );
         }
@@ -898,5 +904,33 @@ mod tests {
             }
         }
         assert!(checked >= 30);
+    }
+
+    #[test]
+    fn url_scalar_accepts_canonical_slashless_query_and_fragment() {
+        let types = Types::new();
+        for valid in [
+            "https://example.com",
+            "https://example.com/",
+            "https://example.com?x=1",
+            "https://example.com/?x=1",
+            "https://example.com#section",
+            "https://example.com/#section",
+            "https://example.com?x=1#section",
+        ] {
+            let normalized = normalize(&types, "url", Value::String(valid.into())).unwrap();
+            assert_eq!(normalized, Value::String(valid.into()), "{valid}");
+        }
+        for invalid in [
+            "HTTPS://example.com?x=1",
+            "https://example.com:443?x=1",
+            "https://EXAMPLE.COM#section",
+            "/relative?x=1",
+        ] {
+            assert!(
+                normalize(&types, "url", Value::String(invalid.into())).is_err(),
+                "accepted {invalid}"
+            );
+        }
     }
 }

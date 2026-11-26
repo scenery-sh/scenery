@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Result, ensure};
@@ -22,7 +22,7 @@ pub(crate) struct Input {
 
 pub(crate) type Inputs = BTreeMap<PathBuf, Input>;
 
-pub(crate) fn ignored(path: &Path, generated: &[PathBuf]) -> bool {
+pub(crate) fn always_ignored(path: &Path, generated: &[PathBuf]) -> bool {
     generated.iter().any(|root| under(path, root))
         || path.iter().any(|component| {
             let name = component.to_string_lossy();
@@ -32,16 +32,22 @@ pub(crate) fn ignored(path: &Path, generated: &[PathBuf]) -> bool {
                     ".git"
                         | ".scenery"
                         | ".claude"
-                        | "node_modules"
-                        | "dist"
-                        | "out"
-                        | "target"
                         | "scenerycontract"
                         | "scenerygen"
                         | "scenery_internal_main"
                         | "scenery_internal_processes"
                         | ".DS_Store"
                 )
+        })
+}
+
+pub(crate) fn ignored(path: &Path, generated: &[PathBuf]) -> bool {
+    always_ignored(path, generated)
+        || path.iter().any(|component| {
+            matches!(
+                component.to_string_lossy().as_ref(),
+                "node_modules" | "dist" | "out" | "target"
+            )
         })
 }
 
@@ -79,6 +85,7 @@ const RACY_WINDOW: Duration = Duration::from_secs(2);
 pub(crate) struct Scanner {
     root: PathBuf,
     cache: Mutex<HashMap<PathBuf, Cached>>,
+    explicit: RwLock<BTreeSet<PathBuf>>,
     hashed: AtomicUsize,
     racy_window: Duration,
 }
@@ -88,6 +95,7 @@ impl Scanner {
         Self {
             root,
             cache: Mutex::default(),
+            explicit: RwLock::default(),
             hashed: AtomicUsize::new(0),
             racy_window: RACY_WINDOW,
         }
@@ -95,6 +103,21 @@ impl Scanner {
 
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(crate) fn set_explicit(&self, paths: BTreeSet<PathBuf>) {
+        *self.explicit.write().expect("explicit inputs") = paths;
+    }
+
+    pub(crate) fn explicit_paths(&self) -> BTreeSet<PathBuf> {
+        self.explicit.read().expect("explicit inputs").clone()
+    }
+
+    pub(crate) fn is_explicit(&self, path: &Path) -> bool {
+        self.explicit
+            .read()
+            .expect("explicit inputs")
+            .contains(path)
     }
 
     /// The number of files read so far.
@@ -105,6 +128,17 @@ impl Scanner {
 
     /// Blocks on file system work: call it from a blocking thread.
     pub(crate) fn scan(&self, generated: &[PathBuf]) -> Result<Inputs> {
+        let explicit = self.explicit_paths();
+        self.scan_with_explicit(generated, &explicit)
+    }
+
+    /// Blocks on file system work: scans normal inputs plus an explicit set of
+    /// bundled files located below normally ignored directories.
+    pub(crate) fn scan_with_explicit(
+        &self,
+        generated: &[PathBuf],
+        explicit: &BTreeSet<PathBuf>,
+    ) -> Result<Inputs> {
         let mut cache = self.cache.lock().expect("input cache");
         let mut walk = Walk {
             scanner: self,
@@ -118,6 +152,19 @@ impl Scanner {
                 .unwrap_or(SystemTime::UNIX_EPOCH),
         };
         walk.entry(Path::new(""), &mut Vec::new(), None)?;
+        for relative in explicit {
+            if always_ignored(relative, generated) || walk.inputs.contains_key(relative) {
+                continue;
+            }
+            let path = self.root.join(relative);
+            let info = match fs::symlink_metadata(&path) {
+                Ok(info) if info.is_file() => info,
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            walk.record_file(relative, &path, &info)?;
+        }
         let (next, inputs) = (walk.next, walk.inputs);
         *cache = next;
         Ok(inputs)
@@ -178,46 +225,7 @@ impl Walk<'_> {
             }
             self.rules.truncate(outer);
         } else if info.is_file() {
-            let stamp = Stamp {
-                device: info.dev(),
-                inode: info.ino(),
-                size: info.size(),
-                mode: info.mode(),
-                modified: (info.mtime(), info.mtime_nsec()),
-                changed: (info.ctime(), info.ctime_nsec()),
-            };
-            let digest = match self.previous.get(relative) {
-                Some(cached) if cached.stamp == stamp && !cached.racy => cached.digest,
-                _ => match sha256_file(&path) {
-                    Ok(digest) => {
-                        self.scanner.hashed.fetch_add(1, Ordering::Relaxed);
-                        digest
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-                    Err(error) => return Err(error.into()),
-                },
-            };
-            let racy = info
-                .modified()
-                .ok()
-                .into_iter()
-                .chain(changed_time(&info))
-                .any(|time| time >= self.racy_after);
-            self.next.insert(
-                relative.into(),
-                Cached {
-                    stamp,
-                    digest,
-                    racy,
-                },
-            );
-            self.inputs.insert(
-                relative.into(),
-                Input {
-                    digest,
-                    mode: info.permissions().mode() & 0o777,
-                },
-            );
+            self.record_file(relative, &path, &info)?;
         } else {
             ensure!(
                 !declaration(relative) && !matches!(extension(relative), "go" | "rs"),
@@ -225,6 +233,50 @@ impl Walk<'_> {
                 relative.display()
             );
         }
+        Ok(())
+    }
+
+    fn record_file(&mut self, relative: &Path, path: &Path, info: &fs::Metadata) -> Result<()> {
+        let stamp = Stamp {
+            device: info.dev(),
+            inode: info.ino(),
+            size: info.size(),
+            mode: info.mode(),
+            modified: (info.mtime(), info.mtime_nsec()),
+            changed: (info.ctime(), info.ctime_nsec()),
+        };
+        let digest = match self.previous.get(relative) {
+            Some(cached) if cached.stamp == stamp && !cached.racy => cached.digest,
+            _ => match sha256_file(path) {
+                Ok(digest) => {
+                    self.scanner.hashed.fetch_add(1, Ordering::Relaxed);
+                    digest
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            },
+        };
+        let racy = info
+            .modified()
+            .ok()
+            .into_iter()
+            .chain(changed_time(info))
+            .any(|time| time >= self.racy_after);
+        self.next.insert(
+            relative.into(),
+            Cached {
+                stamp,
+                digest,
+                racy,
+            },
+        );
+        self.inputs.insert(
+            relative.into(),
+            Input {
+                digest,
+                mode: info.permissions().mode() & 0o777,
+            },
+        );
         Ok(())
     }
 }
@@ -242,6 +294,9 @@ pub(crate) fn extension(path: &Path) -> &str {
 }
 
 pub(crate) fn declaration(path: &Path) -> bool {
+    if ignored(path, &[]) {
+        return false;
+    }
     matches!(
         path.file_name()
             .and_then(|name| name.to_str())
@@ -475,6 +530,53 @@ mod tests {
             inputs.sort();
             assert_eq!(inputs, case.inputs, "{}", case.name);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_inputs_track_bundled_ignored_files_without_marking_declarations() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        for (rel, body) in [
+            ("svc/index.ts", "import './dist/vendor.ts';"),
+            ("svc/dist/vendor.ts", "export const v = 1;"),
+            ("svc/dist/tsconfig.json", "{}"),
+            ("node_modules/pkg/index.js", "module.exports = 1;"),
+            ("node_modules/pkg/package.json", "{}"),
+            ("node_modules/pkg/.env.local", "SECRET=1"),
+        ] {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(path, body)?;
+        }
+        assert!(!declaration(Path::new("node_modules/pkg/package.json")));
+        assert!(!declaration(Path::new("svc/dist/tsconfig.json")));
+        assert!(declaration(Path::new("svc/tsconfig.json")));
+
+        let scanner = Scanner::new(root.path().into());
+        assert_eq!(scanner.scan(&[])?.len(), 1);
+        scanner.set_explicit(BTreeSet::from([
+            PathBuf::from("svc/dist/vendor.ts"),
+            PathBuf::from("node_modules/pkg/index.js"),
+            PathBuf::from("node_modules/pkg/.env.local"),
+        ]));
+        let with_explicit = scanner.scan(&[])?;
+        let keys: Vec<_> = with_explicit.keys().cloned().collect();
+        assert_eq!(
+            keys,
+            [
+                PathBuf::from("node_modules/pkg/index.js"),
+                PathBuf::from("svc/dist/vendor.ts"),
+                PathBuf::from("svc/index.ts"),
+            ]
+        );
+        fs::write(
+            root.path().join("svc/dist/vendor.ts"),
+            "export const v = 2;",
+        )?;
+        assert_eq!(
+            changed(&with_explicit, &scanner.scan(&[])?),
+            [Path::new("svc/dist/vendor.ts")]
+        );
         Ok(())
     }
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -17,33 +18,42 @@ import (
 )
 
 type workerBuildCommand struct {
-	Process     string   `json:"process"`
-	Module      string   `json:"module"`
-	Directory   string   `json:"directory"`
-	Workspace   string   `json:"workspace,omitempty"`
-	Program     string   `json:"program"`
-	Args        []string `json:"args"`
-	Environment []string `json:"environment"`
-	Roots       []string `json:"roots,omitempty"`
-	Owners      []string `json:"owners,omitempty"`
+	Process      string   `json:"process"`
+	Module       string   `json:"module"`
+	Directory    string   `json:"directory"`
+	Workspace    string   `json:"workspace,omitempty"`
+	Program      string   `json:"program"`
+	Args         []string `json:"args"`
+	Environment  []string `json:"environment"`
+	Roots        []string `json:"roots,omitempty"`
+	Owners       []string `json:"owners,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
 type workerRebuildPlan struct {
-	Generated     []string              `json:"generated,omitempty"`
-	Declarations  map[string]bool       `json:"declarations"`
-	Commands      []workerBuildCommand  `json:"commands"`
-	Programs      []workerLaunchProgram `json:"programs"`
-	SourceDigest  string                `json:"source_digest"`
-	GoInputs      []string              `json:"go_inputs,omitempty"`
-	GoWorkspace   string                `json:"go_workspace,omitempty"`
-	RustWorkspace string                `json:"rust_workspace,omitempty"`
-	HostConfig    json.RawMessage       `json:"host_config"`
+	Generated       []string                 `json:"generated,omitempty"`
+	Declarations    map[string]bool          `json:"declarations"`
+	Commands        []workerBuildCommand     `json:"commands"`
+	Programs        []workerLaunchProgram    `json:"programs"`
+	SourceDigest    string                   `json:"source_digest"`
+	HasMigrations   bool                     `json:"has_migrations,omitempty"`
+	SQLRequirements compiler.SQLRequirements `json:"sql_requirements,omitempty"`
+	JSDependencies  []string                 `json:"js_dependencies,omitempty"`
+	GoInputs        []string                 `json:"go_inputs,omitempty"`
+	GoWorkspace     string                   `json:"go_workspace,omitempty"`
+	RustWorkspace   string                   `json:"rust_workspace,omitempty"`
+	HostConfig      json.RawMessage          `json:"host_config"`
 }
 
 func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, error) {
 	plan := workerRebuildPlan{
 		Generated: dev.watch.generated, Declarations: dev.declarations, SourceDigest: workerSourceDigest(dev.applied),
-		Commands: []workerBuildCommand{}, Programs: []workerLaunchProgram{},
+		JSDependencies: dev.jsDependencies(),
+		Commands:       []workerBuildCommand{}, Programs: []workerLaunchProgram{},
+	}
+	if len(dev.cfg.Database.Migrations) > 0 && dev.compiled != nil && len(dev.compiled.SQLRequirements) > 0 {
+		plan.HasMigrations = true
+		plan.SQLRequirements = dev.compiled.SQLRequirements
 	}
 	var err error
 	plan.HostConfig, err = json.Marshal(struct {
@@ -93,6 +103,7 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 			command.Program = "bun"
 			command.Directory, command.Workspace = target.Directory, target.Workspace
 			command.Environment = envpolicy.Environ()
+			command.Dependencies = dev.filterExplicit(dev.js[index].dependencies)
 			entry := filepath.Join(dev.watch.root, target.Directory, "scenerycontract", "main.ts")
 			command.Args = []string{"build", "--no-env-file", "--target=bun", "--packages=bundle", "--outfile={output}", "--metafile={metafile}",
 				"--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", entry}
@@ -111,12 +122,25 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 
 // Refresh is invoked only for declarations and build configuration changes.
 func refreshWorkerRebuildPlan(args []string) error {
-	if len(args) != 4 {
+	if len(args) != 4 && len(args) != 5 {
 		return fmt.Errorf("invalid rebuild plan request")
 	}
 	root, cfg, err := app.DiscoverRoot(args[0])
 	if err != nil {
 		return err
+	}
+	var explicit struct {
+		JSDependencies []string            `json:"js_dependencies"`
+		Commands       map[string][]string `json:"commands"`
+	}
+	if len(args) == 5 {
+		raw, err := os.ReadFile(args[4])
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &explicit); err != nil {
+			return err
+		}
 	}
 	ctx := context.Background()
 	compiled, err := compiler.CompileContext(ctx, root)
@@ -140,10 +164,16 @@ func refreshWorkerRebuildPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	dev := &workerDevelopment{watch: scope, applied: inputs}
+	if err := scope.addExplicit(inputs, explicit.JSDependencies); err != nil {
+		return err
+	}
+	dev := &workerDevelopment{watch: scope, applied: inputs, cfg: cfg}
 	bundle, err := dev.prepare(ctx, compiled)
 	if err != nil {
 		return err
+	}
+	for i := range dev.js {
+		dev.js[i].dependencies = slices.Clone(explicit.Commands[dev.js[i].program.Process])
 	}
 	hasGo := false
 	for _, service := range bundle.Host.Workers {

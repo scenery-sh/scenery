@@ -16,6 +16,17 @@ pub(crate) const DEFAULT_HTTP_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_HTTP_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 pub(crate) const MAX_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Builds the public HTTP/1.1 connection configuration without Hyper's
+/// default 30-second header-read timer so `DeadlineStream` governs both the
+/// connection idle window and per-request header reads.
+pub(crate) fn public_http1_builder() -> hyper::server::conn::http1::Builder {
+    let mut builder = hyper::server::conn::http1::Builder::new();
+    builder
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(None);
+    builder
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HttpTimeouts {
     pub header_read: Duration,
@@ -37,6 +48,9 @@ struct DeadlineState {
     /// request so idle keep-alive waits for `connection_idle` and switches
     /// back to `header_read` once header bytes arrive.
     awaiting_next_request: bool,
+    /// Set once `poll_read` hits `Poll::Pending`, meaning the socket has no
+    /// buffered pipelined request bytes waiting in Hyper's `read_buf`.
+    io_exhausted: bool,
     /// Set once the request body has been consumed: the read deadline
     /// bounds the upload, not the handler that runs after it.
     body_finished: bool,
@@ -47,6 +61,21 @@ struct DeadlineState {
     /// The inactivity allowance of the response in flight, if it has one.
     idle_timeout: Option<Duration>,
     upgraded: bool,
+}
+
+impl DeadlineState {
+    fn arm_between_requests(&mut self, now: Instant) {
+        self.idle_timeout = None;
+        if self.io_exhausted {
+            self.awaiting_next_request = true;
+            self.read_deadline = Some(now + self.connection_idle);
+        } else {
+            // Hyper buffered pipelined bytes from the next request before
+            // finishing this response, so enforce `header_read` immediately.
+            self.awaiting_next_request = false;
+            self.read_deadline = Some(now + self.header_read);
+        }
+    }
 }
 
 pub(crate) struct DeadlineControl {
@@ -68,6 +97,7 @@ impl DeadlineControl {
                 pending_write_timeout: timeouts.write,
                 connection_idle: timeouts.idle,
                 awaiting_next_request: false,
+                io_exhausted: false,
                 body_finished: false,
                 response_body_ended: false,
                 unflushed_writes: false,
@@ -240,7 +270,11 @@ impl DeadlineControl {
     fn on_request_bytes_read(&self) {
         let read_waker = {
             let mut state = self.state.lock().expect("deadline lock");
-            if state.upgraded || !state.awaiting_next_request {
+            if state.upgraded {
+                return;
+            }
+            state.io_exhausted = false;
+            if !state.awaiting_next_request {
                 return;
             }
             state.awaiting_next_request = false;
@@ -283,9 +317,7 @@ impl DeadlineControl {
             }
             state.response_body_ended = true;
             if !state.unflushed_writes && !state.upgrade_pending {
-                state.idle_timeout = None;
-                state.awaiting_next_request = true;
-                state.read_deadline = Some(Instant::now() + state.connection_idle);
+                state.arm_between_requests(Instant::now());
                 (state.read_waker.take(), true)
             } else {
                 (None, false)
@@ -316,9 +348,7 @@ impl DeadlineControl {
                 state.response_body_ended = false;
                 state.event_stream = false;
                 state.write_deadline = None;
-                state.idle_timeout = None;
-                state.awaiting_next_request = true;
-                state.read_deadline = Some(Instant::now() + state.connection_idle);
+                state.arm_between_requests(Instant::now());
                 (state.read_waker.take(), state.write_waker.take(), true)
             } else if state.event_stream && !state.upgraded {
                 let had_deadline = state.write_deadline.take().is_some();
@@ -348,6 +378,7 @@ impl DeadlineControl {
 
     fn read_deadline_and_register(&self, waker: &Waker) -> Option<Instant> {
         let mut state = self.state.lock().expect("deadline lock");
+        state.io_exhausted = true;
         state.read_waker = Some(waker.clone());
         state.read_deadline
     }

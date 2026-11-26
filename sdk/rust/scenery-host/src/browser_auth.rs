@@ -116,18 +116,11 @@ async fn dispatch(
     mount: &str,
 ) -> AuthResult<Reply> {
     let (parts, body) = request.into_parts();
-    let browser = Browser::new(host, &parts.headers, &parts.uri, mount);
-    if matches!(route, Route::GoogleStart | Route::GoogleCallback) {
-        return auth_google::serve(&browser, route, parts.uri.query()).await;
-    }
-    let user = if route.authenticated() {
-        browser.principal().await?
-    } else {
-        Claims::default()
-    };
-    let input = if matches!(
+    let has_body = !matches!(
         route,
-        Route::Refresh
+        Route::GoogleStart
+            | Route::GoogleCallback
+            | Route::Refresh
             | Route::Logout
             | Route::Me
             | Route::Members(_)
@@ -137,7 +130,20 @@ async fn dispatch(
                     | connection_browser::Route::Status(_)
                     | connection_browser::Route::Disconnect(_)
             )
-    ) {
+    );
+    if !has_body {
+        crate::http_timeout::request_body_finished(&parts.extensions);
+    }
+    let browser = Browser::new(host, &parts.headers, &parts.uri, mount);
+    if matches!(route, Route::GoogleStart | Route::GoogleCallback) {
+        return auth_google::serve(&browser, route, parts.uri.query()).await;
+    }
+    let user = if route.authenticated() {
+        browser.principal().await?
+    } else {
+        Claims::default()
+    };
+    let input = if !has_body {
         Value::Null
     } else {
         // A cross-site form can post JSON-shaped text without a preflight,
@@ -173,9 +179,9 @@ async fn dispatch(
 pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>) -> Reply {
     let result = async {
         let (parts, body) = request.into_parts();
-        let input = transport::read(body, 8 << 10)
-            .await
-            .map_err(|_| invalid("invalid request body"))?;
+        let input = transport::read(body, 8 << 10).await;
+        crate::http_timeout::request_body_finished(&parts.extensions);
+        let input = input.map_err(|_| invalid("invalid request body"))?;
         let input = values::parse(&input).map_err(|_| invalid("invalid request body"))?;
         match host
             .auth

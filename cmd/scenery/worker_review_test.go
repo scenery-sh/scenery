@@ -111,6 +111,35 @@ func TestWorkerBundleCarriesFailureReportIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkerRebuildPlanProjectsMigrationCheckMetadata(t *testing.T) {
+	root := t.TempDir()
+	scope := &workerInputScope{root: root}
+	dev := &workerDevelopment{
+		watch: scope,
+		cfg: app.Config{
+			Database: app.DatabaseConfig{
+				Migrations: []app.DatabaseMigrationConfig{{Service: "orders", Directory: "migrations"}},
+			},
+		},
+		compiled: &compiler.Result{
+			SQLRequirements: compiler.SQLRequirements{{Kind: compiler.SQLDataSource, Name: "orders_db", Schema: "orders"}},
+		},
+	}
+	plan, err := dev.project(workerBundle{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.HasMigrations || len(plan.SQLRequirements) != 1 || plan.SQLRequirements[0].Schema != "orders" {
+		t.Fatalf("projected migration metadata = %+v", plan)
+	}
+	if err := checkWorkerMigrationsCommand([]string{"only-one"}); err == nil {
+		t.Fatal("expected usage error for missing arguments")
+	}
+	if err := checkWorkerPendingMigrations(context.Background(), root, app.Config{}, dev.compiled.SQLRequirements, "development"); err != nil {
+		t.Fatalf("expected no-op when no migrations configured, got %v", err)
+	}
+}
+
 func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
 	t.Parallel()
 

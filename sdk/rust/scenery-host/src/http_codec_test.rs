@@ -375,3 +375,123 @@ async fn gzip_request_body_rejects_trailing_bytes_and_second_member() -> Result<
     assert_eq!(fault.status, StatusCode::BAD_REQUEST);
     Ok(())
 }
+
+#[tokio::test]
+async fn mime_structured_suffix_and_encoding_negotiation_match_contract_rules() -> Result<()> {
+    let problem_body: crate::plan::BodyPlan = serde_json::from_value(json!({
+        "Codec": "problem_json",
+        "Target": "",
+        "Include": [],
+        "Except": [],
+        "AcceptedMediaTypes": ["application/problem+json"],
+        "SupportedContentEncoding": ["gzip"],
+        "MaxCompressedBytes": 4096,
+        "MaxDecompressedBytes": 4096,
+        "MaxMultipartParts": 0,
+        "Fields": [],
+        "MultipartParts": []
+    }))?;
+    let wrong_suffix = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header("content-type", "application/problem+xml")
+        .body(incoming_bytes(Bytes::from_static(br#"{"title":"err"}"#)).await?)?;
+    let Err(fault) = decode_body(wrong_suffix, &problem_body).await else {
+        panic!("application/problem+xml must not match application/problem+json");
+    };
+    assert_eq!(fault.status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+    for bad_encodings in [vec!["gzip", "gzip"], vec!["gzip, identity"]] {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/")
+            .header("content-type", "application/problem+json");
+        for enc in bad_encodings {
+            builder = builder.header("content-encoding", enc);
+        }
+        let req = builder.body(incoming_bytes(Bytes::from_static(br#"{"ok":true}"#)).await?)?;
+        let Err(fault) = decode_body(req, &problem_body).await else {
+            panic!("multiple content-encodings must be rejected");
+        };
+        assert_eq!(fault.status, StatusCode::BAD_REQUEST);
+    }
+
+    let problem_resp: ResponsePlan = serde_json::from_value(json!({
+        "Status": 400, "Codec": "problem_json", "Media": ["application/problem+json"],
+        "Body": {"Path": ["data"], "Optional": false, "DefaultEmpty": false},
+        "Stream": false,
+        "Options": {"MaxBytes": 1024, "CompressionAlgorithms": ["gzip"], "CompressionThreshold": 8},
+        "Headers": [], "Cookies": []
+    }))?;
+    let make_outcome = || Outcome {
+        kind: "result".into(),
+        name: "ok".into(),
+        payload: values::parse(br#"{"data":{"detail":"long enough for compression threshold"}}"#)
+            .unwrap(),
+        stream: None,
+        worker: None,
+    };
+
+    let mut accept_xml = HeaderMap::new();
+    accept_xml.insert(
+        "accept",
+        HeaderValue::from_static("application/problem+xml"),
+    );
+    assert!(encode_response(&problem_resp, make_outcome(), &accept_xml).is_err());
+
+    // gzip;q=0.5 leaves implicit identity at q=1.0, so identity wins over gzip.
+    let mut low_gzip = HeaderMap::new();
+    low_gzip.insert("accept-encoding", HeaderValue::from_static("gzip;q=0.5"));
+    let reply = encode_response(&problem_resp, make_outcome(), &low_gzip)
+        .unwrap_or_else(|fault| panic!("gzip;q=0.5 failed: {}", fault.code));
+    assert!(!reply.headers().contains_key("content-encoding"));
+
+    // Duplicate coding uses the last occurrence: q=1 then q=0 leaves identity.
+    let mut last_wins = HeaderMap::new();
+    last_wins.insert(
+        "accept-encoding",
+        HeaderValue::from_static("gzip;q=1, gzip;q=0"),
+    );
+    let reply = encode_response(&problem_resp, make_outcome(), &last_wins)
+        .unwrap_or_else(|fault| panic!("duplicate gzip failed: {}", fault.code));
+    assert!(!reply.headers().contains_key("content-encoding"));
+
+    // Unknown parameter -> 406.
+    let mut bad_param = HeaderMap::new();
+    bad_param.insert("accept-encoding", HeaderValue::from_static("br;other=x"));
+    assert_eq!(
+        encode_response(&problem_resp, make_outcome(), &bad_param)
+            .err()
+            .map(|f| f.status),
+        Some(StatusCode::NOT_ACCEPTABLE)
+    );
+
+    // Case-insensitive Q=0 across multiple Accept-Encoding header lines -> 406.
+    let mut upper_q = HeaderMap::new();
+    upper_q.append("accept-encoding", HeaderValue::from_static("gzip; Q=0"));
+    upper_q.append("accept-encoding", HeaderValue::from_static("identity; Q=0"));
+    assert_eq!(
+        encode_response(&problem_resp, make_outcome(), &upper_q)
+            .err()
+            .map(|f| f.status),
+        Some(StatusCode::NOT_ACCEPTABLE)
+    );
+
+    // When identity is rejected (q=0), gzip is required even below threshold.
+    let small_resp: ResponsePlan = serde_json::from_value(json!({
+        "Status": 200, "Codec": "json", "Media": ["application/json"],
+        "Body": {"Path": ["data"], "Optional": false, "DefaultEmpty": false},
+        "Stream": false,
+        "Options": {"MaxBytes": 1024, "CompressionAlgorithms": ["gzip"], "CompressionThreshold": 4096},
+        "Headers": [], "Cookies": []
+    }))?;
+    let mut force_gzip = HeaderMap::new();
+    force_gzip.insert(
+        "accept-encoding",
+        HeaderValue::from_static("gzip;q=0.5, identity;q=0"),
+    );
+    let reply = encode_response(&small_resp, make_outcome(), &force_gzip)
+        .unwrap_or_else(|fault| panic!("forced gzip failed: {}", fault.code));
+    assert_eq!(reply.headers()["content-encoding"], "gzip");
+    Ok(())
+}

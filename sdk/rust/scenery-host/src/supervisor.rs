@@ -719,8 +719,9 @@ mod tests {
     async fn the_supervisor_answers_while_a_publication_is_verified() -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::Builder::new()
+            .prefix("sock-")
             .permissions(std::fs::Permissions::from_mode(0o700))
-            .tempdir()?;
+            .tempdir_in("/tmp")?;
         let control = Control::bind(
             directory.path(),
             "contract".into(),
@@ -771,7 +772,9 @@ mod tests {
 
     #[test]
     fn a_swap_ends_only_the_calls_of_replaced_workers() -> Result<()> {
-        let directory = tempfile::tempdir()?;
+        let directory = tempfile::Builder::new()
+            .prefix("sock-")
+            .tempdir_in("/tmp")?;
         let worker = || Worker::test_worker(directory.path()).map(Arc::new);
         let (orders, billing, rebuilt) = (worker()?, worker()?, worker()?);
         // Generation 2 rebuilt `orders` and carried `billing` over.
@@ -810,7 +813,9 @@ mod tests {
     #[tokio::test]
     async fn maintaining_retired_generations_stops_replaced_workers_while_an_old_generation_stays_held()
     -> Result<()> {
-        let directory = tempfile::tempdir()?;
+        let directory = tempfile::Builder::new()
+            .prefix("sock-")
+            .tempdir_in("/tmp")?;
         let worker = || Worker::test_worker(directory.path()).map(Arc::new);
         let (orders, billing, rebuilt) = (worker()?, worker()?, worker()?);
         let first = Arc::new(generation(1, &[("orders", &orders), ("billing", &billing)]));

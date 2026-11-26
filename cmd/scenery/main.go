@@ -32,9 +32,10 @@ var cliStderr io.Writer = os.Stderr
 func main() {
 	if len(os.Args) > 1 {
 		internal := map[string]func([]string) error{
-			"worker-refresh-plan": refreshWorkerRebuildPlan,
-			"worker-assistants":   runWorkerAssistants,
-			"worker-frontend":     runWorkerFrontend,
+			"worker-refresh-plan":     refreshWorkerRebuildPlan,
+			"worker-check-migrations": checkWorkerMigrationsCommand,
+			"worker-assistants":       runWorkerAssistants,
+			"worker-frontend":         runWorkerFrontend,
 		}
 		if command := internal[os.Args[1]]; command != nil {
 			if err := command(os.Args[2:]); err != nil {
@@ -420,6 +421,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err != nil {
 				return err
 			}
+			workerDev.cfg = cfg
 			compiled = workerDev.compiled
 			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
 				return err

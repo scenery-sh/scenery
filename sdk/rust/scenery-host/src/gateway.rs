@@ -260,6 +260,9 @@ pub(crate) async fn ingress(
             None,
         );
     }
+    if selected.route.request.body.is_none() {
+        crate::http_timeout::request_body_finished(request.extensions());
+    }
     let mut call = match Call::new(
         generation.clone(),
         request.headers(),

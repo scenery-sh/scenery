@@ -759,8 +759,7 @@ async fn serve_public(
                             )
                         }
                     });
-                    let mut builder = hyper::server::conn::http1::Builder::new();
-                    builder.timer(hyper_util::rt::TokioTimer::new());
+                    let builder = http_timeout::public_http1_builder();
                     let connection = builder.serve_connection(TokioIo::new(stream), service).with_upgrades();
                     tokio::pin!(connection);
                     tokio::select! {
@@ -785,7 +784,9 @@ mod tests {
 
     #[tokio::test]
     async fn unix_listener_replaces_stale_socket_and_refuses_regular_file() -> Result<()> {
-        let dir = tempfile::tempdir()?;
+        let dir = tempfile::Builder::new()
+            .prefix("sock-")
+            .tempdir_in("/tmp")?;
         let sock = dir.path().join("public.sock");
         let _first = std::os::unix::net::UnixListener::bind(&sock)?;
         drop(_first);

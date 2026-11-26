@@ -18,7 +18,7 @@ use crate::abi::Outcome;
 use crate::auth::Claims;
 use crate::host::{Call, Fault, Reply, body, empty, header};
 use crate::plan::{Mapping, RequestPlan, ResponsePlan, Selection};
-use crate::transport::read_request;
+use crate::transport::{GzipStream, read_request};
 use crate::values;
 
 pub(crate) async fn decode_request(
@@ -70,6 +70,8 @@ pub(crate) async fn decode_request(
                 }
             }
         }
+    } else {
+        crate::http_timeout::request_body_finished(request.extensions());
     }
     Ok(Value::Object(mapped))
 }
@@ -350,14 +352,28 @@ async fn decode_body(
     }) {
         return Err(unsupported_media());
     }
-    let encoding = request
-        .headers()
-        .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("identity")
-        .trim()
-        .to_ascii_lowercase();
-    if encoding != "identity" && !plan.supported_content_encoding.contains(&encoding) {
+    let mut encodings = Vec::new();
+    for value in request.headers().get_all("content-encoding") {
+        let text = value.to_str().map_err(|_| Fault::invalid())?;
+        for part in text
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+        {
+            encodings.push(part.to_ascii_lowercase());
+        }
+    }
+    let encoding = match encodings.as_slice() {
+        [] => "identity",
+        [single] => single.as_str(),
+        _ => return Err(Fault::invalid()),
+    };
+    if encoding != "identity"
+        && !plan
+            .supported_content_encoding
+            .iter()
+            .any(|item| item.trim().eq_ignore_ascii_case(encoding))
+    {
         return Err(Fault::invalid());
     }
     let limit = |value, default| if value > 0 { value } else { default };
@@ -541,10 +557,11 @@ fn normalized_media_params(
 }
 
 fn type_matches(range: &mime_guess::mime::Mime, target: &mime_guess::mime::Mime) -> Option<u8> {
-    let (major, minor) = (range.type_().as_str(), range.subtype().as_str());
+    let (major, minor) = range.essence_str().split_once('/')?;
+    let (target_major, target_minor) = target.essence_str().split_once('/')?;
     if (major == "*" && minor != "*")
-        || (major != "*" && !major.eq_ignore_ascii_case(target.type_().as_str()))
-        || (minor != "*" && !minor.eq_ignore_ascii_case(target.subtype().as_str()))
+        || (major != "*" && !major.eq_ignore_ascii_case(target_major))
+        || (minor != "*" && !minor.eq_ignore_ascii_case(target_minor))
     {
         return None;
     }
@@ -606,10 +623,11 @@ fn negotiate_media<'a>(headers: &HeaderMap, produced: &'a [String]) -> Option<&'
             }
             None => 1.0,
         };
-        if (range.type_().as_str() == "*" && range.subtype().as_str() != "*") || weight == 0.0 {
-            if range.type_().as_str() == "*" && range.subtype().as_str() != "*" {
-                return None;
-            }
+        let (major, minor) = range.essence_str().split_once('/')?;
+        if major == "*" && minor != "*" {
+            return None;
+        }
+        if weight == 0.0 {
             continue;
         }
         let mut accepted = normalized_media_params(&range, false);
@@ -632,39 +650,6 @@ fn negotiate_media<'a>(headers: &HeaderMap, produced: &'a [String]) -> Option<&'
         }
     }
     best.map(|(candidate, _, _, _)| candidate)
-}
-
-fn preference(header: Option<&HeaderValue>, candidate: &str) -> (u8, f32) {
-    let Some(header) = header
-        .and_then(|h| h.to_str().ok())
-        .filter(|h| !h.trim().is_empty())
-    else {
-        return (0, 1.0);
-    };
-    let mut best = (0, 0.0_f32);
-    for field in header.split(',') {
-        let mut parts = field.split(';');
-        let value = parts.next().unwrap_or_default().trim();
-        let rank = if value.eq_ignore_ascii_case(candidate) {
-            3
-        } else if value == "*" {
-            1
-        } else {
-            continue;
-        };
-        let weight = parts
-            .find_map(|part| part.trim().strip_prefix("q="))
-            .map_or(1.0, |w| {
-                w.parse()
-                    .ok()
-                    .filter(|v| (0.0..=1.0).contains(v))
-                    .unwrap_or_default()
-            });
-        if rank > best.0 || (rank == best.0 && weight > best.1) {
-            best = (rank, weight);
-        }
-    }
-    best
 }
 
 fn selection(payload: &Value, select: &Selection) -> Result<Option<Value>, Fault> {
@@ -858,132 +843,81 @@ fn negotiate_gzip(
     response: &mut Reply,
     payload_len: usize,
 ) -> Result<bool, Fault> {
-    let encoding = request.get("accept-encoding");
-    let (identity_match, identity_weight) = preference(encoding, "identity");
-    let identity = identity_match == 0 || identity_weight > 0.0;
-    if plan
-        .options
-        .compression_algorithms
-        .iter()
-        .any(|algo| algo == "gzip")
-    {
+    let mut gzip_allowed = false;
+    for algorithm in &plan.options.compression_algorithms {
+        if !algorithm.trim().eq_ignore_ascii_case("gzip") {
+            return Err(Fault::internal("unsupported configured response encoding"));
+        }
+        gzip_allowed = true;
+    }
+    if gzip_allowed {
         response
             .headers_mut()
             .append("vary", HeaderValue::from_static("Accept-Encoding"));
-        let (rank, weight) = preference(encoding, "gzip");
-        if rank > 0
-            && weight > 0.0
-            && (!identity || payload_len >= plan.options.compression_threshold)
-        {
-            return Ok(true);
-        } else if !identity {
-            return Err(not_acceptable());
-        }
-    } else if !identity {
-        return Err(not_acceptable());
     }
-    Ok(false)
-}
-
-struct GzipStream<B> {
-    inner: B,
-    encoder: Option<GzEncoder<Vec<u8>>>,
-    pending_trailers: Option<hyper::body::Frame<Bytes>>,
-    finished: bool,
-}
-
-impl<B> GzipStream<B> {
-    fn new(inner: B) -> Self {
-        Self {
-            inner,
-            encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
-            pending_trailers: None,
-            finished: false,
+    let mut header_parts = Vec::new();
+    for raw in request.get_all("accept-encoding") {
+        let text = raw.to_str().map_err(|_| not_acceptable())?.trim();
+        if !text.is_empty() {
+            header_parts.push(text);
         }
     }
-}
-
-impl<B: hyper::body::Body<Data = Bytes> + Unpin> hyper::body::Body for GzipStream<B>
-where
-    B::Error: Into<std::io::Error>,
-{
-    type Data = Bytes;
-    type Error = std::io::Error;
-
-    fn poll_frame(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<std::io::Result<hyper::body::Frame<Bytes>>>> {
-        use std::task::Poll::{Pending, Ready};
-        let this = self.get_mut();
-        if let Some(trailers) = this.pending_trailers.take() {
-            this.finished = true;
-            return Ready(Some(Ok(trailers)));
-        }
-        if this.finished {
-            return Ready(None);
-        }
-        loop {
-            match std::pin::Pin::new(&mut this.inner).poll_frame(cx) {
-                Pending => return Pending,
-                Ready(Some(Ok(frame))) => {
-                    if let Some(data) = frame.data_ref() {
-                        if data.is_empty() {
-                            continue;
-                        }
-                        let Some(encoder) = this.encoder.as_mut() else {
-                            this.finished = true;
-                            return Ready(None);
-                        };
-                        if let Err(error) = encoder.write_all(data) {
-                            this.finished = true;
-                            return Ready(Some(Err(error)));
-                        }
-                        let out = std::mem::take(encoder.get_mut());
-                        if !out.is_empty() {
-                            return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(out)))));
-                        }
-                    } else if frame.is_trailers() {
-                        if let Some(encoder) = this.encoder.take() {
-                            match encoder.finish() {
-                                Ok(out) if !out.is_empty() => {
-                                    this.pending_trailers = Some(frame);
-                                    return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(
-                                        out,
-                                    )))));
-                                }
-                                Err(error) => {
-                                    this.finished = true;
-                                    return Ready(Some(Err(error)));
-                                }
-                                Ok(_) => {}
-                            }
-                        }
-                        this.finished = true;
-                        return Ready(Some(Ok(frame)));
-                    }
+    if header_parts.is_empty() {
+        return Ok(false);
+    }
+    let (mut gzip_q, mut id_q) = (0.0_f64, 1.0_f64);
+    let (mut gzip_explicit, mut id_explicit) = (false, false);
+    let mut wildcard: Option<f64> = None;
+    for field in header_parts.join(",").split(',') {
+        let (raw_name, params) = field
+            .trim()
+            .split_once(';')
+            .map_or((field.trim(), None), |(name, rest)| {
+                (name.trim(), Some(rest))
+            });
+        let name = raw_name.to_ascii_lowercase();
+        let mut q = 1.0_f64;
+        if let Some(params) = params {
+            for param in params.split(';') {
+                let (key, value) = param.trim().split_once('=').ok_or_else(not_acceptable)?;
+                if !key.trim().eq_ignore_ascii_case("q") {
+                    return Err(not_acceptable());
                 }
-                Ready(Some(Err(error))) => {
-                    this.finished = true;
-                    this.encoder = None;
-                    return Ready(Some(Err(error.into())));
+                let parsed = value.trim().parse::<f64>().map_err(|_| not_acceptable())?;
+                if !(0.0..=1.0).contains(&parsed) {
+                    return Err(not_acceptable());
                 }
-                Ready(None) => {
-                    this.finished = true;
-                    let Some(encoder) = this.encoder.take() else {
-                        return Ready(None);
-                    };
-                    return Ready(match encoder.finish() {
-                        Ok(out) if !out.is_empty() => {
-                            Some(Ok(hyper::body::Frame::data(Bytes::from(out))))
-                        }
-                        Ok(_) => return Ready(None),
-                        Err(error) => Some(Err(error)),
-                    });
-                }
+                q = parsed;
             }
         }
+        match name.as_str() {
+            "*" => wildcard = Some(q),
+            "gzip" => {
+                gzip_q = q;
+                gzip_explicit = true;
+            }
+            "identity" => {
+                id_q = q;
+                id_explicit = true;
+            }
+            _ => {}
+        }
     }
+    if let Some(q) = wildcard {
+        if !gzip_explicit {
+            gzip_q = q;
+        }
+        if !id_explicit {
+            id_q = q;
+        }
+    }
+    if gzip_allowed && gzip_q > 0.0 && (id_q <= 0.0 || gzip_q >= id_q) {
+        return Ok(id_q <= 0.0 || payload_len >= plan.options.compression_threshold);
+    }
+    if id_q > 0.0 {
+        return Ok(false);
+    }
+    Err(not_acceptable())
 }
 
 #[cfg(test)]

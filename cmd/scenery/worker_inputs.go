@@ -30,7 +30,18 @@ type workerInputScope struct {
 
 func (watch *workerInputScope) skip(path string) bool {
 	rel, err := filepath.Rel(watch.root, path)
-	if err != nil || !filepath.IsLocal(rel) {
+	if err != nil {
+		return true
+	}
+	return watch.excluded(rel, false)
+}
+
+func (watch *workerInputScope) alwaysIgnored(rel string) bool {
+	return watch.excluded(rel, true)
+}
+
+func (watch *workerInputScope) excluded(rel string, includeBundleDirs bool) bool {
+	if !filepath.IsLocal(rel) {
 		return true
 	}
 	for _, root := range watch.generated {
@@ -40,10 +51,17 @@ func (watch *workerInputScope) skip(path string) bool {
 	}
 	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		switch part {
-		case "target", "scenerycontract", "scenerygen", "scenery_internal_main", "scenery_internal_processes", ".DS_Store":
+		case "target":
+			if !includeBundleDirs {
+				return true
+			}
+		case "scenerycontract", "scenerygen", "scenery_internal_main", "scenery_internal_processes", ".DS_Store", ".git", ".scenery", ".claude":
 			return true
 		}
-		if appwalk.SkipDirName(part) || watchignore.IsLocalEnvironmentFile(part) {
+		if watchignore.IsLocalEnvironmentFile(part) {
+			return true
+		}
+		if !includeBundleDirs && appwalk.SkipDirName(part) {
 			return true
 		}
 	}
@@ -137,6 +155,35 @@ func hashWorkerInput(path string) (digest [sha256.Size]byte, err error) {
 func (watch *workerInputScope) capture() (workerInputs, error) {
 	inputs := make(workerInputs)
 	return inputs, watch.scan(watch.root, inputs)
+}
+
+func (watch *workerInputScope) addExplicit(inputs workerInputs, paths []string) error {
+	for _, rel := range paths {
+		rel = filepath.Clean(filepath.FromSlash(rel))
+		if rel == "." || watch.alwaysIgnored(rel) {
+			continue
+		}
+		if _, exists := inputs[rel]; exists {
+			continue
+		}
+		full := filepath.Join(watch.root, rel)
+		info, err := os.Lstat(full)
+		if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		digest, err := hashWorkerInput(full)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		inputs[rel] = workerInput{Digest: digest, Mode: info.Mode().Perm()}
+	}
+	return nil
 }
 
 func workerDeclarationInput(path string) bool {

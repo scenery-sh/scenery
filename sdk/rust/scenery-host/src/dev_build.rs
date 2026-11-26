@@ -21,6 +21,12 @@ pub(crate) struct Plan {
     pub programs: Vec<Program>,
     pub source_digest: String,
     #[serde(default)]
+    pub has_migrations: bool,
+    #[serde(default)]
+    pub sql_requirements: Option<Box<serde_json::value::RawValue>>,
+    #[serde(default)]
+    pub js_dependencies: BTreeSet<PathBuf>,
+    #[serde(default)]
     pub go_inputs: BTreeSet<PathBuf>,
     pub go_workspace: Option<PathBuf>,
     pub rust_workspace: Option<PathBuf>,
@@ -28,6 +34,15 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    pub(crate) fn explicit_js_dependencies(&self) -> BTreeSet<PathBuf> {
+        let mut all = self.js_dependencies.clone();
+        for build in &self.commands {
+            if build.tool() == "bun" {
+                all.extend(build.dependencies.iter().cloned());
+            }
+        }
+        all
+    }
     /// Discovers every `//go:embed` file and pattern declared by the Go builds
     /// from the live `inputs` snapshot so globbed and cross-package embeds are
     /// mirrored and tracked before the first rebuild.
@@ -72,12 +87,13 @@ impl Plan {
     /// files a build embeds, and everything else inside a package directory
     /// or next to an embedded file, where an embed pattern may select it.
     pub(crate) fn go_mirrored(&self, path: &Path) -> bool {
-        go_source(path)
-            || self.go_inputs.contains(path)
-            || self.beside_embed(path)
-            || self.commands.iter().any(|build| {
-                build.tool() == "go" && (build.in_roots(path) || build.matches_embed(path))
-            })
+        !dev_inputs::ignored(path, &self.generated)
+            && (go_source(path)
+                || self.go_inputs.contains(path)
+                || self.beside_embed(path)
+                || self.commands.iter().any(|build| {
+                    build.tool() == "go" && (build.in_roots(path) || build.matches_embed(path))
+                }))
     }
 
     /// Reports whether `path` sits in, or below, a directory that already
@@ -121,6 +137,8 @@ pub(crate) struct Build {
     roots: Vec<PathBuf>,
     #[serde(default)]
     owners: Vec<PathBuf>,
+    #[serde(default)]
+    pub dependencies: BTreeSet<PathBuf>,
     #[serde(default)]
     pub embeds: BTreeSet<PathBuf>,
     #[serde(default)]
@@ -178,7 +196,7 @@ impl Build {
     /// no build has ever named it.
     pub(crate) fn affected(&self, plan: &Plan, path: &Path, appeared: bool) -> bool {
         match self.tool() {
-            "go" => {
+            "go" if !dev_inputs::ignored(path, &plan.generated) => {
                 go_source(path) && self.in_roots(path)
                     || appeared && self.in_roots(path)
                     || !go_source(path)
@@ -192,7 +210,10 @@ impl Build {
                         Some("go.mod" | "go.sum" | "go.work" | "go.work.sum")
                     )
             }
-            "cargo" if !matches!(extension(path), "go" | "scn") => {
+            "cargo"
+                if !dev_inputs::ignored(path, &plan.generated)
+                    && !matches!(extension(path), "go" | "scn") =>
+            {
                 let owner = self
                     .owners
                     .iter()
@@ -209,15 +230,17 @@ impl Build {
                 )
             }
             "bun" if !matches!(extension(path), "go" | "rs" | "scn") => {
-                under(path, &self.directory)
-                    || (dev_inputs::declaration(path)
-                        && self
-                            .workspace
-                            .as_ref()
-                            .is_some_and(|root| under(path, root))
-                        && path
-                            .parent()
-                            .is_some_and(|dir| self.directory.starts_with(dir)))
+                self.dependencies.contains(path)
+                    || (!dev_inputs::ignored(path, &plan.generated)
+                        && (under(path, &self.directory)
+                            || (dev_inputs::declaration(path)
+                                && self
+                                    .workspace
+                                    .as_ref()
+                                    .is_some_and(|root| under(path, root))
+                                && path
+                                    .parent()
+                                    .is_some_and(|dir| self.directory.starts_with(dir)))))
             }
             _ => false,
         }
@@ -227,9 +250,10 @@ impl Build {
         &self,
         root: &Path,
         directory: &Path,
+        generated: &[PathBuf],
         previous: &Program,
         revision: &str,
-    ) -> Result<Program> {
+    ) -> Result<(Program, Option<BTreeSet<PathBuf>>)> {
         let staging = tempfile::tempdir_in(directory)?;
         let output = staging.path().join("worker");
         let metafile = staging.path().join("inputs.json");
@@ -259,6 +283,7 @@ impl Build {
         let root = root.to_owned();
         let cwd = cwd.to_owned();
         let module = root.join(&self.directory);
+        let generated = generated.to_vec();
         let target = cargo
             .then(|| self.cargo_target().map(Path::to_owned))
             .transpose()?;
@@ -267,11 +292,13 @@ impl Build {
         let directory = directory.to_owned();
         let revision = revision.to_owned();
         tokio::task::spawn_blocking(move || {
+            let mut bun_dependencies = None;
             let executable = if let Some(target) = target {
                 cargo_executable(logs, &target)?
             } else {
                 if bun {
-                    verify_imports(&root, &module, &cwd, &metafile)?;
+                    bun_dependencies =
+                        Some(verify_imports(&root, &module, &cwd, &metafile, &generated)?);
                 }
                 output
             };
@@ -292,7 +319,7 @@ impl Build {
                 next.identity.implementation_revision = identity.clone();
                 next.identity.build_input_digest = identity;
             }
-            Ok(next)
+            Ok((next, bun_dependencies))
         })
         .await?
     }
@@ -633,7 +660,13 @@ fn cargo_executable(stdout: File, target: &Path) -> Result<PathBuf> {
     anyhow::bail!("Cargo did not report the worker executable")
 }
 
-fn verify_imports(root: &Path, module: &Path, cwd: &Path, metafile: &Path) -> Result<()> {
+fn verify_imports(
+    root: &Path,
+    module: &Path,
+    cwd: &Path,
+    metafile: &Path,
+    generated: &[PathBuf],
+) -> Result<BTreeSet<PathBuf>> {
     let graph: Value = serde_json::from_reader(File::open(metafile)?)?;
     let inputs = graph["inputs"]
         .as_object()
@@ -643,6 +676,7 @@ fn verify_imports(root: &Path, module: &Path, cwd: &Path, metafile: &Path) -> Re
         path.strip_prefix(root)
             .is_ok_and(|relative| relative.iter().any(|part| part == "node_modules"))
     };
+    let mut tracked = BTreeSet::new();
     for path in inputs.keys() {
         let path = std::path::absolute(cwd.join(path))?;
         // Bun's metafile can use paths relative to a staging directory.
@@ -672,8 +706,13 @@ fn verify_imports(root: &Path, module: &Path, cwd: &Path, metafile: &Path) -> Re
             "JavaScript worker imports must stay in its module or installed workspace dependencies: {}",
             path.display()
         );
+        if let Ok(rel) = path.strip_prefix(root)
+            && !dev_inputs::always_ignored(rel, generated)
+        {
+            tracked.insert(rel.to_owned());
+        }
     }
-    Ok(())
+    Ok(tracked)
 }
 
 #[cfg(test)]
@@ -716,16 +755,16 @@ mod tests {
             "environment":[],
         }))?;
         assert!(!plan.commands[0].affected(&plan, extra, false));
-        let original = plan.commands[0]
-            .compile(&root, &artifacts, &initial, "initial")
+        let (original, _) = plan.commands[0]
+            .compile(&root, &artifacts, &[], &initial, "initial")
             .await?;
         std::fs::write(
             workspace.join("worker/main.go"),
             "package main\nimport \"example.test/app/extra\"\nfunc main() { println(extra.Value) }\n",
         )?;
         let command = &mut plan.commands[0];
-        let first = command
-            .compile(&root, &artifacts, &original, "import")
+        let (first, _) = command
+            .compile(&root, &artifacts, &[], &original, "import")
             .await?;
         command.refresh_go_roots(&artifacts).await?;
         assert_ne!(original.digest, first.digest);
@@ -735,8 +774,8 @@ mod tests {
             workspace.join(extra),
             "package extra\nconst Value = \"second\"\n",
         )?;
-        let second = plan.commands[0]
-            .compile(&root, &artifacts, &first, "dependency edit")
+        let (second, _) = plan.commands[0]
+            .compile(&root, &artifacts, &[], &first, "dependency edit")
             .await?;
         assert_ne!(first.digest, second.digest);
         Ok(())
@@ -855,6 +894,36 @@ mod tests {
         let shared = Path::new("web/shared.json");
         assert!(plan.commands[0].affected(&plan, shared, false));
         assert!(!plan.commands[1].affected(&plan, shared, false));
+        Ok(())
+    }
+
+    #[test]
+    fn bun_builds_track_explicit_dependencies_under_ignored_dirs() -> Result<()> {
+        let plan: Plan = serde_json::from_value(json!({
+            "commands": [{
+                "process": "jsw",
+                "module": "svc",
+                "directory": "svc",
+                "workspace": ".",
+                "program": "bun",
+                "args": [],
+                "dependencies": ["svc/dist/vendor.ts", "node_modules/pkg/index.js"]
+            }],
+            "programs": [],
+            "source_digest": "",
+            "host_config": {},
+        }))?;
+        let bun = &plan.commands[0];
+        assert!(bun.affected(&plan, Path::new("svc/dist/vendor.ts"), false));
+        assert!(bun.affected(&plan, Path::new("node_modules/pkg/index.js"), false));
+        assert!(!bun.affected(&plan, Path::new("node_modules/other/index.js"), false));
+        assert_eq!(
+            plan.explicit_js_dependencies(),
+            BTreeSet::from([
+                PathBuf::from("svc/dist/vendor.ts"),
+                PathBuf::from("node_modules/pkg/index.js"),
+            ])
+        );
         Ok(())
     }
 }

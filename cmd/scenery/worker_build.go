@@ -159,8 +159,8 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 	if err != nil {
 		return bundle, err
 	}
-	for _, build := range js {
-		program, _, err := build.run(ctx, result.Root, check)
+	for i := range js {
+		program, _, err := (&js[i]).run(ctx, result.Root, check)
 		if err != nil {
 			return bundle, err
 		}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
@@ -10,8 +11,9 @@ import (
 )
 
 type workerJSBuild struct {
-	service jsbuild.Service
-	program workerProgram
+	service      jsbuild.Service
+	program      workerProgram
+	dependencies []string
 }
 
 func projectJSBuilds(result *compiler.Result, bundle workerBundle, role string) ([]workerJSBuild, error) {
@@ -60,11 +62,12 @@ func (failure *workerJSBuildError) Error() string {
 	return fmt.Sprintf("JavaScript worker %s: %s", failure.service, failure.err)
 }
 
-func (build workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
+func (build *workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
 	artifact, err := jsbuild.Build(ctx, root, build.service, check)
 	if err != nil {
 		return workerProgram{}, false, &workerJSBuildError{service: build.program.Service, err: err}
 	}
+	build.dependencies = slices.Clone(artifact.Dependencies)
 	program := build.program
 	program.Binary, program.Digest = artifact.Path, artifact.Digest
 	program.Identity.ImplementationRevision, program.Identity.BuildInputDigest = artifact.Digest, artifact.Digest

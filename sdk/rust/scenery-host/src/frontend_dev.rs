@@ -166,29 +166,64 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
     let is_error =
         !upstream.status().is_success() || media.as_deref() == Some("application/problem+json");
     let (mut parts, payload) = upstream.into_parts();
-    if !textual
-        || parts.headers.contains_key("content-encoding")
-        || parts.headers.contains_key("content-range")
-    {
+    let leaked_headers: Vec<_> = parts
+        .headers
+        .iter()
+        .filter(|(name, value)| {
+            name.as_str().to_ascii_lowercase().contains("scenery")
+                || value
+                    .to_str()
+                    .is_ok_and(|text| text.to_ascii_lowercase().contains("scenery"))
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in leaked_headers {
+        parts.headers.remove(&name);
+    }
+    let encoded_or_ranged = parts.headers.contains_key("content-encoding")
+        || parts.headers.contains_key("content-range");
+    if is_error && encoded_or_ranged {
+        parts.headers.remove("content-encoding");
+        parts.headers.remove("content-range");
+        parts.headers.remove("content-length");
+        parts.headers.insert(
+            "content-type",
+            hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+        return Ok(Reply::from_parts(
+            parts,
+            body(Bytes::from_static(b"upstream error")),
+        ));
+    }
+    if !is_error && (!textual || encoded_or_ranged) {
         return Ok(Reply::from_parts(
             parts,
             payload.map_err(io::Error::other).boxed_unsync(),
         ));
     }
     let bytes = crate::transport::read(payload, TEXT_LIMIT).await?;
-    let transformed = std::str::from_utf8(&bytes).map(|text| {
-        if is_error {
+    let output = match std::str::from_utf8(&bytes) {
+        Ok(text) => match if is_error {
             scrub_error_text(text)
         } else {
             rewrite(text)
+        } {
+            Cow::Owned(output) => {
+                parts.headers.remove("content-length");
+                Bytes::from(output)
+            }
+            Cow::Borrowed(_) => bytes,
+        },
+        Err(_) if is_error => {
+            let lossy = String::from_utf8_lossy(&bytes);
+            if SCENERY_WORD.is_match(&lossy) {
+                parts.headers.remove("content-length");
+                Bytes::from(scrub_error_text(&lossy).into_owned())
+            } else {
+                bytes
+            }
         }
-    });
-    let output = match transformed {
-        Ok(Cow::Owned(output)) => {
-            parts.headers.remove("content-length");
-            Bytes::from(output)
-        }
-        _ => bytes,
+        Err(_) => bytes,
     };
     Ok(Reply::from_parts(parts, body(output)))
 }
@@ -445,10 +480,36 @@ mod tests {
                                     r#"<svg><title>Scenery</title><use href="/@fs/repo/.scenery/sprite.svg#a"/></svg>"#,
                                 ),
                                 "/events" => (StatusCode::OK, "text/event-stream", "data: ok\n\n"),
+                                "/plain-500" => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "",
+                                    "Scenery internal error at /.scenery/x",
+                                ),
+                                "/gzip-500" => (
+                                    StatusCode::BAD_GATEWAY,
+                                    "text/plain",
+                                    "Scenery encoded body",
+                                ),
                                 path => panic!("unexpected path {path}"),
                             };
                             let mut response = crate::transport::response(status, content);
-                            crate::host::header(response.headers_mut(), "content-type", media);
+                            if !media.is_empty() {
+                                crate::host::header(response.headers_mut(), "content-type", media);
+                            }
+                            if request.uri().path() == "/plain-500" {
+                                crate::host::header(
+                                    response.headers_mut(),
+                                    "x-scenery-debug",
+                                    "leak",
+                                );
+                            }
+                            if request.uri().path() == "/gzip-500" {
+                                crate::host::header(
+                                    response.headers_mut(),
+                                    "content-encoding",
+                                    "gzip",
+                                );
+                            }
                             Ok::<_, Infallible>(response)
                         }
                     });
@@ -497,6 +558,29 @@ mod tests {
             .await?;
         assert!(!forbidden(&ok_problem), "{ok_problem}");
         assert!(ok_problem.contains("application fault"));
+
+        let plain_500 = http
+            .get(format!("http://{front_address}/plain-500"))
+            .send()
+            .await?;
+        assert_eq!(plain_500.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(plain_500.headers().get("x-scenery-debug").is_none());
+        let plain_500_text = plain_500.text().await?;
+        assert!(!forbidden(&plain_500_text), "{plain_500_text}");
+        assert!(
+            plain_500_text.contains("application internal error"),
+            "{plain_500_text}"
+        );
+
+        let gzip_500 = http
+            .get(format!("http://{front_address}/gzip-500"))
+            .send()
+            .await?;
+        assert_eq!(gzip_500.status(), StatusCode::BAD_GATEWAY);
+        assert!(gzip_500.headers().get("content-encoding").is_none());
+        let gzip_500_text = gzip_500.text().await?;
+        assert!(!forbidden(&gzip_500_text), "{gzip_500_text}");
+        assert_eq!(gzip_500_text, "upstream error");
 
         let svg_text = http
             .get(format!("http://{front_address}/icon.svg"))
