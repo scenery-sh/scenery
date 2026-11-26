@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -355,11 +356,16 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	assertNoSceneryOrAppIdentityLeak(t, closeResp.Header, closeResp.Trailer)
 
 	// Case 5: concurrent Read in Proxy Transport vs Close in ReverseProxy defer on early upstream response.
-	upstreamSawReq := make(chan struct{}, 20)
+	var (
+		sawMu         sync.Mutex
+		signalReached func()
+	)
 	earlyUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		select {
-		case upstreamSawReq <- struct{}{}:
-		default:
+		sawMu.Lock()
+		fn := signalReached
+		sawMu.Unlock()
+		if fn != nil {
+			fn()
 		}
 		w.Header().Set("Connection", "close")
 		w.Header().Set("X-Scenery-Debug", "upstream-leak")
@@ -374,9 +380,17 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	defer proxySrv.Close()
 	proxyClient := proxySrv.Client()
 	for i := range 20 {
+		upstreamReached := make(chan struct{})
+		markReached := sync.OnceFunc(func() { close(upstreamReached) })
+		sawMu.Lock()
+		signalReached = markReached
+		sawMu.Unlock()
+
 		pr, pw := io.Pipe()
-		proxyReq, reqErr := http.NewRequest(http.MethodPost, proxySrv.URL+"/proxy", pr)
+		reqCtx, cancelReq := context.WithTimeout(t.Context(), 5*time.Second)
+		proxyReq, reqErr := http.NewRequestWithContext(reqCtx, http.MethodPost, proxySrv.URL+"/proxy", pr)
 		if reqErr != nil {
+			cancelReq()
 			t.Fatal(reqErr)
 		}
 		proxyReq.ContentLength = -1
@@ -387,19 +401,28 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 		writeDone := make(chan struct{})
 		go func() {
 			defer close(writeDone)
-			_, _ = io.WriteString(pw, "chunk1-")
-			<-upstreamSawReq
-			_, _ = io.WriteString(pw, "chunk2")
-			_ = pw.Close()
+			if _, writeErr := io.WriteString(pw, "chunk1-"); writeErr != nil {
+				return
+			}
+			select {
+			case <-upstreamReached:
+				_, _ = io.WriteString(pw, "chunk2")
+				_ = pw.Close()
+			case <-reqCtx.Done():
+				_ = pw.CloseWithError(reqCtx.Err())
+			}
 		}()
 		proxyResp, doErr := proxyClient.Do(proxyReq)
 		if doErr != nil {
+			cancelReq()
 			_ = pw.CloseWithError(doErr)
 			<-writeDone
 			t.Fatalf("iteration %d: %v", i, doErr)
 		}
 		_, _ = io.ReadAll(proxyResp.Body)
 		_ = proxyResp.Body.Close()
+		cancelReq()
+		_ = pw.Close()
 		<-writeDone
 		if proxyResp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("iteration %d: status=%d, want 401", i, proxyResp.StatusCode)
@@ -503,7 +526,7 @@ func TestWorkerHostHTTPDurableMapsTransportStatuses(t *testing.T) {
 func TestWorkerHostRegistersAndDispatchesStreamingMCPTool(t *testing.T) {
 	defer replaceGlobalRegistryForTest()()
 	identity := workerabi.Identity{ABI: workerabi.Version, Service: "house/service/house", ContractRevision: "contract", ImplementationRevision: "impl"}
-	directory, err := os.MkdirTemp("", "abi-mcp-")
+	directory, err := os.MkdirTemp("/tmp", "abi-mcp-")
 	if err != nil {
 		t.Fatal(err)
 	}
