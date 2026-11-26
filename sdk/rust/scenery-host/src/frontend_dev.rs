@@ -164,9 +164,11 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
                 || media.ends_with("+json"))
     });
     let status = upstream.status();
-    let is_error = status.is_client_error()
-        || status.is_server_error()
-        || media.as_deref() == Some("application/problem+json");
+    let bodyless_status = status.is_informational()
+        || status == hyper::StatusCode::NO_CONTENT
+        || status == hyper::StatusCode::NOT_MODIFIED;
+    let is_error = !bodyless_status
+        && (!status.is_success() || media.as_deref() == Some("application/problem+json"));
     let (mut parts, payload) = upstream.into_parts();
     let has_scenery_bytes = |raw: &[u8]| {
         raw.windows(7)
@@ -183,6 +185,9 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
         .collect();
     for name in leaked_headers {
         parts.headers.remove(&name);
+    }
+    if bodyless_status {
+        return Ok(Reply::from_parts(parts, body(Bytes::new())));
     }
     let has_content_encoding = parts.headers.contains_key("content-encoding");
     let has_content_range = parts.headers.contains_key("content-range");
@@ -494,6 +499,11 @@ mod tests {
                                     "Scenery encoded body",
                                 ),
                                 "/not-modified" => (StatusCode::NOT_MODIFIED, "", ""),
+                                "/redirect-302" => (
+                                    StatusCode::FOUND,
+                                    "text/plain",
+                                    "Redirecting from Scenery gateway to /.scenery/login",
+                                ),
                                 "/range-unsatisfiable" => (
                                     StatusCode::RANGE_NOT_SATISFIABLE,
                                     "text/plain",
@@ -530,6 +540,9 @@ mod tests {
                                     "content-range",
                                     "bytes */1024",
                                 );
+                            }
+                            if request.uri().path() == "/redirect-302" {
+                                crate::host::header(response.headers_mut(), "location", "/login");
                             }
                             Ok::<_, Infallible>(response)
                         }
@@ -611,6 +624,22 @@ mod tests {
         assert_eq!(not_mod.status(), StatusCode::NOT_MODIFIED);
         assert_eq!(not_mod.headers()["content-encoding"], "gzip");
         assert!(not_mod.bytes().await?.is_empty());
+
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let redirect_302 = no_redirect
+            .get(format!("http://{front_address}/redirect-302"))
+            .send()
+            .await?;
+        assert_eq!(redirect_302.status(), StatusCode::FOUND);
+        assert_eq!(redirect_302.headers()["location"], "/login");
+        let redirect_text = redirect_302.text().await?;
+        assert!(!forbidden(&redirect_text), "{redirect_text}");
+        assert!(
+            redirect_text.contains("Redirecting from application gateway"),
+            "{redirect_text}"
+        );
 
         let range_416 = http
             .get(format!("http://{front_address}/range-unsatisfiable"))

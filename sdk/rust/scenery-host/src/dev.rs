@@ -735,27 +735,25 @@ impl WatcherLoop {
         }
         drop(workspace);
         drop(cargo_lock);
+        let previous_explicit = self.scanner.explicit_paths();
         let mut next_explicit = collect_bun_explicit(selected, &bun_dependencies);
-        let has_new_explicit = next_explicit.iter().any(|path| !inputs.contains_key(path));
+        let has_new_explicit = next_explicit.iter().any(|path| {
+            !inputs.contains_key(path)
+                && (!previous_explicit.contains(path)
+                    || self.scanner.has_explicit_file(&selected.generated, path))
+        });
         let (expected_inputs, expected_explicit) = if has_new_explicit {
-            let union_explicit: BTreeSet<PathBuf> = self
-                .scanner
-                .explicit_paths()
-                .union(&next_explicit)
-                .cloned()
-                .collect();
+            let union_explicit: BTreeSet<PathBuf> =
+                previous_explicit.union(&next_explicit).cloned().collect();
             let scanner_pre = self.scanner.clone();
             let gen_pre = selected.generated.clone();
+            let prev_pre = previous_explicit.clone();
             let exp_pre = union_explicit.clone();
-            let baseline = tokio::task::spawn_blocking(move || {
-                scanner_pre.scan_with_explicit(&gen_pre, &exp_pre)
+            let (current_base, baseline) = tokio::task::spawn_blocking(move || {
+                scanner_pre.scan_transition(&gen_pre, &prev_pre, &exp_pre)
             })
             .await??;
-            let base_unchanged = baseline
-                .iter()
-                .all(|(p, i)| inputs.get(p).is_none_or(|prev| prev == i))
-                && inputs.iter().all(|(p, i)| baseline.get(p) == Some(i));
-            if !base_unchanged {
+            if current_base != *inputs {
                 if plan.is_none() {
                     self.record_bun_dependencies(&bun_dependencies, next_explicit);
                 }
@@ -786,10 +784,11 @@ impl WatcherLoop {
             }
             bun_dependencies = next_bun;
             next_explicit = collect_bun_explicit(selected, &bun_dependencies);
-            if next_explicit
-                .iter()
-                .any(|p| !baseline.contains_key(p) && root.join(p).is_file())
-            {
+            if next_explicit.iter().any(|p| {
+                !baseline.contains_key(p)
+                    && (!union_explicit.contains(p)
+                        || self.scanner.has_explicit_file(&selected.generated, p))
+            }) {
                 if plan.is_none() {
                     self.record_bun_dependencies(&bun_dependencies, next_explicit);
                 }
@@ -797,7 +796,7 @@ impl WatcherLoop {
             }
             (baseline, union_explicit)
         } else {
-            (inputs.clone(), self.scanner.explicit_paths())
+            (inputs.clone(), previous_explicit)
         };
         self.check_migrations(directory, selected).await?;
         times[0] = ms(begin.elapsed());
@@ -820,14 +819,19 @@ impl WatcherLoop {
                 || async move {
                     let (current, updated) =
                         tokio::task::spawn_blocking(move || -> Result<(Inputs, Option<Inputs>)> {
-                            let current =
-                                scanner.scan_with_explicit(&generated, &check_explicit)?;
-                            let updated = explicit_differs
-                                .then(|| {
-                                    scanner.scan_with_explicit(&generated, &next_explicit_for_scan)
-                                })
-                                .transpose()?;
-                            Ok((current, updated))
+                            if explicit_differs {
+                                let (current, updated) = scanner.scan_transition(
+                                    &generated,
+                                    &check_explicit,
+                                    &next_explicit_for_scan,
+                                )?;
+                                Ok((current, Some(updated)))
+                            } else {
+                                Ok((
+                                    scanner.scan_with_explicit(&generated, &check_explicit)?,
+                                    None,
+                                ))
+                            }
                         })
                         .await??;
                     if current != expected_inputs {

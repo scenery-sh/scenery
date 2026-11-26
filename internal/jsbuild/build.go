@@ -297,9 +297,17 @@ func verifyImports(root, module, cwd, path string) ([]string, error) {
 	if len(graph.Inputs) == 0 {
 		return nil, fmt.Errorf("bun did not report its worker input graph")
 	}
+	canonicalRoot, canonicalErr := filepath.EvalSymlinks(root)
 	dependency := func(path string) bool {
-		relative, err := filepath.Rel(root, path)
-		return err == nil && filepath.IsLocal(relative) && slices.Contains(strings.Split(relative, string(filepath.Separator)), "node_modules")
+		if relative, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(relative) && slices.Contains(strings.Split(relative, string(filepath.Separator)), "node_modules") {
+			return true
+		}
+		if canonicalErr == nil {
+			if relative, err := filepath.Rel(canonicalRoot, path); err == nil && filepath.IsLocal(relative) && slices.Contains(strings.Split(relative, string(filepath.Separator)), "node_modules") {
+				return true
+			}
+		}
+		return false
 	}
 	inputs := make([]string, 0, len(graph.Inputs))
 	for path := range graph.Inputs {

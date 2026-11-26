@@ -455,11 +455,17 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     let state = base.join("state");
     fs::create_dir_all(root.join("svc/dist"))?;
     fs::create_dir_all(root.join("node_modules/pkg"))?;
+    fs::create_dir_all(root.join("node_modules/.store/linked"))?;
+    fs::create_dir_all(root.join("node_modules/linked"))?;
     fs::create_dir_all(&state)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&state, fs::Permissions::from_mode(0o700))?;
+        std::os::unix::fs::symlink(
+            "../.store/linked/index.js",
+            root.join("node_modules/linked/index.js"),
+        )?;
     }
     let (node, responder) = write_test_worker_responder(&state)?;
     fs::write(root.join("svc/index.ts"), "export const v = 1;\n")?;
@@ -470,13 +476,22 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
         "export const extra2 = 'v1';\n",
     )?;
     fs::write(
+        root.join("svc/dist/extra3.ts"),
+        "export const extra3 = 1;\n",
+    )?;
+    fs::write(
         root.join("node_modules/pkg/index.js"),
         "module.exports = 'p1';\n",
+    )?;
+    fs::write(
+        root.join("node_modules/.store/linked/index.js"),
+        "module.exports = 'linked-v1';\n",
     )?;
 
     // Helper mutating `svc/dist/extra2.ts` during `worker-check-migrations` once when requested,
     // exercising a concurrent edit between Bun compilation and `publisher.replace`.
     let mutate_gate = state.join("mutate-extra2");
+    let late_gate = state.join("create-late");
     let helper = state.join("fake-cli.sh");
     fs::write(
         &helper,
@@ -492,8 +507,9 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     fs::write(
         &fake_bun,
         format!(
-            "#!/bin/sh\nOUT=''\nMETA=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    --outfile=*) OUT=\"${{arg#--outfile=}}\" ;;\n    --metafile=*) META=\"${{arg#--metafile=}}\" ;;\n  esac\ndone\n{{\n  echo '#!/bin/sh'\n  cat '{root}/svc/index.ts' '{root}/svc/dist/vendor.ts' '{root}/node_modules/pkg/index.js' | sed 's/^/# /'\n  EXTRA=''\n  if grep -q 'extra' '{root}/svc/index.ts'; then\n    if grep -q 'extra2' '{root}/svc/index.ts'; then\n      cat '{root}/svc/dist/extra2.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra2.ts\":{{}}'\n    else\n      cat '{root}/svc/dist/extra.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra.ts\":{{}}'\n    fi\n  fi\n  echo \"exec '{node}' '{responder}' \\\"\\$1\\\"\"\n}} > \"$OUT\"\nchmod +x \"$OUT\"\nprintf '{{\"inputs\":{{\"{root}/svc/index.ts\":{{}},\"{root}/svc/dist/vendor.ts\":{{}},\"{root}/node_modules/pkg/index.js\":{{}}%s}}}}' \"$EXTRA\" > \"$META\"\n",
+            "#!/bin/sh\nOUT=''\nMETA=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    --outfile=*) OUT=\"${{arg#--outfile=}}\" ;;\n    --metafile=*) META=\"${{arg#--metafile=}}\" ;;\n  esac\ndone\nif [ -f '{late}' ]; then\n  printf 'export const late = 1;\\n' > '{root}/svc/late.ts'\n  rm -f '{late}'\nfi\n{{\n  echo '#!/bin/sh'\n  cat '{root}/svc/index.ts' '{root}/svc/dist/vendor.ts' '{root}/node_modules/pkg/index.js' | sed 's/^/# /'\n  EXTRA=''\n  if grep -q 'extra3' '{root}/svc/index.ts'; then\n    cat '{root}/svc/dist/extra3.ts' | sed 's/^/# /'\n    EXTRA=',\"'{root}'/svc/dist/extra3.ts\":{{}}'\n  elif grep -q 'linked' '{root}/svc/index.ts'; then\n    cat '{root}/node_modules/linked/index.js' | sed 's/^/# /'\n    EXTRA=',\"'{root}'/node_modules/linked/index.js\":{{}}'\n  elif grep -q 'extra' '{root}/svc/index.ts'; then\n    if grep -q 'extra2' '{root}/svc/index.ts'; then\n      cat '{root}/svc/dist/extra2.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra2.ts\":{{}}'\n    else\n      cat '{root}/svc/dist/extra.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra.ts\":{{}}'\n    fi\n  fi\n  echo \"exec '{node}' '{responder}' \\\"\\$1\\\"\"\n}} > \"$OUT\"\nchmod +x \"$OUT\"\nprintf '{{\"inputs\":{{\"{root}/svc/index.ts\":{{}},\"{root}/svc/dist/vendor.ts\":{{}},\"{root}/node_modules/pkg/index.js\":{{}}%s}}}}' \"$EXTRA\" > \"$META\"\n",
             root = root.display(),
+            late = late_gate.display(),
             node = node.display(),
             responder = responder.display(),
         ),
@@ -616,6 +632,59 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     assert!(!resync);
     // Candidate 4 (built from v1) was discarded, so the recompiled v2 build commits as generation 5.
     assert_eq!(publisher.generation(), 5);
+
+    // Discovering a symlinked `node_modules` dependency must publish cleanly without livelocking
+    // and track edits to the symlink target.
+    fs::write(root.join("svc/index.ts"), "export const linked = true;\n")?;
+    let with_linked = watcher.scanner.scan(&[])?;
+    assert!(
+        watcher
+            .process_change(&state, &publisher, "c", with_linked, Instant::now())
+            .await
+    );
+    assert_eq!(publisher.generation(), 6);
+    assert!(
+        watcher
+            .scanner
+            .is_explicit(Path::new("node_modules/linked/index.js"))
+    );
+    assert!(
+        watcher
+            .scanner
+            .has_explicit_file(&[], Path::new("node_modules/linked/index.js"))
+    );
+
+    fs::write(
+        root.join("node_modules/.store/linked/index.js"),
+        "module.exports = 'linked-v2';\n",
+    )?;
+    let edited_linked = watcher.scanner.scan(&[])?;
+    assert!(
+        !watcher
+            .process_change(&state, &publisher, "c", edited_linked, Instant::now())
+            .await
+    );
+    assert_eq!(publisher.generation(), 7);
+
+    // Creating an unrelated file during explicit-dependency discovery must supersede rather than
+    // commit without building the late file.
+    fs::write(&late_gate, "1")?;
+    fs::write(root.join("svc/index.ts"), "export const extra3 = true;\n")?;
+    let discover_extra3 = watcher.scanner.scan(&[])?;
+    assert!(
+        watcher
+            .process_change(&state, &publisher, "c", discover_extra3, Instant::now())
+            .await
+    );
+    assert_eq!(publisher.generation(), 7);
+    let with_late = watcher.scanner.scan(&[])?;
+    assert!(
+        !watcher
+            .process_change(&state, &publisher, "c", with_late, Instant::now())
+            .await
+    );
+    assert_eq!(publisher.generation(), 8);
+
     let final_served = watcher.status().reply(None, &publication).await?;
     let final_served: Value =
         serde_json::from_slice(&final_served.into_body().collect().await?.to_bytes())?;

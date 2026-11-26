@@ -182,14 +182,27 @@ impl DeadlineControl {
         }
     }
 
-    /// Yields once after dropping an unconsumed request body so Hyper's read
-    /// loop can drain a buffered final chunk and observe socket readiness
-    /// before response completion arms keep-alive idle.
+    /// Disarms an idle request read deadline and yields once after dropping an
+    /// unconsumed request body so Hyper's read loop can drain a buffered final
+    /// chunk before response completion arms keep-alive idle.
     pub(crate) async fn finish_unread_request(&self, had_body: bool) {
-        let needs_drain_poll = {
-            let state = self.state.lock().expect("deadline lock");
-            had_body && !state.upgraded && !state.io_exhausted
+        let (needs_drain_poll, read_waker) = {
+            let mut state = self.state.lock().expect("deadline lock");
+            if !had_body || state.upgraded {
+                return;
+            }
+            let waker = if state.idle_timeout.is_none() && !state.body_finished {
+                state.body_finished = true;
+                state.read_deadline = None;
+                state.read_waker.take()
+            } else {
+                None
+            };
+            (!state.io_exhausted, waker)
         };
+        if let Some(waker) = read_waker {
+            waker.wake();
+        }
         if needs_drain_poll {
             tokio::task::yield_now().await;
         }

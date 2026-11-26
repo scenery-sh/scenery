@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
@@ -157,24 +158,48 @@ func (watch *workerInputScope) capture() (workerInputs, error) {
 	return inputs, watch.scan(watch.root, inputs)
 }
 
+func hasNodeModulesComponent(rel string) bool {
+	return slices.Contains(strings.Split(rel, string(filepath.Separator)), "node_modules")
+}
+
 func (watch *workerInputScope) addExplicit(inputs workerInputs, paths []string) error {
+	canonicalRoot, err := filepath.EvalSymlinks(watch.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	for _, rel := range paths {
 		rel = filepath.Clean(filepath.FromSlash(rel))
-		if rel == "." || watch.alwaysIgnored(rel) {
+		if rel == "." || !filepath.IsLocal(rel) || watch.alwaysIgnored(rel) {
 			continue
 		}
 		if _, exists := inputs[rel]; exists {
 			continue
 		}
-		full := filepath.Join(watch.root, rel)
-		info, err := os.Lstat(full)
+		resolved, err := filepath.EvalSymlinks(filepath.Join(watch.root, rel))
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		resolvedRel, err := filepath.Rel(canonicalRoot, resolved)
+		if err != nil || !filepath.IsLocal(resolvedRel) {
+			continue
+		}
+		if resolvedRel != rel && (!hasNodeModulesComponent(rel) || !hasNodeModulesComponent(resolvedRel) || watch.alwaysIgnored(resolvedRel)) {
+			continue
+		}
+		info, err := os.Lstat(resolved)
 		if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		digest, err := hashWorkerInput(full)
+		digest, err := hashWorkerInput(resolved)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
