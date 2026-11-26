@@ -103,8 +103,7 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 			_, err := parseInspectArgs(append([]string{"harness"}, args...))
 			return err
 		}},
-		"harness": {ignoreParse(parseHarnessArgs)},
-
+		"harness":     {ignoreParse(parseHarnessArgs)},
 		"db query":    {ignoreParse(parseDBQueryArgs)},
 		"durable run": {ignoreParse(parseDurableRunArgs)},
 		"add module":  {ignoreParse(parseAddModuleArgs)},
