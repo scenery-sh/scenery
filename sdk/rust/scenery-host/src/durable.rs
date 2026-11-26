@@ -569,18 +569,24 @@ fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
     ))
 }
 
+/// Installs the durable and schedule tables. The statements are idempotent
+/// and serialized with every other host and the Go store.
+pub(crate) async fn install_schema(client: &Client) -> Result<()> {
+    client
+        .batch_execute(&format!(
+            "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
+             INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
+             VALUES(3,'schedule_slots','durable-postgres-v3') ON CONFLICT(version) DO NOTHING; COMMIT;"
+        ))
+        .await
+        .context("initialize durable schema")
+}
+
 /// Brings the stored task declarations in line with this deployment, as the
 /// Go store's `ReconcileTasks` does: it refuses to strand active jobs, then
 /// disables what the services no longer declare and registers the rest.
 async fn reconcile(client: &mut Client, registrations: &[&Registration]) -> Result<()> {
-    client
-        .batch_execute(&format!(
-        "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
-         INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
-         VALUES(2,'retention','durable-postgres-v2') ON CONFLICT(version) DO NOTHING; COMMIT;"
-    ))
-        .await
-        .context("initialize durable schema")?;
+    install_schema(client).await?;
     let mut declared = BTreeMap::new();
     for reg in registrations {
         let key = (reg.service.as_str(), reg.external_name.as_str());

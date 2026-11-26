@@ -251,15 +251,6 @@ func operationVariantWrappers(opName string, op Resource) []operationVariantWrap
 	return wrappers
 }
 
-func operationVariantWrapperMap(opName string, op Resource) map[string]string {
-	entries := operationVariantWrappers(opName, op)
-	byOutcome := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		byOutcome[entry.Kind+"."+entry.VariantName] = entry.WrapperName
-	}
-	return byOutcome
-}
-
 // generatedOperationSymbols returns all package-level identifiers emitted by
 // renderOperationAPI for an operation named name.
 func generatedOperationSymbols(name string, op Resource) []string {
@@ -398,7 +389,7 @@ func qualifyProjectedGoExpression(expression, module string) string {
 	return expression
 }
 
-func renderWireGoClient(b *strings.Builder, client goClientBinding, caller string, workerABI bool) {
+func renderWireGoClient(b *strings.Builder, client goClientBinding) {
 	name := client.operationName()
 	clientType := semanticPathName(client.Name) + "InternalClient"
 	fmt.Fprintf(b, "type %s struct{}\n", clientType)
@@ -411,11 +402,7 @@ func renderWireGoClient(b *strings.Builder, client goClientBinding, caller strin
 	fmt.Fprintf(b, "func (%s) %s(ctx context.Context, invocation scenery.Invocation, input contract.%sInput) (%s, error) {\n", clientType, method, name, resultType)
 	fmt.Fprintf(b, "\traw, err := scenery.MarshalContractValue(input, %q)\n", goWireTypeExpression(client.Operation.Spec["input"]))
 	fmt.Fprintf(b, "\tif err != nil { return %s, fmt.Errorf(\"encode internal client input: %%w\", err) }\n", zero)
-	if workerABI {
-		fmt.Fprintf(b, "\toutput, err := sceneryruntime.InvokeWorkerBinding(ctx, invocation, %q, %t, raw)\n", client.Name, client.Delivery == "enqueue")
-	} else {
-		fmt.Fprintf(b, "\toutput, err := sceneryruntime.InvokeContractBindingWire(ctx, %q, %q, invocation, raw)\n", client.Binding.Address, caller)
-	}
+	fmt.Fprintf(b, "\toutput, err := sceneryruntime.InvokeWorkerBinding(ctx, invocation, %q, %t, raw)\n", client.Name, client.Delivery == "enqueue")
 	fmt.Fprintf(b, "\tif err != nil { return %s, err }\n", zero)
 	if client.Delivery == "enqueue" {
 		b.WriteString("\tvar receipt scenery.ExecutionReceipt\n")

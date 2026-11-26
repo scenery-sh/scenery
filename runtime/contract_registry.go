@@ -1,14 +1,15 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
 	"strings"
 	"sync"
 
-	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeapi"
+	"scenery.sh/runtime/shared"
 )
 
 const ContractRuntimeABI = "scenery.go-runtime/v1"
@@ -156,10 +157,6 @@ func (registry *ContractRegistry) Seal() error {
 			return fmt.Errorf("runtime: register application adapter %s: %w", address, err)
 		}
 	}
-	if err := validateContractPagesRegistered(); err != nil {
-		restoreContractRuntimeState(snapshot)
-		return fmt.Errorf("runtime: validate contract pages: %w", err)
-	}
 	registry.sealed = true
 	return nil
 }
@@ -171,71 +168,32 @@ func cloneContractStringMap(values map[string]string) map[string]string {
 }
 
 type contractRuntimeSnapshot struct {
-	endpoints                 map[string]*Endpoint
-	cronJobs                  map[string]*CronJob
-	durableTasks              map[string]*DurableTask
-	contractDurableExecutions map[string]ContractDurableRegistration
-	contractBindings          map[string]ContractInternalBindingRegistration
-	mcpTools                  map[string]MCPToolRegistration
-	assistantMCPManifests     map[string]mcpcontract.Manifest
-	assistants                map[string]AssistantRegistration
-	assistantClients          map[string]AssistantClient
-	contractPages             map[string]ContractPageRegistration
-	serviceInitializers       map[string]serviceInitializer
-	serviceInitOrder          map[string]int
-	serviceShutdowns          map[string]serviceShutdown
+	workerOperations    map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
+	serviceInitializers map[string]serviceInitializer
+	serviceInitOrder    map[string]int
+	serviceShutdowns    map[string]serviceShutdown
 }
 
+// snapshotContractRuntimeState keeps the registrations before the adapters
+// apply theirs, so a failed application leaves none of them behind.
 func snapshotContractRuntimeState() contractRuntimeSnapshot {
 	global.mu.RLock()
 	defer global.mu.RUnlock()
 	return contractRuntimeSnapshot{
-		endpoints: cloneContractMap(global.endpoints), cronJobs: cloneContractMap(global.cronJobs), durableTasks: cloneContractMap(global.durableTasks),
-		contractDurableExecutions: cloneContractMap(global.contractDurableExecutions), contractBindings: cloneContractMap(global.contractBindings),
-		mcpTools:              cloneMCPToolRegistrations(global.mcpTools),
-		assistantMCPManifests: cloneMCPManifests(global.assistantMCPManifests),
-		assistants:            cloneContractMap(global.assistants), assistantClients: cloneContractMap(global.assistantClients),
-		contractPages:       cloneContractMap(global.contractPages),
-		serviceInitializers: cloneContractMap(global.serviceInitializers),
-		serviceInitOrder:    cloneContractMap(global.serviceInitOrder), serviceShutdowns: cloneContractMap(global.serviceShutdowns),
+		workerOperations:    maps.Clone(global.workerOperations),
+		serviceInitializers: maps.Clone(global.serviceInitializers),
+		serviceInitOrder:    maps.Clone(global.serviceInitOrder),
+		serviceShutdowns:    maps.Clone(global.serviceShutdowns),
 	}
 }
 
 func restoreContractRuntimeState(snapshot contractRuntimeSnapshot) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
-	global.endpoints = snapshot.endpoints
-	global.cronJobs = snapshot.cronJobs
-	global.durableTasks = snapshot.durableTasks
-	global.contractDurableExecutions = snapshot.contractDurableExecutions
-	global.contractBindings = snapshot.contractBindings
-	global.mcpTools = snapshot.mcpTools
-	global.assistantMCPManifests = snapshot.assistantMCPManifests
-	global.assistants = snapshot.assistants
-	global.assistantClients = snapshot.assistantClients
-	global.contractPages = snapshot.contractPages
+	global.workerOperations = snapshot.workerOperations
 	global.serviceInitializers = snapshot.serviceInitializers
 	global.serviceInitOrder = snapshot.serviceInitOrder
 	global.serviceShutdowns = snapshot.serviceShutdowns
-}
-
-func cloneContractMap[K comparable, V any](values map[K]V) map[K]V {
-	clone := make(map[K]V, len(values))
-	maps.Copy(clone, values)
-	return clone
-}
-
-func cloneMCPManifests(values map[string]mcpcontract.Manifest) map[string]mcpcontract.Manifest {
-	clone := make(map[string]mcpcontract.Manifest, len(values))
-	for address, manifest := range values {
-		manifest.Capabilities = append([]mcpcontract.Capability(nil), manifest.Capabilities...)
-		for index := range manifest.Capabilities {
-			manifest.Capabilities[index].InputSchema = append([]byte(nil), manifest.Capabilities[index].InputSchema...)
-			manifest.Capabilities[index].OutputSchema = append([]byte(nil), manifest.Capabilities[index].OutputSchema...)
-		}
-		clone[address] = manifest
-	}
-	return clone
 }
 
 func canonicalContractAddresses(values []string) []string {

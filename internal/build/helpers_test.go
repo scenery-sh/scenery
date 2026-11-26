@@ -44,28 +44,6 @@ func TestPatchGoModDataPreservesPublishedDependencyForTrimpathBinary(t *testing.
 	}
 }
 
-func newBuildTestApp(t *testing.T) string {
-	t.Helper()
-	return newBuildTestAppNamed(t, "")
-}
-
-func newBuildTestAppNamed(t *testing.T, base string) string {
-	t.Helper()
-	root := t.TempDir()
-	if strings.TrimSpace(base) != "" {
-		root = filepath.Join(root, base)
-	}
-	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
-	writeBuildTestFile(t, root, ".scenery.json", `{"name":"buildtest"}`)
-	writeBuildTestFile(t, root, "svc/api.go", `package svc
-
-import "context"
-
-func Hello(ctx context.Context) error { return nil }
-`)
-	return root
-}
-
 func newCachedBuildTestWorkspace(t *testing.T, graphFingerprint string) (string, *Result) {
 	t.Helper()
 	appDir := t.TempDir()
@@ -167,9 +145,6 @@ go_target "development" {
 	result.PreparationFingerprint = preparationFingerprint
 	result.BuildInput = newBuildInputManifest(target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("a", 64)})
 	result.ImplementationRevisions, _ = compiler.ComputeImplementationRevisions(contract, map[string]string{target.Name: result.BuildInput.Digest})
-	if err := writeRuntimeBundle(result); err != nil {
-		t.Fatal(err)
-	}
 	if err := saveBuildState(workspace, buildState{
 		Version:                   buildStateVersion,
 		DependencyFingerprint:     depFingerprint,
@@ -191,15 +166,6 @@ go_target "development" {
 	return appDir, result
 }
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Clean(filepath.Join(wd, "..", ".."))
-}
-
 func writeBuildTestFile(t *testing.T, root, rel, contents string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
@@ -209,48 +175,6 @@ func writeBuildTestFile(t *testing.T, root, rel, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func useFakeGoRunner(t *testing.T) {
-	t.Helper()
-	old := runGo
-	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
-		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
-			return nil
-		}
-		if out, ok := fakeGoBuildOutput(args); ok {
-			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-				return err
-			}
-			return os.WriteFile(out, []byte("#!/bin/sh\nexit 0\n"), 0o755)
-		}
-		return fmt.Errorf("unexpected fake go command: go %s", strings.Join(args, " "))
-	}
-	t.Cleanup(func() { runGo = old })
-}
-
-func fakeGoBuildOutput(args []string) (string, bool) {
-	if len(args) < 5 || args[0] != "build" || args[len(args)-1] != "./scenery_internal_main" {
-		return "", false
-	}
-	for i := 1; i < len(args)-2; i++ {
-		if args[i] == "-buildvcs=false" && args[i+1] == "-o" {
-			return args[i+2], true
-		}
-	}
-	return "", false
-}
-
-func prepareCompileTestResult(result *Result) *Result {
-	result.Contract = &compiler.Result{}
-	result.Target = &compiler.GoBuildTarget{}
-	result.RuntimeLinkerMetadata = map[string]string{
-		"scenery.sh/runtime.linkedContractRevision":       "test-contract",
-		"scenery.sh/runtime.linkedImplementationRevision": "test-implementation",
-		"scenery.sh/runtime.linkedBuildInputDigest":       "test-build-input",
-		"scenery.sh/runtime.linkedGoTarget":               "test-target",
-	}
-	return result
 }
 
 // developmentProcessInputs projects the complete input set of one process
@@ -305,10 +229,6 @@ func resetRetainedBuildInputGraphsForTesting() {
 	})
 }
 
-func verifyCurrentSourceState(root, workspace string, state buildState) error {
-	return verifyCurrentSourceStateWithSnapshot(root, workspace, state, nil)
-}
-
 func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -352,10 +272,6 @@ func copyTree(src, dst string) error {
 	})
 }
 
-func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []string) error {
-	return removeUnexpectedFilesFromListsObserved(root, sourceFiles, generatedFiles, nil)
-}
-
 func seedSceneryGoSum(workspaceDir, repoRoot string) error {
 	return seedSceneryGoSumObserved(workspaceDir, repoRoot, nil)
 }
@@ -378,13 +294,6 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 	return syncSourceFilesWithSnapshotObserved(root, appRoot, prevStamps, skip, snapshot, nil)
 }
 
-// A cached executable is usable only after publishing the current public
-// projection and proving its private workspace still contains those bytes.
-// Cache metadata alone cannot establish this after deletion or a branch switch.
-func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
-	return refreshCachedGoProjectionContext(context.Background(), appRoot, result, snapshot, prepared...)
-}
-
 func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string) ([]string, error) {
 	return syncGeneratedFilesObserved(root, appRoot, gen, prev, sourceFiles, nil)
 }
@@ -394,10 +303,6 @@ func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceF
 func frameworkFingerprintFiles(repoRoot string) ([]string, error) {
 	files, _, err := frameworkSourceFiles(repoRoot)
 	return files, err
-}
-
-func LoadCachedGraph(appRoot string, cfg appcfg.Config, graphFingerprint string) (*CachedGraph, bool, error) {
-	return loadCachedGraphContext(context.Background(), appRoot, cfg, graphFingerprint, "", nil)
 }
 
 func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {

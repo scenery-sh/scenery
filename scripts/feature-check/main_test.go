@@ -3,10 +3,11 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"testing"
+
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
-	"testing"
 
 	"scenery.sh/internal/harnessreport"
 )

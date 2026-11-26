@@ -221,17 +221,19 @@ func TestNativeFixtureRendersContractAndApplicationArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 7 {
+	if len(files) != 5 {
 		t.Fatalf("generated paths = %#v", files)
 	}
-	if _, ok := files["internal/scenerygen/assets/assets.gen.go"]; !ok {
-		t.Fatalf("generated paths do not include the empty assistant asset registry: %#v", files)
+	for _, legacy := range []string{"internal/scenerygen/assets/assets.gen.go", "internal/scenerygen/composition/composition.gen.go"} {
+		if _, ok := files[legacy]; ok {
+			t.Fatalf("generated paths include %s: %#v", legacy, files)
+		}
 	}
 	plan, err := BuildRuntimeIntegrationPlan(result)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.CompositionImport != "example.test/nativeapp/internal/scenerygen/composition" {
+	if len(plan.Services) != 1 || plan.Services[0].AdapterImport != "example.test/nativeapp/internal/scenerygen/house_house_adapter" {
 		t.Fatalf("runtime plan = %#v", plan)
 	}
 }
@@ -711,7 +713,7 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 	}
 }
 
-func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testing.T) {
+func TestGenerateApplicationArtifactsUsesExplicitRegistry(t *testing.T) {
 	root := t.TempDir()
 	result := nativeApplicationGenerationFixture(root)
 	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
@@ -724,7 +726,7 @@ func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testi
 		byPath[filepath.ToSlash(relative)] = file.Bytes
 	}
 	adapter := string(byPath["internal/scenerygen/house_house_adapter/adapter.gen.go"])
-	for _, fragment := range []string{"func Register(registry scenery.Registry) error", "RegisterNativeService", "RegisterEndpointChecked", "DecodeContractInput", "ProcessScene(ctx"} {
+	for _, fragment := range []string{"func Register(registry scenery.Registry) error", "RegisterNativeService", "RegisterWorkerOperation", "ProcessScene(ctx"} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
 		}
@@ -732,9 +734,8 @@ func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testi
 	if strings.Contains(adapter, "func init()") {
 		t.Fatalf("adapter uses init registration:\n%s", adapter)
 	}
-	composition := string(byPath["internal/scenerygen/composition/composition.gen.go"])
-	if !strings.Contains(composition, "adapter0.Register(registry)") || !strings.Contains(composition, result.Manifest.ContractRevision) {
-		t.Fatalf("composition:\n%s", composition)
+	if _, ok := byPath["internal/scenerygen/composition/composition.gen.go"]; ok {
+		t.Fatal("a worker application renders an application composition")
 	}
 	var descriptor map[string]any
 	if err := json.Unmarshal(byPath["internal/scenerygen/scenery.generated.json"], &descriptor); err != nil {
@@ -762,45 +763,6 @@ func TestGeneratedGoOperationOutcomeHasDeterministicDurableCodec(t *testing.T) {
 	} {
 		if !strings.Contains(contract, fragment) {
 			t.Fatalf("contract outcome codec missing %q:\n%s", fragment, contract)
-		}
-	}
-}
-
-func TestGenerateApplicationAdapterEmitsTypedPathMappingAndGatewayBasePath(t *testing.T) {
-	result := nativeApplicationGenerationFixture(t.TempDir())
-	result.Manifest.Resources = append(result.Manifest.Resources, Resource{Address: "app/http_gateway/public", Module: "app", Kind: "scenery.http-gateway", Name: "public", Spec: map[string]any{"base_path": "/api"}, Origin: Origin{Kind: "authored"}})
-	for index := range result.Manifest.Resources {
-		resource := &result.Manifest.Resources[index]
-		switch resource.Kind {
-		case "scenery.binding":
-			resource.Spec["gateway"] = map[string]any{"$ref": "app/http_gateway/public"}
-			httpSpec := resource.Spec["http"].(map[string]any)
-			httpSpec["method"] = "GET"
-			httpSpec["path"] = "/house/process/{scene_id}"
-			delete(httpSpec, "body")
-			httpSpec["path_parameter"] = map[string]any{"name": "scene_id", "to": map[string]any{"$ref": "operation.process_scene.input.scene_id"}}
-		}
-	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var adapter string
-	for _, file := range files {
-		if strings.HasSuffix(filepath.ToSlash(file.Path), "/house_house_adapter/adapter.gen.go") {
-			adapter = string(file.Bytes)
-		}
-	}
-	for _, fragment := range []string{
-		`Path: "/api/house/process/:scene_id"`,
-		`Source: sceneryruntime.ContractSourcePath`,
-		`Name: "scene_id"`,
-		`Target: "scene_id"`,
-		`Type: "string"`,
-		`Body: nil`,
-	} {
-		if !strings.Contains(adapter, fragment) {
-			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
 		}
 	}
 }

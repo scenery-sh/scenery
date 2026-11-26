@@ -49,8 +49,10 @@ func (s *devSupervisor) configureWorktreeVictoria() error {
 	}
 	// Planned endpoints are not readiness claims. Runtime exporters retry while
 	// optional component downloads and startup proceed asynchronously.
+	s.victoriaPlanned = map[string]string{}
 	for _, spec := range victoria.ComponentSpecs() {
 		base := fmt.Sprintf("http://127.0.0.1:%d", ports[spec.Name])
+		s.victoriaPlanned[spec.Name] = base + spec.EndpointPath
 		s.victoriaDesiredEnv = append(s.victoriaDesiredEnv,
 			spec.OTELVar+"="+base+spec.EndpointPath,
 			spec.SceneryURLVar+"="+base,
@@ -64,13 +66,4 @@ func (s *devSupervisor) configureWorktreeVictoria() error {
 	// Verified old component PIDs, not unrelated default ports, govern recovery.
 	s.victoriaProcesses.portsAvailable = func() bool { return true }
 	return nil
-}
-
-func (s *devSupervisor) observabilityEnvironment() []string {
-	if s.victoriaDesiredEnv != nil {
-		return s.victoriaDesiredEnv
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.victoria.Env()
 }

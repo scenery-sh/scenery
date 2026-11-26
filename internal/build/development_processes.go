@@ -27,9 +27,6 @@ import (
 // development generations inside the private workspace.
 const developmentProcessBinaryDir = "scenery-processes"
 
-// DevelopmentProcessHost names the host process of a process-model generation.
-const DevelopmentProcessHost = "host"
-
 // DevelopmentProcessIdentity is the runtime identity linked into one
 // development process.
 type DevelopmentProcessIdentity struct {
@@ -39,11 +36,9 @@ type DevelopmentProcessIdentity struct {
 	GoTarget               string
 }
 
-// DevelopmentProcess is one executable of a process-model generation.
+// DevelopmentProcess is the Worker ABI v1 executable of one native service.
 type DevelopmentProcess struct {
-	Name string
-	// Service is the service address a service process hosts; empty for the
-	// host process.
+	Name           string
 	Service        string
 	Package        string
 	Binary         string
@@ -51,71 +46,28 @@ type DevelopmentProcess struct {
 	Identity       DevelopmentProcessIdentity
 }
 
-// DevelopmentProcessSet is a complete process-model generation: the host, one
-// process per native service, and the service process owning each binding.
+// DevelopmentProcessSet is the Go worker generation of an application: one
+// process per native service and the service process owning each binding.
 type DevelopmentProcessSet struct {
-	// Identity is the build identity of the whole generation: the runtime
-	// bundle of the development target, which a single application executable
-	// built from the same inputs links. Every process of the set was linked
-	// from, or has the process identity of, this build.
+	// Identity is the build identity of the target the workers were linked
+	// from.
 	Identity      DevelopmentProcessIdentity
-	Host          DevelopmentProcess
 	Services      []DevelopmentProcess
 	BindingOwners map[string]string
 	// Rebuilt names the processes this build linked instead of reusing.
 	Rebuilt []string
 }
 
-// Process returns the named process of the set.
-func (set *DevelopmentProcessSet) Process(name string) (DevelopmentProcess, bool) {
-	if set == nil {
-		return DevelopmentProcess{}, false
-	}
-	if name == DevelopmentProcessHost {
-		return set.Host, set.Host.Name != ""
-	}
-	for _, process := range set.Services {
-		if process.Name == name {
-			return process, true
-		}
-	}
-	return DevelopmentProcess{}, false
-}
-
-// BuildDevelopmentProcessesContext links the process entrypoints of a prepared
-// development workspace. A process whose linked identity equals a retained
-// executable is reused; every other process is linked by one stock Go build.
-// The returned join completes the implementation check, which runs beside the
-// build; the caller must call it before using the checked contract, and may
-// prepare the linked executables meanwhile.
-func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*DevelopmentProcessSet, func() error, error) {
-	return buildDevelopmentProcessesContext(ctx, result, true, nil)
-}
-
-// BuildDevelopmentWorkersContext links only service entrypoints for a caller
-// that supplies its own host executable. The prepared target may have any
-// runtime role: a worker bundle links its services from the target its build
-// selected.
+// BuildDevelopmentWorkersContext links the Worker ABI v1 entrypoint of each
+// native Go service of a prepared workspace. A process whose linked identity
+// equals a retained executable is reused; every other process is linked by
+// one stock Go build. The prepared target may have any runtime role: a
+// worker bundle links its services from the target its build selected. The
+// returned join completes the implementation check, which runs beside the
+// build; the caller must call it before using the checked contract.
 func BuildDevelopmentWorkersContext(ctx context.Context, result *Result, retained []string) (*DevelopmentProcessSet, func() error, error) {
-	return buildDevelopmentProcessesContext(ctx, result, false, retained)
-}
-
-// developmentProcessTarget rejects a preparation the process model cannot
-// link. A linked host makes the development runtime; service entrypoints alone
-// follow whichever runtime target the caller prepared.
-func developmentProcessTarget(result *Result, linkHost bool) error {
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil {
-		return fmt.Errorf("development processes require a prepared contract and target")
-	}
-	if result.ProductionAssets || linkHost && result.Target.Role != "development" {
-		return fmt.Errorf("development processes require an ordinary development target")
-	}
-	return nil
-}
-
-func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkHost bool, retained []string) (*DevelopmentProcessSet, func() error, error) {
-	if err := developmentProcessTarget(result, linkHost); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("development workers require a prepared contract and target")
 	}
 	if err := requireGenerateHooks(); err != nil {
 		return nil, nil, err
@@ -165,7 +117,7 @@ func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkH
 	var set *DevelopmentProcessSet
 	check, err := compileBesidePreparedVerification(ctx, result, func(ctx context.Context) error {
 		var buildErr error
-		set, buildErr = buildDevelopmentProcesses(ctx, result, linkHost, retained, func() ([]generateapi.ServiceProcessPlan, error) {
+		set, buildErr = buildDevelopmentProcesses(ctx, result, retained, func() ([]generateapi.ServiceProcessPlan, error) {
 			<-planned
 			return plan.Services, planErr
 		})
@@ -192,8 +144,7 @@ func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkH
 		result.verification = nil
 		// The state was saved before the check joined; add its proof.
 		recordVerifiedImplementation(result, verification)
-		// The runtime bundle describes a verified build only.
-		return writeRuntimeBundle(result)
+		return nil
 	}, nil
 }
 
@@ -215,7 +166,7 @@ func completeDevelopmentProcessBuild(ctx context.Context, result *Result, verify
 	return WriteLatestBuildManifest(result, "compiled")
 }
 
-func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost bool, retained []string, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {
+func buildDevelopmentProcesses(ctx context.Context, result *Result, retained []string, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {
 	manifest, err := buildInputManifest(ctx, result)
 	if err != nil {
 		return nil, err
@@ -224,7 +175,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 	if err != nil {
 		return nil, err
 	}
-	names := []string{DevelopmentProcessHost}
+	names := make([]string, 0, len(services))
 	bindingOwners := map[string]string{}
 	for _, service := range services {
 		names = append(names, service.Name)
@@ -244,18 +195,18 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 		}
 		mains[index], digests[index] = main, digest
 	}
-	// The target and the host implement the application contract and share
-	// one projection. A service process implements its service contract, so a
-	// contract change elsewhere leaves its identity, and with unchanged build
-	// inputs its executable, as they were.
-	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, []string{manifest.Digest, digests[0]})
+	// The target implements the application contract. A service process
+	// implements its service contract, so a contract change elsewhere leaves
+	// its identity, and with unchanged build inputs its executable, as they
+	// were.
+	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, []string{manifest.Digest})
 	resources := make(map[string]compiler.Resource, len(result.Contract.Manifest.Resources))
 	for _, resource := range result.Contract.Manifest.Resources {
 		resources[resource.Address] = resource
 	}
 	serviceProcesses := make([]compiler.ServiceProcess, len(services))
 	for index, service := range services {
-		serviceProcesses[index] = compiler.ServiceProcess{Service: resources[service.Address], Covered: service.RequiredAddresses, ContractRevision: service.ContractRevision, InputDigest: digests[index+1]}
+		serviceProcesses[index] = compiler.ServiceProcess{Service: resources[service.Address], Covered: service.RequiredAddresses, ContractRevision: service.ContractRevision, InputDigest: digests[index]}
 	}
 	serviceRevisions, serviceDiagnostics := compiler.ServiceProcessImplementationRevisions(result.Contract, result.Target.Name, serviceProcesses)
 	for _, diagnostic := range append(diagnostics, serviceDiagnostics...) {
@@ -273,9 +224,8 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 		BuildInputDigest: manifest.Digest, GoTarget: result.Target.Name,
 	}}
 	identities := make([]DevelopmentProcessIdentity, len(names))
-	identities[0] = DevelopmentProcessIdentity{ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[digests[0]]}
 	for index, service := range services {
-		identities[index+1] = DevelopmentProcessIdentity{ContractRevision: service.ContractRevision, ImplementationRevision: serviceRevisions[service.Address]}
+		identities[index] = DevelopmentProcessIdentity{ContractRevision: service.ContractRevision, ImplementationRevision: serviceRevisions[service.Address]}
 	}
 	RecordStep(ctx, Step{Name: "process.identity", StartedAt: identityStarted, Duration: time.Since(identityStarted), Cache: "not_applicable", Reason: "entrypoint_import_closures", OK: true, Actions: len(names)})
 	binaryRoot := filepath.Join(result.Dir, developmentProcessBinaryDir)
@@ -286,21 +236,14 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 	var pending []*DevelopmentProcess
 	processes := make([]*DevelopmentProcess, 0, len(names))
 	for index, name := range names {
-		if index == 0 && !linkHost {
-			continue
-		}
-		serviceAddress := ""
-		if index > 0 {
-			serviceAddress = services[index-1].Address
-		}
-		process := &DevelopmentProcess{Name: name, Service: serviceAddress, Package: mains[index], Identity: DevelopmentProcessIdentity{
+		process := &DevelopmentProcess{Name: name, Service: services[index].Address, Package: mains[index], Identity: DevelopmentProcessIdentity{
 			ContractRevision: identities[index].ContractRevision, ImplementationRevision: identities[index].ImplementationRevision,
 			BuildInputDigest: digests[index], GoTarget: result.Target.Name,
 		}}
 		if process.Identity.ImplementationRevision == "" {
 			return nil, fmt.Errorf("implementation_revision is unavailable for development process %s", name)
 		}
-		key, err := developmentProcessKey(process, result.GoBuildFlags, developmentLinkerDefaults(result))
+		key, err := developmentProcessKey(process, result.GoBuildFlags, developmentLinkerDefaults(result), crossPlatform(result))
 		if err != nil {
 			return nil, err
 		}
@@ -361,17 +304,13 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 	for _, process := range pending {
 		set.Rebuilt = append(set.Rebuilt, process.Name)
 	}
-	// A candidate must retain the active generation's executables for
-	// restart until the supervisor confirms publication. Standalone bundle
-	// builds have no authority over the development generation's files.
-	if linkHost || retained != nil {
+	// Development retains the serving generation's executables until the
+	// host confirms publication. Standalone bundle builds have no authority
+	// over the development generation's files.
+	if retained != nil {
 		if err := pruneDevelopmentProcessBinaries(binaryRoot, keep); err != nil {
 			return nil, err
 		}
-	}
-	if linkHost {
-		set.Host = *processes[0]
-		processes = processes[1:]
 	}
 	for _, process := range processes {
 		set.Services = append(set.Services, *process)
@@ -383,18 +322,32 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 // are read at once to prove them reusable.
 const developmentProcessDigestReaders = 8
 
-func developmentProcessKey(process *DevelopmentProcess, buildFlags []string, linkerDefaults string) (string, error) {
+func developmentProcessKey(process *DevelopmentProcess, buildFlags []string, linkerDefaults, platform string) (string, error) {
 	encoded, err := json.Marshal(struct {
 		Package    string
 		Identity   DevelopmentProcessIdentity
 		BuildFlags []string
 		Linker     string
-	}{process.Package, process.Identity, buildFlags, linkerDefaults})
+		Platform   string `json:",omitempty"`
+	}{process.Package, process.Identity, buildFlags, linkerDefaults, platform})
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:8]), nil
+}
+
+// crossPlatform names the platform a result builds for when it is not the
+// build host's, so its executables never share a key with native ones.
+func crossPlatform(result *Result) string {
+	if result.Target == nil {
+		return ""
+	}
+	goos, goarch := result.Target.Context.GOOS, result.Target.Context.GOARCH
+	if goos == "" || goos == runtime.GOOS && goarch == runtime.GOARCH {
+		return ""
+	}
+	return goos + "/" + goarch
 }
 
 // linkDevelopmentProcesses runs one stock Go build for every pending process
@@ -540,10 +493,10 @@ func DevelopmentWorkerCommand(result *Result, service, revision string) ([]strin
 // entrypoint's package-scoped linker flags after the target's linker defaults,
 // and names the pending entrypoints.
 func developmentProcessBuildArgs(buildFlags []string, linkerDefaults, output string, pending []*DevelopmentProcess) []string {
-	flags := withRuntimeBundleLinkerMetadata(gotarget.WithTrimpath(normalizeGoBuildFlags(buildFlags)), "", nil)
+	flags := withRuntimeLinkerMetadata(gotarget.WithTrimpath(normalizeGoBuildFlags(buildFlags)), "", nil)
 	args := append([]string{"build"}, flags[:len(flags)-1]...)
 	for _, process := range pending {
-		linker := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), linkerDefaults, map[string]string{
+		linker := withRuntimeLinkerMetadata(normalizeGoBuildFlags(buildFlags), linkerDefaults, map[string]string{
 			"scenery.sh/runtime.linkedContractRevision":       process.Identity.ContractRevision,
 			"scenery.sh/runtime.linkedImplementationRevision": process.Identity.ImplementationRevision,
 			"scenery.sh/runtime.linkedBuildInputDigest":       process.Identity.BuildInputDigest,

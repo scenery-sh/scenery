@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -463,230 +462,6 @@ func shouldDisableDevReporting(err error) bool {
 	return ok
 }
 
-func startRequestTrace(state *requestState) {
-	if state == nil || state.trace != nil || (!state.logsEnabled && !state.traceEnabled) {
-		return
-	}
-	span := &traceSpan{
-		traceID:     newTraceID(),
-		spanID:      newSpanID(),
-		spanType:    "REQUEST",
-		service:     state.request.Service,
-		endpoint:    state.request.Endpoint,
-		started:     state.request.Started,
-		requestType: state.request.Type,
-		isRoot:      true,
-		generation:  state.processGeneration,
-	}
-	if traceID, parentID, ok := parseTraceParent(state.request.Headers.Get("traceparent")); ok {
-		span.traceID, span.parentSpanID = traceID, parentID
-	}
-	if span.started.IsZero() {
-		span.started = time.Now().UTC()
-		state.request.Started = span.started
-	}
-	state.trace = span
-	state.request.TraceID = span.traceID
-	reporter := activeReporter()
-	if reporter == nil || !state.traceEnabled {
-		return
-	}
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   span.traceID,
-			SpanID:    span.spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: span.started,
-			Event: map[string]any{
-				"span_start": map[string]any{
-					"request": map[string]any{
-						"service_name":    state.request.Service,
-						"endpoint_name":   state.request.Endpoint,
-						"http_method":     state.request.Method,
-						"path":            state.request.Path,
-						"path_params":     tracePathParams(state.request.PathParams),
-						"request_headers": flattenHeaders(state.request.Headers),
-						"uid":             state.auth.UID,
-						"mocked":          false,
-					},
-				},
-			},
-		},
-	})
-}
-
-func finishRequestTrace(state *requestState, httpStatus int, err error) {
-	if state == nil || state.trace == nil {
-		return
-	}
-	span := state.trace
-	duration := time.Since(span.started)
-	if span.isRoot && err != nil {
-		logRequestFailure(state, err)
-	}
-	if span.isRoot {
-		logRequestCompleted(state, duration, err)
-	}
-	traceErr := err
-	if traceErr == nil && httpStatus >= 400 {
-		traceErr = traceCodedError("http_" + strconv.Itoa(httpStatus))
-	}
-	reporter := activeReporter()
-	if reporter == nil || !state.traceEnabled {
-		state.trace = nil
-		return
-	}
-	endpointName := optionalString(span.endpoint)
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   span.traceID,
-			SpanID:    span.spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: time.Now().UTC(),
-			Event: map[string]any{
-				"span_end": map[string]any{
-					"duration_nanos": uint64(duration),
-					"status_code":    statusCodeName(traceErr),
-					"request": map[string]any{
-						"service_name":     span.service,
-						"endpoint_name":    span.endpoint,
-						"http_status_code": httpStatus,
-						"uid":              state.auth.UID,
-					},
-					"error": traceError(traceErr),
-				},
-			},
-		},
-	})
-	summary := &devreport.TraceSummary{
-		AppID:                 reporter.appID,
-		TraceID:               span.traceID,
-		SpanID:                span.spanID,
-		Type:                  span.spanType,
-		InvocationCorrelation: invocationCorrelation(state),
-		ErrorCode:             traceErrorCode(traceErr),
-		IsRoot:                span.isRoot,
-		IsError:               traceErr != nil,
-		StartedAt:             span.started,
-		DurationNanos:         uint64(duration),
-		ServiceName:           span.service,
-		EndpointName:          endpointName,
-		Generation:            span.generation,
-	}
-	if span.parentSpanID != "" {
-		summary.ParentSpanID = &span.parentSpanID
-	}
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:         "trace-summary",
-		AppID:        reporter.appID,
-		TraceSummary: summary,
-	})
-	state.trace = nil
-}
-
-func traceAuthCall(ctx context.Context, handler *AuthHandler, invoke func(context.Context) (AuthInfo, error)) (AuthInfo, error) {
-	parent := stateFromContext(ctx)
-	if parent == nil || parent.trace == nil {
-		return invoke(ctx)
-	}
-	authLogsEnabled := logsEnabledForAuthHandler(handler)
-	authTraceEnabled := traceEnabledForAuthHandler(handler)
-	if !authLogsEnabled && !authTraceEnabled {
-		return invoke(ctx)
-	}
-	child := &traceSpan{
-		traceID:      parent.trace.traceID,
-		spanID:       newSpanID(),
-		parentSpanID: parent.trace.spanID,
-		spanType:     "AUTH",
-		service:      handler.Service,
-		endpoint:     handler.Name,
-		started:      time.Now().UTC(),
-		requestType:  shared.InternalCall,
-		generation:   parent.processGeneration,
-	}
-	clone := *parent
-	clone.trace = child
-	clone.logsEnabled = authLogsEnabled
-	clone.traceEnabled = authTraceEnabled
-	callCtx := withState(ctx, &clone)
-	restore := enterState(&clone)
-	defer restore()
-	logAuthHandlerStart(&clone, handler)
-
-	reporter := activeReporter()
-	if reporter != nil && authTraceEnabled {
-		reporter.enqueue(devreport.ReportEnvelope{
-			Type:  "trace-event",
-			AppID: reporter.appID,
-			TraceEvent: &devreport.TraceEvent{
-				TraceID:   child.traceID,
-				SpanID:    child.spanID,
-				EventID:   reporter.nextEventID(),
-				EventTime: child.started,
-				Event: map[string]any{
-					"span_start": map[string]any{
-						"auth": map[string]any{
-							"service_name":  handler.Service,
-							"endpoint_name": handler.Name,
-						},
-					},
-				},
-			},
-		})
-	}
-
-	info, err := invoke(callCtx)
-	logAuthHandlerCompleted(&clone, handler, info, err, time.Since(child.started))
-	if reporter != nil && authTraceEnabled {
-		reporter.enqueue(devreport.ReportEnvelope{
-			Type:  "trace-event",
-			AppID: reporter.appID,
-			TraceEvent: &devreport.TraceEvent{
-				TraceID:   child.traceID,
-				SpanID:    child.spanID,
-				EventID:   reporter.nextEventID(),
-				EventTime: time.Now().UTC(),
-				Event: map[string]any{
-					"span_end": map[string]any{
-						"duration_nanos": uint64(time.Since(child.started)),
-						"status_code":    statusCodeName(err),
-						"auth": map[string]any{
-							"service_name":  handler.Service,
-							"endpoint_name": handler.Name,
-							"uid":           info.UID,
-						},
-						"error": traceError(err),
-					},
-				},
-			},
-		})
-		reporter.enqueue(devreport.ReportEnvelope{
-			Type:  "trace-summary",
-			AppID: reporter.appID,
-			TraceSummary: &devreport.TraceSummary{
-				AppID:         reporter.appID,
-				TraceID:       child.traceID,
-				SpanID:        child.spanID,
-				Type:          child.spanType,
-				IsRoot:        false,
-				IsError:       err != nil,
-				StartedAt:     child.started,
-				DurationNanos: uint64(time.Since(child.started)),
-				ServiceName:   child.service,
-				EndpointName:  optionalString(child.endpoint),
-				ParentSpanID:  optionalString(child.parentSpanID),
-				Generation:    child.generation,
-			},
-		})
-	}
-	return info, err
-}
-
 func newTraceID() string {
 	return newRandomHex(16)
 }
@@ -752,7 +527,7 @@ func traceError(err error) any {
 		return nil
 	}
 	result := map[string]any{
-		"msg":  redact.String(contractDiagnosticError(err).Error()),
+		"msg":  redact.String(diagnosticError(err).Error()),
 		"code": traceErrorCode(err),
 	}
 	if wrapped, ok := errs.As(err); ok {
@@ -761,18 +536,6 @@ func traceError(err error) any {
 		}
 	}
 	return result
-}
-
-func tracePathParams(params shared.PathParams) []string {
-	items := make([]string, 0, len(params))
-	for _, param := range params {
-		items = append(items, param.Value)
-	}
-	return items
-}
-
-func flattenHeaders(headers http.Header) map[string]string {
-	return redact.Headers(headers)
 }
 
 func (r *devReporter) nextEventID() uint64 {
@@ -869,3 +632,13 @@ var (
 	osStderr    = func() io.Writer { return os.Stderr }
 	stringsTrim = strings.TrimSpace
 )
+
+// diagnosticError reports an implementation failure by its cause rather than
+// by the neutral message the caller receives.
+func diagnosticError(err error) error {
+	var transport *ContractTransportError
+	if errors.As(err, &transport) && transport.Outcome == "system.internal" && transport.Cause != nil {
+		return transport.Cause
+	}
+	return err
+}

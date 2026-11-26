@@ -1,8 +1,9 @@
 package repoinfo
 
 import (
-	"scenery.sh/internal/harnessreport"
 	"strings"
+
+	"scenery.sh/internal/harnessreport"
 )
 
 const (

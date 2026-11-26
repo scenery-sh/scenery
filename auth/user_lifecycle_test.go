@@ -6,7 +6,6 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/errs"
@@ -31,23 +30,6 @@ func TestUserLifecycleValidatesInputBeforeConfiguration(t *testing.T) {
 	}
 	if code := errs.Code(EnableUser(t.Context(), validID)); code != errs.FailedPrecondition {
 		t.Fatalf("unconfigured enable code = %q, want %q", code, errs.FailedPrecondition)
-	}
-}
-
-func TestAuthHandlerPreservesSessionlessDevTokens(t *testing.T) {
-	resetStandardAuthStateForTest(t)
-	secrets.JWTSecret = "sessionless-dev-test"
-	t.Cleanup(func() { secrets.JWTSecret = "" })
-	token, err := GenerateToken("dev-user", "00000000-0000-0000-0000-000000000001", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	uid, data, err := AuthHandler(t.Context(), token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uid != "dev-user" || data.SessionID != "" {
-		t.Fatalf("sessionless auth = uid %q data %#v", uid, data)
 	}
 }
 

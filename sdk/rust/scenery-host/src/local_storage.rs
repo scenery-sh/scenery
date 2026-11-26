@@ -305,7 +305,7 @@ fn valid_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn path_valid(value: &str, prefix: bool) -> bool {
+pub(crate) fn path_valid(value: &str, prefix: bool) -> bool {
     if prefix && value.is_empty() {
         return true;
     }
@@ -577,7 +577,7 @@ async fn put(
 /// Decodes the user metadata of a write. A reference stores the canonical
 /// encoding, which escapes `<`, `>` and `&` to six bytes each, so the limit
 /// applies to that form and not to the bytes the header carried.
-fn user_metadata(headers: &HeaderMap) -> Result<Option<Value>, Fault> {
+pub(crate) fn user_metadata(headers: &HeaderMap) -> Result<Option<Value>, Fault> {
     let Some(header) = headers.get("x-storage-metadata") else {
         return Ok(None);
     };
@@ -608,7 +608,10 @@ fn encode_reference(reference: &Value) -> Result<String, Fault> {
     Ok(encoded)
 }
 
-fn get_usize(query: &BTreeMap<String, Vec<String>>, key: &str) -> Result<Option<u64>, Fault> {
+pub(crate) fn get_usize(
+    query: &BTreeMap<String, Vec<String>>,
+    key: &str,
+) -> Result<Option<u64>, Fault> {
     query
         .get(key)
         .and_then(|values| values.first())
@@ -617,7 +620,7 @@ fn get_usize(query: &BTreeMap<String, Vec<String>>, key: &str) -> Result<Option<
         .transpose()
 }
 
-fn object_reply(object: &Value) -> Result<Reply, Fault> {
+pub(crate) fn object_reply(object: &Value) -> Result<Reply, Fault> {
     let mut response = empty(StatusCode::OK);
     let headers = response.headers_mut();
     header(

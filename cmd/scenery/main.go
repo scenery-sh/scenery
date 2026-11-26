@@ -17,8 +17,6 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/build"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -32,10 +30,7 @@ var cliStderr io.Writer = os.Stderr
 func main() {
 	if len(os.Args) > 1 {
 		internal := map[string]func([]string) error{
-			"worker-refresh-plan":     refreshWorkerRebuildPlan,
-			"worker-check-migrations": checkWorkerMigrationsCommand,
-			"worker-assistants":       runWorkerAssistants,
-			"worker-frontend":         runWorkerFrontend,
+			"worker-refresh-plan": refreshWorkerRebuildPlan,
 		}
 		if command := internal[os.Args[1]]; command != nil {
 			if err := command(os.Args[2:]); err != nil {
@@ -386,63 +381,6 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 	opts, err := parseDevArgs(args)
 	if err != nil {
 		return err
-	}
-	if root, cfg, discoverErr := discoverConfiguredApp(opts.AppRoot); discoverErr == nil {
-		if compiled, compileErr := compiler.Compile(root); compileErr == nil && compiled.UsesWorkerBundle() {
-			if err := build.VerifyPrebuiltFramework(root, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
-				return &codedCLIError{err: err, code: 3}
-			}
-			if opts.Detach || opts.Desktop {
-				return usageErrorf("worker applications currently support foreground up")
-			}
-			if err := requireWorkerFrontends(cfg, opts.Env); err != nil {
-				return err
-			}
-			paths, err := commandWorktreePaths(root)
-			if err != nil {
-				return err
-			}
-			live, err := paths.AcquireLiveLock()
-			if err != nil {
-				return err
-			}
-			defer func() { _ = live.Release() }()
-			inputWatch := &workerInputScope{root: root}
-			inputWatch.generated, err = compiler.ManagedGeneratedRoots(compiled)
-			if err != nil {
-				return err
-			}
-			inputs, err := inputWatch.capture()
-			if err != nil {
-				return err
-			}
-			ctx := context.Background()
-			workerDev, bundle, err := startWorkerDevelopment(ctx, inputWatch, inputs)
-			if err != nil {
-				return err
-			}
-			workerDev.cfg = cfg
-			compiled = workerDev.compiled
-			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
-				return err
-			}
-			if err := bundle.resolveDevelopmentConfig(context.Background(), compiled, cfg, opts.Env); err != nil {
-				return err
-			}
-			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
-				return err
-			}
-			if err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env); err != nil {
-				return err
-			}
-			frontend, frontendPID, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
-			if err != nil {
-				return err
-			}
-			defer closeFrontend()
-			bundle.Frontend = frontend
-			return runWorkerDevelopment(bundle, workerListen(opts), workerDev, live, frontendPID, opts.Env, telemetry)
-		}
 	}
 	warnDevEscapeHatches(opts)
 	if !detachedDevChildMode() {

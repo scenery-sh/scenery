@@ -37,56 +37,8 @@ func (sdkHost) WithAuth(ctx context.Context, auth appsdk.Auth) context.Context {
 	return WithAuthContext(ctx, AuthInfo{UID: auth.UID, Data: auth.Data})
 }
 
-func (sdkHost) RegisterAuthHandler(handler appsdk.AuthHandler) {
-	authenticate := handler.Authenticate
-	RegisterAuthHandler(&AuthHandler{
-		Service: handler.Service,
-		Name:    handler.Name,
-		Authenticate: func(ctx context.Context, token string) (AuthInfo, error) {
-			auth, err := authenticate(ctx, token)
-			return AuthInfo{UID: auth.UID, Data: auth.Data}, err
-		},
-	})
-}
-
-func (sdkHost) RegisterEndpoint(endpoint appsdk.Endpoint) {
-	registered := &Endpoint{
-		Service: endpoint.Service,
-		Name:    endpoint.Name,
-		Access:  endpoint.Access,
-		Path:    endpoint.Path,
-		Methods: endpoint.Methods,
-	}
-	if endpoint.RawHandler != nil {
-		registered.Raw = true
-		registered.RawHandler = endpoint.RawHandler
-		RegisterEndpoint(registered)
-		return
-	}
-	decode, encode := endpoint.Decode, endpoint.Encode
-	registered.Invoke = endpoint.Invoke
-	registered.DecodeContractRequest = func(request *http.Request, values map[string]string) (ContractDecodedRequest, error) {
-		payload, pathArgs, err := decode(request, values)
-		return ContractDecodedRequest{Payload: payload, PathArgs: pathArgs}, err
-	}
-	registered.EncodeContractOutcome = func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
-		response, err := encode(request, outcome)
-		return ContractHTTPResponse{Status: response.Status, Headers: response.Headers, Body: response.Body}, err
-	}
-	RegisterEndpoint(registered)
-}
-
 func (sdkHost) MarkServiceInitialized(service string, shutdown func(context.Context)) {
 	MarkServiceInitialized(service, shutdown)
-}
-
-func (sdkHost) DecodeJSON(request *http.Request, target any) error {
-	return decodeContractInputInto(request, nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}}, target)
-}
-
-func (sdkHost) EncodeJSON(status int, value any) (appsdk.Response, error) {
-	response, err := EncodeContractJSON(status, value)
-	return appsdk.Response{Status: response.Status, Headers: response.Headers, Body: response.Body}, err
 }
 
 func (sdkHost) FrameworkConfigSecret(key string) ([]byte, bool, error) {

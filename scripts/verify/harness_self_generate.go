@@ -3,12 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
-	"scenery.sh/internal/runtimeassets"
 )
 
 const harnessGenerationCompileProbeName = "generation compile probes"
@@ -141,7 +138,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}); err != nil {
 		return summary, nil, err
 	}
-	var providerCompiled *compiler.Result
 	var contractRevision string
 	if err := runSegment("render private workspace adapters", func() error {
 		compiled, compileErr := compiler.Compile(appRoot)
@@ -151,7 +147,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		if !compiled.Valid() {
 			return fmt.Errorf("generated private workspace graph is invalid: %#v", compiled.Diagnostics)
 		}
-		providerCompiled = compiled
 		contractRevision = compiled.Manifest.ContractRevision
 		// This fixture is a private build workspace, not the ordinary checkout
 		// proof above. Compile the same rendered private adapters explicitly.
@@ -186,15 +181,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}); err != nil {
 		return summary, nil, err
 	}
-	var assistantAssetGoTestOutput string
-	if err := runSegment("render and compile assistant asset registry", func() error {
-		var compileErr error
-		assistantAssetGoTestOutput, compileErr = runHarnessAssistantAssetRegistryCompile(ctx, probeRoot, appRoot, providerCompiled)
-		return compileErr
-	}); err != nil {
-		return summary, nil, err
-	}
-
 	invalidImplementationRoot := filepath.Join(probeRoot, "invalid-implementation")
 	if err := runSegment("prepare invalid implementation fixture", func() error {
 		if err := copyHarnessNativeContractFixture(repoRoot, invalidImplementationRoot); err != nil {
@@ -379,8 +365,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	summary["contract_revision"] = contractRevision
 	summary["changed_files"] = len(changed)
 	summary["go_test_output"] = goTestOutput
-	summary["assistant_asset_registry_proof"] = "generated_embedded_asset_package_compiled_by_real_go_toolchain"
-	summary["assistant_asset_go_test_output"] = assistantAssetGoTestOutput
 	summary["invalid_implementation_proof"] = "contract_bootstrap_succeeds_after_real_implementation_verification_fails"
 	summary["invalid_implementation_diagnostics"] = invalidImplementationDiagnostics
 	summary["bootstrap_changed_files"] = bootstrapChanged
@@ -392,77 +376,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	summary["nested_contract_proof"] = "nested_exported_type_contract_closure_compiled"
 	summary["nested_go_test_output"] = nestedGoTestOutput
 	return summary, nil, nil
-}
-
-func runHarnessAssistantAssetRegistryCompile(ctx context.Context, probeRoot, appRoot string, result *compiler.Result) (string, error) {
-	if result == nil {
-		return "", fmt.Errorf("compiled provider fixture is unavailable")
-	}
-	archiveRoot := filepath.Join(probeRoot, "assistant-assets")
-	nodeRoot := filepath.Join(archiveRoot, "node")
-	capsuleRoot := filepath.Join(archiveRoot, "capsule")
-	for root, payload := range map[string]string{nodeRoot: "node-runtime", capsuleRoot: "assistant-capsule"} {
-		if err := os.MkdirAll(root, 0o755); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(filepath.Join(root, "payload.txt"), []byte(payload), 0o644); err != nil {
-			return "", err
-		}
-	}
-	node, err := runtimeassets.BuildArchive(nodeRoot)
-	if err != nil {
-		return "", err
-	}
-	capsule, err := runtimeassets.BuildArchive(capsuleRoot)
-	if err != nil {
-		return "", err
-	}
-	nodeDescriptor, err := json.Marshal(node.Descriptor)
-	if err != nil {
-		return "", err
-	}
-	capsuleDescriptor, err := json.Marshal(capsule.Descriptor)
-	if err != nil {
-		return "", err
-	}
-	descriptor := generate.AssistantAssetDescriptor{
-		Kind:                 generate.AssistantAssetDescriptorKind,
-		SchemaRevision:       generate.AssistantAssetSchemaRevision,
-		AssistantAddress:     "assistant/release-probe",
-		Target:               runtime.GOOS + "/" + runtime.GOARCH,
-		RuntimeRevision:      "release-probe-runtime",
-		CapabilityRevision:   "sha256:" + strings.Repeat("1", 64),
-		NodeArchiveDigest:    node.ArchiveDigest,
-		NodeTreeDigest:       node.Descriptor.Digest,
-		CapsuleArchiveDigest: capsule.ArchiveDigest,
-		CapsuleTreeDigest:    capsule.Descriptor.Digest,
-		CapsuleEntry:         generate.AssistantAssetCapsuleEntry,
-		PackageLockDigest:    "sha256:" + strings.Repeat("2", 64),
-	}
-	files, err := generate.RenderAssistantAssetRegistry(result, []generate.AssistantAssetInput{{
-		Descriptor: descriptor, NodeArchive: node.Data, NodeDescriptorJSON: nodeDescriptor,
-		CapsuleArchive: capsule.Data, CapsuleDescriptorJSON: capsuleDescriptor,
-	}})
-	if err != nil {
-		return "", err
-	}
-	for relative, data := range files {
-		path := filepath.Join(appRoot, filepath.FromSlash(relative))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return "", err
-		}
-	}
-	command := exec.CommandContext(ctx, "go", "test", "./internal/scenerygen/assets")
-	command.Dir = appRoot
-	command.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off", "GOMAXPROCS=2")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("go test generated assistant asset registry: %w\n%s", err, output)
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 func configureHarnessInvalidImplementationFixture(appRoot string) error {

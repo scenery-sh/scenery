@@ -14,13 +14,6 @@ const maxApplicationSpanNameLength = 128
 
 type Span = appsdk.Span
 
-// StartSpan starts a child span beneath the current request or application span.
-// The returned context must be passed to nested work so further spans and
-// automatically traced database and HTTP activity use this span as their parent.
-func StartSpan(ctx context.Context, name string) (context.Context, *Span) {
-	return appsdk.StartSpan(ctx, name)
-}
-
 type applicationSpanStarter struct{}
 
 func (applicationSpanStarter) StartApplicationSpan(ctx context.Context, name string) (context.Context, func(error)) {

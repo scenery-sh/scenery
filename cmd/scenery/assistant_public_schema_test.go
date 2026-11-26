@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,9 +8,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
-
-	"scenery.sh/internal/assistantapi"
 )
 
 func TestAssistantPublicSchemasValidateExactProviderNeutralShapes(t *testing.T) {
@@ -158,25 +154,6 @@ func TestAssistantPublicResponseSchemaValidatesApprovalAndCancellation(t *testin
 		"message": strings.Repeat("x", 8193),
 	}); len(diagnostics) == 0 {
 		t.Fatal("public error accepted a message larger than 8192 characters")
-	}
-}
-
-func TestAssistantPublicEventDataLimitMatchesAssistantAPI(t *testing.T) {
-	t.Parallel()
-
-	data := append([]byte(`{"text":"`), bytes.Repeat([]byte("x"), assistantapi.MaxEventDataBytes)...)
-	data = append(data, []byte(`"}`)...)
-	event := assistantapi.Event{
-		Type:           assistantapi.EventMessageDelta,
-		Assistant:      "support",
-		ConversationID: "conv1_0123456789abcdef",
-		RunID:          "run_0123456789abcdef",
-		Sequence:       1,
-		OccurredAt:     time.Unix(1_700_000_000, 0).UTC(),
-		Data:           data,
-	}
-	if err := event.Validate(); err == nil {
-		t.Fatal("assistant event accepted data larger than MaxEventDataBytes")
 	}
 }
 

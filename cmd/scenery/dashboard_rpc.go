@@ -73,9 +73,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		if controller, ok := s.controller.(*agentDashboardController); ok {
 			result.Serving, result.SourceFreshness = controller.servingState(ctx, status)
 			result.RebuildTiming, result.BuildFailure = controller.buildState(status)
-			if supervisor := s.servingSupervisorFor(status); supervisor != nil {
-				result.ProcessLinkPath = supervisor.devCallLinkPath()
-			}
 		}
 		if result.Observability != nil {
 			result.Observability.Export = s.telemetry.counts()
@@ -179,7 +176,6 @@ type runtimeStatus struct {
 	SourceFreshness     string                  `json:"source_freshness"`
 	RebuildTiming       *workerRebuildTiming    `json:"rebuild_timing,omitempty"`
 	BuildFailure        *devBuildFailure        `json:"build_failure,omitempty"`
-	ProcessLinkPath     string                  `json:"process_link_path,omitempty"`
 }
 
 type runtimeBuildBlock struct {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -155,7 +156,18 @@ func (p *worktreeRuntimeProbe) lifecycle(root string, runtime *detachedDevResult
 		if err != nil {
 			return err
 		}
-		session, err := p.liveSession(root)
+		served := func() (worker, generation string, err error) {
+			response, err := http.Get(worktreeProbeAPI(*runtime) + "/books")
+			if err != nil {
+				return "", "", err
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				return "", "", fmt.Errorf("GET /books returned %d", response.StatusCode)
+			}
+			return response.Header.Get("X-App-Worker-Pid"), response.Header.Get("X-App-Generation"), nil
+		}
+		worker, generation, err := served()
 		if err != nil {
 			return err
 		}
@@ -167,20 +179,17 @@ func (p *worktreeRuntimeProbe) lifecycle(root string, runtime *detachedDevResult
 		if err := os.WriteFile(sourcePath, append(source, []byte("\n// Release probe rebuild boundary.\n")...), 0o644); err != nil {
 			return err
 		}
-		// The edit replaces the application process in the single application
-		// model and the edited service's process in the process model; either
-		// replacement must be serving and registered.
+		// The edit replaces the edited service's worker under the running
+		// host; the replacement must be serving.
 		deadline := time.Now().Add(45 * time.Second)
 		for {
-			current, readErr := p.liveSession(root)
-			if readErr == nil && current.Status == "running" {
-				if replaced := worktreeServingReplacements(session, current); len(replaced) > 0 {
-					e["rebuild_replaced_processes"] = replaced
-					break
-				}
+			current, currentGeneration, readErr := served()
+			if readErr == nil && current != worker && currentGeneration != generation {
+				e["rebuild_replaced_processes"] = []string{worker + "->" + current}
+				break
 			}
 			if time.Now().After(deadline) {
-				return fmt.Errorf("source edit did not produce a serving replacement app process")
+				return fmt.Errorf("source edit did not produce a serving replacement worker")
 			}
 			select {
 			case <-p.ctx.Done():
@@ -201,7 +210,7 @@ func (p *worktreeRuntimeProbe) lifecycle(root string, runtime *detachedDevResult
 		if _, err := p.verify(root, *runtime, "persisted"); err != nil {
 			return err
 		}
-		session, err = p.liveSession(root)
+		session, err := p.liveSession(root)
 		if err != nil {
 			return err
 		}

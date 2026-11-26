@@ -32,13 +32,14 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 		t.Fatalf("build descriptor identity = %#v", build)
 	}
 	wantUsage := []string{
-		"scenery build [--development] [--verify-generation] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
+		"scenery build [--development] [--target <go-target>] [--app-root <path>] [--output <dir>] [-o human|json]",
+		"scenery build --oci <image> [--platform linux/amd64|linux/arm64] [--oci-context <dir>] [--target <go-target>] [--app-root <path>] [-o human|json]",
 		"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 	}
 	if !reflect.DeepEqual(build.Usage, wantUsage) {
 		t.Fatalf("usage = %#v", build.Usage)
 	}
-	for _, flag := range []string{"--development", "--target <go-target>", "--desktop", "--env <name>", "-o human|json"} {
+	for _, flag := range []string{"--development", "--target <go-target>", "--oci <image>", "--platform linux/amd64|linux/arm64", "--oci-context <dir>", "--desktop", "--env <name>", "-o human|json"} {
 		if !containsHelpString(build.Flags, flag) {
 			t.Errorf("flags missing %q: %#v", flag, build.Flags)
 		}
@@ -47,6 +48,9 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 		{When: "--env", Requires: []string{"--desktop"}},
 		{When: "--development", ConflictsWith: []string{"--desktop"}},
 		{When: "--desktop", ConflictsWith: []string{"--target", "--output", "--development"}},
+		{When: "--platform", Requires: []string{"--oci"}},
+		{When: "--oci-context", Requires: []string{"--oci"}},
+		{When: "--oci", ConflictsWith: []string{"--desktop", "--output", "--development"}},
 	} {
 		if !containsHelpRelationship(build.RequiredCombinations, relationship) {
 			t.Errorf("required_combinations missing %#v: %#v", relationship, build.RequiredCombinations)
@@ -57,6 +61,7 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 	}
 	wantSchemas := map[string]string{
 		"application": "scenery.build.result",
+		"oci":         "scenery.build.result",
 		"desktop":     "scenery.build.desktop",
 	}
 	if len(build.OutputSchemas) != len(wantSchemas) {
@@ -171,6 +176,15 @@ func TestBuildRequiredFlagCombinationsAreEnforced(t *testing.T) {
 	}{
 		{args: []string{"--env", "production"}, want: "--env is only supported with --desktop"},
 		{args: []string{"--desktop", "--output", "dist"}, want: "--desktop cannot be combined with --output"},
+		{args: []string{"--platform", "linux/arm64"}, want: "--platform requires --oci"},
+		{args: []string{"--oci-context", "image"}, want: "--oci-context requires --oci"},
+		{args: []string{"--oci", "app:1", "--output", "dist"}, want: "--oci cannot be combined with --output"},
+		{args: []string{"--oci", "app:1", "--desktop"}, want: "--oci cannot be combined with --desktop"},
+		{args: []string{"--oci", "app:1", "--development"}, want: "--oci cannot be combined with --development"},
+		{args: []string{"--oci", "App:1"}, want: "is not an image reference"},
+		{args: []string{"--oci", "app:1", "--platform", "linux/s390x"}, want: "use linux/amd64 or linux/arm64"},
+		{args: []string{"--oci", "app:1", "--platform", "darwin/arm64"}, want: "use linux/amd64 or linux/arm64"},
+		{args: []string{"--oci", "app:1", "--oci-context="}, want: "--oci-context requires a directory"},
 	}
 	for _, test := range tests {
 		err := buildCommand(io.Discard, test.args)

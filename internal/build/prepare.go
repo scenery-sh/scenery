@@ -28,6 +28,16 @@ func PrepareForCompileWithContractSnapshotContext(ctx context.Context, appRoot s
 // empty. A worker bundle links its Go services from the target its build
 // selected, so a production bundle carries the declared artifact build.
 func PrepareForTargetWithContractSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, targetName, defaultRole string) (*Result, error) {
+	return prepareForTarget(ctx, appRoot, cfg, snapshot, contract, targetName, defaultRole, nil)
+}
+
+// PrepareForPlatformContext prepares the selected target to build for
+// platform instead of the build host, as `scenery build --oci` does.
+func PrepareForPlatformContext(ctx context.Context, appRoot string, cfg app.Config, contract *compiler.Result, targetName, defaultRole string, platform compiler.GoPlatform) (*Result, error) {
+	return prepareForTarget(ctx, appRoot, cfg, nil, contract, targetName, defaultRole, &platform)
+}
+
+func prepareForTarget(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, targetName, defaultRole string, platform *compiler.GoPlatform) (*Result, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
@@ -35,7 +45,7 @@ func PrepareForTargetWithContractSnapshotContext(ctx context.Context, appRoot st
 		return nil, err
 	}
 	// An unavailable target fails before anything is generated for it.
-	target, err := compiler.ResolveGoBuildTarget(contract, targetName, defaultRole)
+	target, err := compiler.ResolveGoBuildTargetFor(contract, targetName, defaultRole, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -82,17 +92,6 @@ func (e *ContractError) ExitCode() int {
 		return 10
 	}
 	return 3
-}
-
-func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
-	if err := requireGenerateHooks(); err != nil {
-		return nil, err
-	}
-	projection, err := generateHooks.PrepareBuildGoWorkspace(context.Background(), contract)
-	if err != nil {
-		return nil, err
-	}
-	return prepareWithContractTargetContext(context.Background(), appRoot, cfg, snapshot, contract, target, projection)
 }
 
 // The caller publishes public Go projections before implementation checking or

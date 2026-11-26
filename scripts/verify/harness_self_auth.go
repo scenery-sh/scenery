@@ -1,59 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
+	"strings"
 	"time"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/envpolicy"
 )
 
 const harnessStandardAuthName = "standard auth lifecycle"
-
-var harnessStandardAuthCases = []struct{ ID, Proof string }{
-	{"schema", "TestStandardAuthBootstrapPostgresSchema"},
-	{"dev-new", "TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership"},
-	{"dev-existing", "TestDevBootstrapAttachesExistingUserToConfiguredTenant"},
-	{"oauth-browser", "TestGoogleOAuthBrowserFlowWithFakeGoogle"},
-	{"connection-redirect", "TestOAuth2OnlyProviderUsesPKCEAndConfiguredAccountIdentity"},
-	{"connection-store", "TestVaultDisconnectCommitsBeforeFailedRevocation"},
-	{"connection-error", "ConnectionCallbackBrowserState"},
-	{"token-rotation", "TestVaultPersistsRotationBeforeDenyingReducedScope"},
-	{"token-failure", "TestVaultRefreshFailureClassificationsAndPersistence"},
-	{"token-missing-scope", "TestVaultPersistsRotationBeforeDenyingReducedScope"},
-	{"token-disallowed-scope", "TestVaultConfigurationAndOwnershipFailuresDoNotChangeConsent"},
-	{"impersonation", "TestPrepareImpersonationTargetAndStartUnverifiedSession"},
-	{"impersonation-privilege", "TestPrepareImpersonationTargetRequiresPrivilege"},
-	{"refresh-replay", "TestRefreshReplayRevokesSessionAcrossTransaction"},
-	{"user-lifecycle", "TestUserLifecyclePostgres"},
-	{"independent-provider", "ConfiguredOAuth2PublicJourney"},
-	{"connection-isolation", "ProviderBrowserReplayIsolation"},
-	{"connection-migration", "LegacyConnectionTransactionalMigration"},
-	{"connection-migration-refusal", "UnknownConnectionSchemaRefusal"},
-	{"connection-process-refresh", "IndependentProcessRefreshSerialization"},
-	{"connection-process-disconnect", "IndependentProcessDisconnectSerialization"},
-	{"connection-process-crash", "InterruptedRefreshIntentRecovery"},
-	{"connection-authority", "AdmittedRequestAndWorkerAuthority"},
-	{"connection-no-expiry", "InitialUnknownExpiryGrantIssuance"},
-	{"connection-repeat-disconnect", "PendingCallbackDisconnectInvalidation"},
-}
-
-type harnessAuthCaseReport struct {
-	Case       string   `json:"case"`
-	OK         bool     `json:"ok"`
-	Assertions []string `json:"assertions"`
-	Error      string   `json:"error,omitempty"`
-}
 
 func runHarnessStandardAuthStep(ctx context.Context, repoRoot string) harnessStep {
 	return runHarnessStandardAuthStepWithCheck(ctx, repoRoot, runHarnessStandardAuth)
@@ -87,7 +47,7 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 	fixture, home := filepath.Join(root, "worktree"), filepath.Join(root, "state")
 	restore := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(home), "SCENERY_APP_ROOT": nil, "DATABASE_URL": nil, "SCENERY_DATABASE_JSON": nil, "REPORTS_DATABASE_URL": nil, "CACHE_DATABASE_URL": nil})
 	defer restore()
-	summary = map[string]any{"fixture_root": root, "cases": []map[string]any{}, "expected_cases": len(harnessStandardAuthCases)}
+	summary = map[string]any{"fixture_root": root}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
@@ -105,99 +65,20 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 	if err != nil {
 		return summary, err
 	}
-	admin, err := postgresdb.Open(ctx, database.URL)
+	// The application host owns standard authentication. Its browser journeys
+	// run against this empty, probe-owned database.
+	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-host", "Cargo.toml")
+	command := commandTreeContext(ctx, "cargo", "+"+harnessRustToolchain, "test", "--locked", "--manifest-path", manifest, "browser_auth_test::", "--", "--ignored")
+	command.Dir = repoRoot
+	command.Env = envWithOverrides(envpolicy.Environ(), "DATABASE_URL="+database.URL)
+	output, err := command.CombinedOutput()
+	summary["output_tail"] = tailString(string(output), 4096)
 	if err != nil {
-		return summary, err
+		return summary, fmt.Errorf("host standard auth journeys: %w", err)
 	}
-	defer func() { returnErr = errors.Join(returnErr, admin.Close()) }()
-	binary := filepath.Join(root, "authprobe")
-	if output, err := runHarnessTimingConfirmationCommand(ctx, repoRoot, []string{"go", "build", "-o", binary, "./scripts/verify/testdata/authprobe"}); err != nil {
-		return summary, fmt.Errorf("build auth fixture: %w: %s", err, tailString(string(output), 8192))
+	if !strings.Contains(string(output), "test result: ok.") || strings.Contains(string(output), " 0 passed") {
+		return summary, fmt.Errorf("host standard auth journeys ran no test")
 	}
-	summary["fixture_sha256"], err = worktreeProbeFileSHA(binary)
-	if err != nil {
-		return summary, err
-	}
-	list := commandTreeContext(ctx, binary, "--list")
-	output, err := list.CombinedOutput()
-	if err != nil {
-		return summary, fmt.Errorf("list auth fixture cases: %w", err)
-	}
-	var actual []string
-	if err := json.Unmarshal(output, &actual); err != nil {
-		return summary, err
-	}
-	want := make([]string, 0, len(harnessStandardAuthCases))
-	for _, scenario := range harnessStandardAuthCases {
-		want = append(want, scenario.ID)
-	}
-	sort.Strings(want)
-	if !reflect.DeepEqual(actual, want) {
-		return summary, fmt.Errorf("auth fixture case inventory differs: got %v, want %v", actual, want)
-	}
-	var failures []error
-	for index, scenario := range harnessStandardAuthCases {
-		if ctx.Err() != nil {
-			return summary, errors.Join(ctx.Err(), errors.Join(failures...))
-		}
-		started := time.Now()
-		report, output, caseErr := runHarnessAuthCase(ctx, admin, database.URL, root, binary, index, scenario.ID, home, repoRoot)
-		row := map[string]any{"id": scenario.ID, "proof": scenario.Proof, "ok": caseErr == nil, "duration_ms": time.Since(started).Milliseconds(), "assertions": report.Assertions}
-		if caseErr != nil {
-			row["error"] = caseErr.Error()
-			row["output_tail"] = tailString(string(output), 8192)
-			failures = append(failures, fmt.Errorf("%s: %w", scenario.ID, caseErr))
-		}
-		summary["cases"] = append(summary["cases"].([]map[string]any), row)
-	}
-	return summary, errors.Join(failures...)
-}
-
-func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary string, index int, name, home, sourceRoot string) (report harnessAuthCaseReport, output []byte, returnErr error) {
-	databaseName := fmt.Sprintf("scenery_auth_probe_%d", index)
-	if err := postgresdb.EnsureDatabase(ctx, admin, databaseName); err != nil {
-		return report, nil, err
-	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		returnErr = errors.Join(returnErr, postgresdb.DropDatabase(cleanup, admin, databaseName))
-	}()
-	u, err := url.Parse(base)
-	if err != nil {
-		return report, nil, err
-	}
-	u.Path = "/" + databaseName
-	path := filepath.Join(root, name+".json")
-	command := commandTreeContext(ctx, binary, "--case", name, "--report", path, "--source-root", sourceRoot)
-	command.Dir = root
-	command.Env = envWithOverrides(harnessAppEnv(home), "DATABASE_URL="+u.String(), "SCENERY_DATABASE_JSON=", "SCENERY_ROLE=", "SCENERY_LISTEN_NETWORK=")
-	output, commandErr := command.CombinedOutput()
-	encoded, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return report, output, errors.Join(commandErr, readErr)
-	}
-	// The native fixture emits actual runtime logs/trace summaries. Scan both
-	// channels before retaining them; public status responses are checked inside
-	// the journeys. Known credentials may exist only in private in-memory IPC.
-	for _, credential := range []string{"initial-access", "initial-refresh", "rotated-access", "rotated-refresh", "refreshed-access-", "retried-access", "independent-access", "independent-refresh", "independent-rotated-access", "independent-rotated-refresh", "client-secret", "independent-secret", "owned-auth-release-secret", "legacy-access", "legacy-refresh"} {
-		if bytes.Contains(output, []byte(credential)) || bytes.Contains(encoded, []byte(credential)) {
-			return report, nil, errors.New("auth fixture exposed credential material in logs, traces or retained evidence")
-		}
-	}
-	if err := json.Unmarshal(encoded, &report); err != nil {
-		return report, output, errors.Join(commandErr, err)
-	}
-	if err := validateHarnessAuthCase(name, report); err != nil {
-		return report, output, errors.Join(commandErr, err)
-	}
-	report.Assertions = append(report.Assertions, "runtime logs, traces and retained inspection evidence exclude fixture credentials")
-	return report, output, commandErr
-}
-
-func validateHarnessAuthCase(expected string, report harnessAuthCaseReport) error {
-	if report.Case != expected || !report.OK || len(report.Assertions) < 2 || report.Error != "" {
-		return fmt.Errorf("auth case %s is incomplete or failed: case=%s ok=%t assertions=%d error=%s", expected, report.Case, report.OK, len(report.Assertions), report.Error)
-	}
-	return nil
+	summary["proof"] = "host_email_session_and_oauth_connection_routes_on_managed_postgres"
+	return summary, nil
 }

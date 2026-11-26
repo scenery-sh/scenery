@@ -42,21 +42,8 @@ var authSQLNow = time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
 const authSQLUserID = "22222222-2222-2222-2222-222222222222"
 const authSQLTenantID = "33333333-3333-3333-3333-333333333333"
 
-func authSQLTenantStep() authSQLStep {
-	return authSQLStep{name: "EnsureDevBootstrapTenant", rows: [][]driver.Value{{authSQLTenantID, "Workspace", nil, authSQLNow, authSQLNow}}}
-}
-
 func authSQLMembershipRow() []driver.Value {
 	return []driver.Value{"11111111-1111-1111-1111-111111111111", authSQLTenantID, authSQLUserID, roleOwner, nil, nil, nil, authSQLNow, authSQLNow}
-}
-
-func authSQLMembershipStep(t *testing.T) authSQLStep {
-	t.Helper()
-	return authSQLStep{name: "CreateOrganizationMembership", rows: [][]driver.Value{authSQLMembershipRow()}, check: func(_ string, args []driver.NamedValue) {
-		if args[1].Value != authSQLTenantID || args[2].Value != authSQLUserID || args[3].Value != roleOwner {
-			t.Fatalf("membership args=%v", args)
-		}
-	}}
 }
 
 func authSQLService(t *testing.T, steps ...authSQLStep) (*Service, *authSQLScript) {
@@ -152,8 +139,4 @@ func authSQLUserRow(user authdb.SceneryAuthUser) []driver.Value {
 		disabled = user.DisabledAt.Time
 	}
 	return []driver.Value{uuidString(user.ID), user.DisplayName, user.AvatarUrl, user.PrimaryEmail, user.NormalizedPrimaryEmail, verified, disabled, user.CanImpersonateUsers, authSQLNow, authSQLNow}
-}
-
-func authSQLSessionRow(tokenHash string) []driver.Value {
-	return []driver.Value{"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", tokenHash, "", nil, "33333333-3333-3333-3333-333333333333", authSQLNow.Add(time.Hour), nil, nil, "", "", "", nil, nil, "", authSQLNow, authSQLNow}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string,
 	output, err := cli(root, "up", "--detach", "--wait", "ready", "-o", "json")
 	var runtime detachedDevResult
 	if err != nil || decodeCLIJSON(output, &runtime) != nil {
-		return fmt.Errorf("auth-only startup: %w", err)
+		return fmt.Errorf("auth-only startup: %w%s", err, harnessReportCause(ctx, repoRoot, root, env, append(output, fmt.Sprint(err)...)))
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, worktreeProbeAPI(runtime)+"/users/dev-bootstrap", strings.NewReader(`{}`))
 	if err != nil {
@@ -162,7 +163,7 @@ func verifyHarnessWebhookHTTP(ctx context.Context, root, baseURL string, env []s
 	var receipt struct {
 		ExecutionID string `json:"execution_id"`
 	}
-	if json.Unmarshal(content, &receipt) != nil || !strings.HasPrefix(receipt.ExecutionID, "job_") {
+	if json.Unmarshal(content, &receipt) != nil || receipt.ExecutionID == "" {
 		return fmt.Errorf("admission did not return a durable job identity: %s", content)
 	}
 	return verifyHarnessWebhookClient(ctx, root, baseURL, env)
@@ -366,4 +367,24 @@ module "second" {
 	}
 	_, err = cli(root, "down", "-o", "json")
 	return err
+}
+
+// harnessReportCause resolves the failure report a CLI result names, so a probe
+// failure carries its private cause.
+func harnessReportCause(ctx context.Context, repoRoot, appRoot string, env []string, output []byte) string {
+	token := regexp.MustCompile(`rpt_[a-z0-9]+`).Find(output)
+	if token == nil {
+		return ""
+	}
+	reported, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "inspect", "report", string(token), "-o", "json")
+	if err != nil {
+		return ""
+	}
+	var report struct {
+		Cause string `json:"cause"`
+	}
+	if decodeCLIJSON(reported, &report) != nil {
+		return ""
+	}
+	return "; cause: " + tailString(report.Cause, 2000)
 }

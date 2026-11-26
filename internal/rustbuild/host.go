@@ -17,7 +17,8 @@ import (
 	sdksource "scenery.sh/sdk/rust"
 )
 
-const hostToolchain = "1.99.1"
+// HostToolchain is the Rust toolchain the Host is built with.
+const HostToolchain = "1.99.1"
 
 // Host builds the framework-owned worker Host only on cache miss.
 func Host(ctx context.Context) (string, error) {
@@ -31,7 +32,7 @@ func Host(ctx context.Context) (string, error) {
 	}
 	cache = filepath.Join(cache, "worker-host")
 	hash := sha256.New()
-	_, _ = fmt.Fprintln(hash, hostToolchain, runtime.GOOS, runtime.GOARCH)
+	_, _ = fmt.Fprintln(hash, HostToolchain, runtime.GOOS, runtime.GOARCH)
 	err = fs.WalkDir(sdksource.Host, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
@@ -64,7 +65,7 @@ func Host(ctx context.Context) (string, error) {
 		return "", err
 	}
 	target := filepath.Join(cache, "target")
-	command := exec.CommandContext(ctx, "cargo", "+"+hostToolchain, "build", "--locked", "--release",
+	command := exec.CommandContext(ctx, "cargo", "+"+HostToolchain, "build", "--locked", "--release",
 		"--manifest-path", filepath.Join(sources, "scenery-host", "Cargo.toml"), "--target-dir", target)
 	command.Dir = filepath.Join(sources, "scenery-host")
 	if output, err := command.CombinedOutput(); err != nil {
@@ -91,6 +92,12 @@ func Host(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return executable, os.Rename(staged.Name(), executable)
+}
+
+// ExportHostSources writes the Host's Cargo sources beneath root:
+// `scenery-host/` and the `scenery-sdk/scenery-wire/` crate it depends on.
+func ExportHostSources(root string) error {
+	return materializeHostSources(root)
 }
 
 func materializeHostSources(root string) error {

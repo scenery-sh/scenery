@@ -5,21 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 
-	"golang.org/x/sys/unix"
 	"path/filepath"
-	"scenery.sh/internal/agent"
-	"strconv"
 	"strings"
-	"time"
 
-	"scenery.sh/internal/app"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
@@ -35,21 +28,9 @@ type workerProcessIdentity struct {
 	Target                 string `json:"go_target"`
 }
 
-func workerListen(options devOptions) string {
-	if options.ListenSet {
-		return options.Listen
-	}
-	if options.PortSet {
-		return net.JoinHostPort("127.0.0.1", strconv.Itoa(options.Port))
-	}
-	return workerruntime.ListenAddrFromEnv()
-}
-
-func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirements compiler.SQLRequirements) error {
-	environment, _, err := managedDatabaseEnv(context.Background(), root, cfg, requirements, envpolicy.Environ())
-	if err != nil {
-		return err
-	}
+// setProcessEnvironment publishes entries into this process's environment,
+// which every worker launch the host receives inherits.
+func setProcessEnvironment(environment []string) error {
 	for _, entry := range environment {
 		key, value, _ := strings.Cut(entry, "=")
 		if err := envpolicy.Set(key, value); err != nil {
@@ -59,152 +40,135 @@ func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirement
 	return nil
 }
 
-func runWorkerDevelopment(bundle workerBundle, listen string, dev *workerDevelopment, live *agent.ProcessLock, frontendPID int, environment string, telemetry *cliTelemetryInvocation) error {
-	ctx := context.Background()
-	lease, err := storageTaskLease(ctx, envpolicy.Environ())
-	if err != nil {
-		return err
+// workerHostOptions is what a supervisor decides about one development host.
+type workerHostOptions struct {
+	Root        string
+	Environment string
+	SessionID   string
+	Victoria    map[string]string
+	Assistants  workerAssistantProcess
+	// Held are descriptors the host keeps open for its whole lifetime, such
+	// as the worktree live lock and a storage task lease.
+	Held []*os.File
+}
+
+// workerHostLaunch is the private input of one development host process. Its
+// Files are inherited in order from descriptor 3.
+type workerHostLaunch struct {
+	Executable string
+	Args       []string
+	Directory  string
+	Files      []*os.File
+	reports    *net.TCPListener
+	reportFile *os.File
+}
+
+// Close releases the launch's private resources after the host exited.
+func (launch *workerHostLaunch) Close() {
+	if launch == nil {
+		return
 	}
+	if launch.reportFile != nil {
+		_ = launch.reportFile.Close()
+	}
+	if launch.reports != nil {
+		_ = launch.reports.Close()
+	}
+	_ = os.RemoveAll(launch.Directory)
+}
+
+// newWorkerReportListener opens the loopback listener the host serves
+// worker failure reports on and publishes its address to worker launches.
+func newWorkerReportListener(appID, sessionID string) (*net.TCPListener, error) {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		return nil, err
+	}
+	if err := setProcessEnvironment([]string{
+		"SCENERY_DEV_REPORT_URL=http://" + listener.Addr().String() + "/report",
+		"SCENERY_DEV_REPORT_TOKEN=" + workerRandomToken(),
+		"SCENERY_APP_ID=" + appID,
+		"SCENERY_SESSION_ID=" + sessionID,
+	}); err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	return listener, nil
+}
+
+// prepareWorkerHost writes the private launch plan of a development host
+// serving bundle. The host rebuilds and publishes later source edits itself.
+func prepareWorkerHost(ctx context.Context, bundle workerBundle, dev *workerDevelopment, reports *net.TCPListener, options workerHostOptions) (*workerHostLaunch, error) {
 	executable, err := rustbuild.Host(ctx)
 	if err != nil {
-		return err
-	}
-	files := []*os.File{live.File()}
-	if lease != nil {
-		defer func() { _ = lease.Close() }()
-		held, ok := lease.(interface{ File() *os.File })
-		if !ok {
-			return fmt.Errorf("storage lease does not support host handoff")
-		}
-		files = append(files, held.File())
+		return nil, err
 	}
 	directory, err := os.MkdirTemp("/tmp", "app-workers-")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer func() { _ = os.RemoveAll(directory) }()
-	reportListener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	launch := &workerHostLaunch{Executable: executable, Directory: directory, reports: reports}
+	fail := func(err error) (*workerHostLaunch, error) {
+		launch.Close()
+		return nil, err
+	}
+	launch.reportFile, err = reports.File()
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	defer func() { _ = reportListener.Close() }()
-	reportFile, err := reportListener.File()
+	launch.Files = append([]*os.File{launch.reportFile}, options.Held...)
+	rebuild, err := dev.project(bundle)
 	if err != nil {
-		return err
-	}
-	defer func() { _ = reportFile.Close() }()
-	files = append(files, reportFile)
-	token, session := workerRandomToken(), workerRandomToken()
-	for key, value := range map[string]string{
-		"SCENERY_DEV_REPORT_URL":   "http://" + reportListener.Addr().String() + "/report",
-		"SCENERY_DEV_REPORT_TOKEN": workerRandomToken(),
-		"SCENERY_APP_ID":           dev.compiled.Manifest.Application.Name,
-		"SCENERY_SESSION_ID":       session,
-	} {
-		if err := envpolicy.Set(key, value); err != nil {
-			return err
-		}
+		return fail(err)
 	}
 	cli, err := os.Executable()
 	if err != nil {
-		return err
-	}
-	var assistants workerAssistantProcess
-	if len(bundle.Host.Assistants) != 0 {
-		var closeAssistants func()
-		assistants, closeAssistants, err = startWorkerAssistants(ctx, cli, dev.watch.root, environment, directory)
-		if err != nil {
-			return err
-		}
-		defer closeAssistants()
-	}
-	rebuild, err := dev.project(bundle)
-	if err != nil {
-		return err
+		return fail(err)
 	}
 	telemetryPath, _ := cliTelemetryPath()
-	app := telemetryInvocationAppFrom(nil, dev.watch.root)
-	var startup *cliTelemetryRecord
-	if telemetry != nil && !telemetry.suppressed {
-		record := telemetry.recordData(cliTelemetryMeasurementStartup, 0)
-		startup = &record
-	}
-	endpoints := map[string]string{}
-	if stack := resolveLogsVictoriaStack(ctx, dev.watch.root); stack != nil {
-		for _, signal := range []string{"logs", "metrics", "traces"} {
-			if endpoint := stack.Endpoint(signal); endpoint != "" {
-				endpoints[signal] = endpoint
-			}
-		}
-	}
 	config := struct {
 		workerAssistantProcess
-		Victoria       map[string]string   `json:"victoria,omitempty"`
-		Startup        *cliTelemetryRecord `json:"startup,omitempty"`
-		TelemetryPath  string              `json:"telemetry_path"`
-		App            *cliTelemetryApp    `json:"app"`
-		Root           string              `json:"root"`
-		CLI            string              `json:"cli"`
-		CLIEnvironment []string            `json:"cli_environment"`
-		Environment    string              `json:"environment"`
-		FrontendPID    int                 `json:"frontend_pid"`
-		ReportFD       int                 `json:"report_fd"`
-		LockFDs        []int               `json:"lock_fds"`
-		SessionID      string              `json:"session_id"`
-		WaitSchema     string              `json:"wait_schema"`
-		Rebuild        workerRebuildPlan   `json:"rebuild"`
+		Victoria       map[string]string `json:"victoria,omitempty"`
+		TelemetryPath  string            `json:"telemetry_path"`
+		App            *cliTelemetryApp  `json:"app"`
+		Root           string            `json:"root"`
+		CLI            string            `json:"cli"`
+		CLIEnvironment []string          `json:"cli_environment"`
+		Environment    string            `json:"environment"`
+		FrontendPID    int               `json:"frontend_pid"`
+		ReportFD       int               `json:"report_fd"`
+		LockFDs        []int             `json:"lock_fds"`
+		SessionID      string            `json:"session_id"`
+		WaitSchema     string            `json:"wait_schema"`
+		Rebuild        workerRebuildPlan `json:"rebuild"`
 	}{
-		workerAssistantProcess: assistants,
-		TelemetryPath:          telemetryPath, App: app, Startup: startup, Victoria: endpoints,
-		Root: dev.watch.root, CLI: cli, CLIEnvironment: envpolicy.Environ(), Environment: environment,
-		FrontendPID: frontendPID, ReportFD: int(reportFile.Fd()), SessionID: session,
+		workerAssistantProcess: options.Assistants, Victoria: options.Victoria,
+		TelemetryPath: telemetryPath, App: telemetryInvocationAppFrom(nil, options.Root),
+		Root: options.Root, CLI: cli, CLIEnvironment: envpolicy.Environ(), Environment: options.Environment,
+		ReportFD: 3, LockFDs: []int{}, SessionID: options.SessionID,
 		WaitSchema: newCLIPayloadIdentity(devRuntimeWaitKind).SchemaRevision, Rebuild: rebuild,
 	}
-	for _, file := range files[:len(files)-1] {
-		config.LockFDs = append(config.LockFDs, int(file.Fd()))
+	for index := range options.Held {
+		config.LockFDs = append(config.LockFDs, 4+index)
 	}
 	plan := struct {
 		Bundle   workerBundle                  `json:"bundle"`
 		Snapshot *workerruntime.ConfigSnapshot `json:"snapshot"`
 		Token    string                        `json:"token"`
 		Config   any                           `json:"config"`
-	}{bundle, bundle.config, token, config}
+	}{bundle, bundle.config, workerRandomToken(), config}
 	planPath := filepath.Join(directory, "host-input.json")
 	if err := writePrivateWorkerJSON(planPath, plan); err != nil {
-		return err
+		return fail(err)
 	}
-	for _, file := range files {
-		fd := file.Fd()
-		if _, err := unix.FcntlInt(fd, unix.F_SETFD, 0); err != nil {
-			return err
-		}
-		defer func() { _, _ = unix.FcntlInt(fd, unix.F_SETFD, unix.FD_CLOEXEC) }()
-	}
-	return execProcess(executable, []string{executable, "--dev", directory, planPath, listen}, minimalAppProcessEnv(envpolicy.Environ()))
+	launch.Args = []string{"--dev", directory, planPath}
+	return launch, nil
 }
 
 func workerControlClient(socket string) *http.Client {
 	return &http.Client{Transport: &http.Transport{Protocols: workerabi.Protocols(), DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
-}
-
-func waitWorkerReady(ctx context.Context, probe func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(2 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		err := probe(ctx)
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return errors.Join(ctx.Err(), err)
-		case <-ticker.C:
-		}
-	}
 }
 
 func workerRandomToken() string {

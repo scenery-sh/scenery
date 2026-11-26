@@ -50,17 +50,6 @@ type traceEmitter struct {
 
 type traceKey struct{}
 
-func WithTrace(ctx context.Context, emit func(Step)) context.Context {
-	return WithTraceOperation(ctx, "", emit)
-}
-
-// WithTraceOperation correlates overlapping intervals from one build request.
-// The operation ID is diagnostic only and never participates in build or
-// ownership identity.
-func WithTraceOperation(ctx context.Context, operationID string, emit func(Step)) context.Context {
-	return context.WithValue(ctx, traceKey{}, &traceEmitter{operationID: operationID, emit: emit})
-}
-
 // RecordStep projects one already measured interval into the active build
 // trace. It is safe for parallel producers and does not retain trace history.
 func RecordStep(ctx context.Context, step Step) {
@@ -106,4 +95,15 @@ func observeBuild[T any](ctx context.Context, name string, fn func() (T, error))
 func observeBuildAction(ctx context.Context, name string, fn func() error) error {
 	_, err := observeBuild(ctx, name, func() (struct{}, error) { return struct{}{}, fn() })
 	return err
+}
+
+func WithTrace(ctx context.Context, emit func(Step)) context.Context {
+	return WithTraceOperation(ctx, "", emit)
+}
+
+// WithTraceOperation correlates overlapping intervals from one build request.
+// The operation ID is diagnostic only and never participates in build or
+// ownership identity.
+func WithTraceOperation(ctx context.Context, operationID string, emit func(Step)) context.Context {
+	return context.WithValue(ctx, traceKey{}, &traceEmitter{operationID: operationID, emit: emit})
 }

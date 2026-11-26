@@ -471,8 +471,10 @@ where
 
 impl Bundle {
     pub fn verify(&self) -> Result<()> {
+        // An application without native services still serves framework
+        // routes such as standard authentication.
         ensure!(
-            self.version == 1 && !self.contract_revision.is_empty() && !self.programs.is_empty(),
+            self.version == 1 && !self.contract_revision.is_empty(),
             "invalid worker bundle"
         );
         ensure!(
@@ -704,6 +706,7 @@ fn production_worker_env(key: &str, runtime: &str) -> bool {
             | "SCENERY_LISTEN_ADDR"
             | "SCENERY_PROCESS_LINK"
             | "SCENERY_CONFIG_SNAPSHOT_FD"
+            | "SCENERY_CONFIG_FILE"
             | "SCENERY_STORAGE_CONFIG"
     ) || key.starts_with("SCENERY_ASSISTANT_")
         || key.starts_with("SCENERY_MCP_")
@@ -902,5 +905,19 @@ mod tests {
         );
         assert_eq!(long.read, std::time::Duration::from_secs(60));
         assert_eq!(long.write, std::time::Duration::from_secs(90));
+    }
+
+    #[test]
+    fn an_application_without_native_services_is_a_valid_bundle() {
+        let mut plan = json!({
+            "version":1,"contract_revision":"contract","programs":[],"types":{},
+            "reports":{"schema_revision":"sha256:fixture","producer_version":"test"},
+            "host":{"Name":"auth-only","Workers":[]},
+        });
+        let bundle: Bundle = serde_json::from_value(plan.clone()).unwrap();
+        bundle.verify().unwrap();
+        plan["contract_revision"] = json!("");
+        let bundle: Bundle = serde_json::from_value(plan).unwrap();
+        assert!(bundle.verify().is_err());
     }
 }

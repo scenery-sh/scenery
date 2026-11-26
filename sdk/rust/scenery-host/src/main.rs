@@ -11,6 +11,7 @@ mod auth_sessions;
 mod browser_auth;
 #[cfg(test)]
 mod browser_auth_test;
+mod config;
 mod connections;
 mod database;
 mod dev;
@@ -32,7 +33,9 @@ mod otlp;
 mod plan;
 mod policy;
 mod process;
+mod s3_storage;
 mod schedule;
+mod schedule_slots;
 mod storage;
 mod supervisor;
 mod telemetry;
@@ -40,7 +43,6 @@ mod transport;
 mod values;
 
 use std::convert::Infallible;
-use std::ffi::{OsStr, OsString};
 use std::fs::{File, Permissions};
 use std::io::{Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
@@ -61,7 +63,7 @@ use tokio_util::sync::CancellationToken;
 use crate::durable::Engine;
 use crate::host::Host;
 use crate::plan::{Bundle, bundle_path};
-use crate::process::{CONFIG_SNAPSHOT_FD, DRAIN_TIMEOUT};
+use crate::process::DRAIN_TIMEOUT;
 use crate::supervisor::{Control, LaunchPlan};
 
 fn main() {
@@ -112,7 +114,10 @@ fn bootstrap() -> Result<()> {
             root: PathBuf::new(),
         }
     } else {
-        let snapshot = inherited_snapshot()?;
+        let arguments = config::Arguments::parse(args)?;
+        let lookup = |name: &str| std::env::var_os(name);
+        let snapshot = config::load_snapshot(arguments.config.as_deref(), &lookup)?;
+        storage::validate(&lookup)?;
         let root = std::env::current_exe()?
             .parent()
             .context("invalid bundle path")?
@@ -137,7 +142,7 @@ fn bootstrap() -> Result<()> {
         Input {
             bundle,
             snapshot,
-            listen: parse_listen(args)?,
+            listen: arguments.listen_address(&lookup)?,
             dev: None,
             token: None,
             directory: directory.path().into(),
@@ -174,62 +179,6 @@ struct Development {
     config: dev::Development,
 }
 
-fn parse_listen(args: impl Iterator<Item = OsString>) -> Result<String> {
-    let mut listen = None;
-    let mut port = None;
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        let arg = arg.to_str().context("invalid listener argument")?;
-        let (name, assigned) = arg
-            .split_once('=')
-            .map_or((arg, None), |(key, value)| (key, Some(value)));
-        let value = match assigned {
-            Some(value) => value.to_owned(),
-            None => args
-                .next()
-                .and_then(|value| value.into_string().ok())
-                .context("missing listener argument value")?,
-        };
-        match name {
-            "--listen" | "-listen" => listen = Some(value),
-            "--port" | "-port" => port = Some(value.parse::<u16>()?),
-            _ => anyhow::bail!("unknown host argument {name}"),
-        }
-    }
-    Ok(listen
-        .or_else(|| port.map(|port| format!("127.0.0.1:{port}")))
-        .or_else(|| {
-            std::env::var("SCENERY_LISTEN_ADDR")
-                .ok()
-                .filter(|address| !address.is_empty())
-        })
-        .unwrap_or_else(|| "127.0.0.1:4000".into()))
-}
-
-fn inherited_snapshot() -> Result<Value> {
-    let Some(value) = std::env::var_os(CONFIG_SNAPSHOT_FD).filter(|value| value != OsStr::new(""))
-    else {
-        return Ok(Value::Null);
-    };
-    let fd: RawFd = value
-        .to_str()
-        .context("invalid configuration descriptor")?
-        .trim()
-        .parse()?;
-    ensure!(
-        fd >= 3 && unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1,
-        "configuration descriptor is unavailable"
-    );
-    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-    let mut bytes = Vec::new();
-    File::from(fd).take((4 << 20) + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= 4 << 20,
-        "configuration snapshot exceeds limit"
-    );
-    values::parse(&bytes)
-}
-
 async fn run(mut input: Input) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
@@ -238,12 +187,23 @@ async fn run(mut input: Input) -> Result<()> {
     let development = input.dev.is_some();
     let stop = CancellationToken::new();
     let stop_signal = stop.clone();
+    // A development host stops with the supervisor that started it.
+    let parent = development.then(|| unsafe { libc::getppid() });
     let signals = tokio::spawn(async move {
+        let orphaned = async {
+            let Some(parent) = parent else {
+                return std::future::pending().await;
+            };
+            while unsafe { libc::getppid() } == parent {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        };
         tokio::select! {
             _ = terminate.recv() => {}
             _ = interrupt.recv() => {}
             _ = hangup.recv() => {}
             _ = quit.recv() => {}
+            _ = orphaned => {}
         }
         stop_signal.cancel();
     });
@@ -301,7 +261,9 @@ async fn run(mut input: Input) -> Result<()> {
     )?;
     let mut resources = None;
     let mut startup = None;
-    let mut victoria = otlp::Endpoints::new();
+    // A development host exports to its worktree's Victoria; a production
+    // host to the collector the standard OTLP variables name, if any.
+    let mut export = None;
     let mut watcher = if let Some((mut config, owned)) = input.dev.take() {
         resources = Some(owned);
         let endpoint = dev::write_endpoint(
@@ -311,7 +273,7 @@ async fn run(mut input: Input) -> Result<()> {
         )?;
         resources.as_mut().expect("development resources").endpoint = Some(endpoint);
         startup = config.startup.take().zip(config.telemetry_path.clone());
-        victoria = std::mem::take(&mut config.victoria);
+        export = Some(otlp::Export::local(std::mem::take(&mut config.victoria))?);
         Some(dev::WatcherLoop::start(config)?)
     } else {
         None
@@ -329,10 +291,14 @@ async fn run(mut input: Input) -> Result<()> {
                 .collect::<Result<_>>()?,
         }
     };
+    let export = match export {
+        Some(export) => export,
+        None => otlp::Export::from_env(&|name: &str| std::env::var_os(name))?,
+    };
     let host = Arc::new(Host::new(
         input.bundle,
         input.snapshot,
-        victoria,
+        export,
         control.token().into(),
         watcher.as_ref().map(dev::WatcherLoop::status),
         (stop.clone(), assistants),
@@ -383,7 +349,9 @@ async fn run(mut input: Input) -> Result<()> {
         }
         // No public socket is bound until the entire initial process set has
         // attested and the supervisor has committed its build identity.
-        let listener = PublicListener::bind(&input.listen).await.context("bind public application listener")?;
+        let listener = PublicListener::bind(&input.listen)
+            .await
+            .with_context(|| format!("bind public application listener {}", input.listen))?;
         let address = listener.address()?;
         if development {
             let mut marker = std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600)
@@ -420,7 +388,14 @@ async fn run(mut input: Input) -> Result<()> {
             engine.abort();
             let _ = engine.await;
         }
-        let _ = scheduler.await;
+        let mut scheduler = scheduler;
+        if tokio::time::timeout(DRAIN_TIMEOUT, &mut scheduler)
+            .await
+            .is_err()
+        {
+            scheduler.abort();
+            let _ = scheduler.await;
+        }
         result
     }.await;
     stop.cancel();
@@ -434,9 +409,14 @@ async fn run(mut input: Input) -> Result<()> {
         supervisor.await??;
     }
     servers.shutdown().await;
+    // Spans and logs of the last requests and of the shutdown itself still
+    // reach the collector, within a bound that cannot delay termination.
+    host.telemetry.flush(TELEMETRY_FLUSH_TIMEOUT).await;
     signals.abort();
     result
 }
+
+const TELEMETRY_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct DevResources {
     directory: PathBuf,
@@ -629,7 +609,7 @@ enum PublicListener {
 
 impl PublicListener {
     async fn bind(address: &str) -> Result<Self> {
-        match std::env::var("SCENERY_LISTEN_NETWORK")
+        match std::env::var(crate::config::LISTEN_NETWORK)
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase()

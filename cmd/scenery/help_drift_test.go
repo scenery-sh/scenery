@@ -65,7 +65,7 @@ func ignoreParse[T any](parse func([]string) (T, error)) func([]string) error {
 	return func(args []string) error { _, err := parse(args); return err }
 }
 
-var inspectOnlyFlags = []string{"frontend", "implementation", "repo-root", "severity", "stats", "top", "verify-generation"}
+var inspectOnlyFlags = []string{"frontend", "implementation", "repo-root", "severity", "stats", "top"}
 
 func observabilityList(subject string) func([]string) error {
 	return func(args []string) error {

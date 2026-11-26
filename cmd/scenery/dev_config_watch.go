@@ -4,11 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"scenery.sh/internal/appconfig"
-	"scenery.sh/internal/build"
 )
 
 // devConfigPollInterval is how often a local supervisor checks its
@@ -53,14 +51,14 @@ func sameConfigFile(previous, current os.FileInfo) bool {
 }
 
 // applyConfigurationChange resolves the desired revision against the running
-// build and restarts only the service processes whose snapshot changed. It
-// never compiles, links or generates. An invalid revision leaves the running
+// generation and restarts the host when the application's configuration
+// changed. It never compiles. An invalid revision leaves the running
 // generation serving and is reported as rejected.
 func (s *devSupervisor) applyConfigurationChange(ctx context.Context) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
 	active := s.active
-	if active == nil || s.processes == nil {
+	if active == nil {
 		return
 	}
 	store, err := devConfigStore(s.cfg)
@@ -79,8 +77,7 @@ func (s *devSupervisor) applyConfigurationChange(ctx context.Context) {
 	if desired == document.Revision && outcome == "rejected" {
 		return
 	}
-	started := time.Now()
-	resolution, err := resolveDevConfig(ctx, active.result.Contract.Manifest, s.cfg, s.env, store, document, generationConsumers(active.set), func() (appconfig.SecretBackend, error) {
+	resolution, err := resolveDevConfig(ctx, active.manifest, s.cfg, s.env, store, document, []string{applicationConsumer}, func() (appconfig.SecretBackend, error) {
 		if configSecretBackendOverride != nil {
 			return configSecretBackendOverride(store)
 		}
@@ -92,39 +89,15 @@ func (s *devSupervisor) applyConfigurationChange(ctx context.Context) {
 		return
 	}
 	changed := changedConfigServices(applied, resolution)
-	if slices.Contains(changed, hostConsumer) {
-		// The host serves framework routes such as standard authentication, so
-		// a change it consumes starts a new generation; services whose own
-		// configuration is unchanged keep running.
-		_, _, err := s.activateDevProcesses(ctx, &devRuntimePlan{Result: active.result, Processes: active.set}, nil)
-		build.RecordStep(ctx, build.Step{Name: "supervisor.configuration_apply", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "environment_revision", OK: err == nil, Actions: len(changed)})
-		if err != nil {
-			s.recordRejectedConfig(document.Revision, err)
-			s.announceConfig("config.rejected", map[string]any{"revision": document.Revision, "error": humanCLIErrorMessage(err)})
-			return
-		}
+	if len(changed) == 0 {
+		// Values no consumer reads changed; the running generation applies
+		// the new revision as is.
+		s.recordAppliedConfig(resolution, active)
 		s.announceConfig("config.applied", map[string]any{"revision": resolution.revision, "restarted_services": changed})
-		_ = s.persistStatus(ctx)
 		return
 	}
-	model := s.processes
-	model.mu.Lock()
-	previous := model.config
-	model.config = resolution
-	err = s.replaceDevServiceProcesses(ctx, model, active.set, active.base, nil)
-	if err != nil {
-		model.config = previous
-	}
-	model.unlock()
-	build.RecordStep(ctx, build.Step{Name: "supervisor.configuration_apply", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "environment_revision", OK: err == nil, Actions: len(changed)})
-	if err != nil {
-		s.recordRejectedConfig(document.Revision, err)
-		s.announceConfig("config.rejected", map[string]any{"revision": document.Revision, "error": humanCLIErrorMessage(err)})
-		return
-	}
-	s.recordAppliedConfig(resolution, active)
 	s.announceConfig("config.applied", map[string]any{"revision": resolution.revision, "restarted_services": changed})
-	_ = s.persistStatus(ctx)
+	s.requestHostRestart()
 }
 
 func (s *devSupervisor) announceConfig(event string, payload map[string]any) {

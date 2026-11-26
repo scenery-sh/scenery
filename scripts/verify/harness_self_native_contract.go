@@ -147,48 +147,32 @@ func runHarnessNativeContractApplicationProbeCheckWithArtifacts(parent context.C
 		return summary, nil, err
 	}
 
-	var bundle build.RuntimeBundleDescriptor
-	localReplaceBuildInputs := 0
-	if err := segments.run("verify linked runtime bundle", func() error {
+	var served harnessServedIdentity
+	if err := segments.run("read the host-attested serving identity", func() error {
 		var err error
-		bundle, err = build.ReadRuntimeBundle(appRoot, "development")
-		if err != nil {
-			return err
-		}
-		if bundle.ContractRevision == "" || bundle.ImplementationRevision == "" || bundle.BuildInput == nil || bundle.BuildInput.Digest == "" {
-			return fmt.Errorf("runtime bundle is incomplete")
-		}
-		for _, entry := range bundle.BuildInput.Entries {
-			if strings.HasPrefix(entry.Identity, "package/scenery.sh/") {
-				localReplaceBuildInputs++
-			}
-		}
-		if localReplaceBuildInputs == 0 {
-			return fmt.Errorf("runtime bundle did not include source bytes from the local scenery.sh replacement")
-		}
-		return nil
+		served, err = harnessWorktreeServing(ctx, repoRoot, appRoot, env)
+		return err
 	}); err != nil {
 		return summary, nil, err
 	}
 	if err := segments.run("call grouped routes and run generated client against the session", func() error {
 		baseURL := strings.TrimRight(started.Session.RouteManifest.Routes[localagent.RouteAPI].URL, "/")
-		testStep, issue := runHarnessGeneratedTypeScriptClient(ctx, appRoot, baseURL, started.Session.AppPID, bundle, artifacts)
+		testStep, issue := runHarnessGeneratedTypeScriptClient(ctx, appRoot, baseURL, started.Session.AppPID, served, artifacts)
 		summary["generated_client_tests"] = testStep
 		return issue
 	}); err != nil {
 		return summary, nil, err
 	}
 	if err := segments.run("verify reusable build state through public restart", func() error {
-		return verifyHarnessNativeRuntimeReuse(ctx, repoRoot, appRoot, env, bundle)
+		return verifyHarnessNativeRuntimeReuse(ctx, repoRoot, appRoot, env, served)
 	}); err != nil {
 		return summary, nil, err
 	}
 
 	summary["proof"] = "generated_native_contract_process_entrypoints_linked_started_attested_and_called"
-	summary["contract_revision"] = bundle.ContractRevision
-	summary["implementation_revision"] = bundle.ImplementationRevision
-	summary["build_input_digest"] = bundle.BuildInput.Digest
-	summary["local_replace_build_inputs"] = localReplaceBuildInputs
+	summary["contract_revision"] = served.ContractRevision
+	summary["implementation_revision"] = served.ImplementationRevision
+	summary["build_input_digest"] = served.BuildInputDigest
 	summary["latest_build_manifest_proof"] = "compiled_phase_and_public_restart_reusing_every_process_executable"
 	summary["prepared_phase_assertion"] = "internal/build.TestPrepareAndCompileWriteLatestBuildManifestInProcess"
 	summary["configured_flags_assertion"] = "internal/build.TestCompilePassesConfiguredGoBuildFlags"
@@ -283,18 +267,9 @@ func copyHarnessNativeContractFixture(repoRoot, appRoot string) error {
 // model: both verify the linked contract bundle before registering and sealing
 // the contract registry.
 func verifyHarnessNativeContractEntrypoint(workspaceRoot string) error {
-	mainSource, err := os.ReadFile(filepath.Join(workspaceRoot, "scenery_internal_main", "main.go"))
-	if err != nil {
-		return err
-	}
-	for _, fragment := range nativeContractEntrypointFragments {
-		if !bytes.Contains(mainSource, []byte(fragment)) {
-			return fmt.Errorf("generated native application entrypoint is missing %q", fragment)
-		}
-	}
 	services, err := filepath.Glob(filepath.Join(workspaceRoot, "scenery_internal_processes", "services", "*", "main.go"))
 	if err != nil || len(services) != 1 {
-		return fmt.Errorf("generated service process entrypoints = %v, %v; want one", services, err)
+		return fmt.Errorf("generated worker entrypoints = %v, %v; want one", services, err)
 	}
 	serviceSource, err := os.ReadFile(services[0])
 	if err != nil {
@@ -302,25 +277,10 @@ func verifyHarnessNativeContractEntrypoint(workspaceRoot string) error {
 	}
 	for _, fragment := range nativeContractServiceEntrypointFragments {
 		if !bytes.Contains(serviceSource, []byte(fragment)) {
-			return fmt.Errorf("generated service process entrypoint %s is missing %q", services[0], fragment)
+			return fmt.Errorf("generated worker entrypoint %s is missing %q", services[0], fragment)
 		}
 	}
-	host, err := os.ReadFile(filepath.Join(workspaceRoot, "scenery_internal_processes", "host", "main.go"))
-	if err != nil {
-		return err
-	}
-	if !bytes.Contains(host, []byte("sceneryruntime.MainProcessHost(")) || bytes.Contains(host, []byte("scenerycomposition")) {
-		return fmt.Errorf("generated process host entrypoint does not run a host without application adapters")
-	}
 	return nil
-}
-
-var nativeContractEntrypointFragments = []string{
-	`scenerycomposition "example.test/nativeapp/internal/scenerygen/composition"`,
-	"sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision)",
-	"sceneryruntime.NewContractRegistry",
-	"scenerycomposition.Register(contractRegistry)",
-	"contractRegistry.Seal()",
 }
 
 var nativeContractServiceEntrypointFragments = []string{
@@ -329,13 +289,14 @@ var nativeContractServiceEntrypointFragments = []string{
 	"sceneryruntime.NewContractRegistry",
 	"scenerycomposition.Register(contractRegistry)",
 	"contractRegistry.Seal()",
+	"sceneryruntime.MainGoWorker(",
 }
 
 // runHarnessGeneratedTypeScriptClient calls the grouped route and its removed
 // ungrouped spelling through the session, requires every answer to attest the
 // linked runtime bundle and the session's host process, and runs the generated
 // TypeScript client against the same session.
-func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseURL, hostPID string, bundle build.RuntimeBundleDescriptor, artifacts harnessArtifactContext) (harnessStep, error) {
+func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseURL, hostPID string, served harnessServedIdentity, artifacts harnessArtifactContext) (harnessStep, error) {
 	if baseURL == "" || hostPID == "" {
 		return harnessStep{}, fmt.Errorf("the session published no API route or host process")
 	}
@@ -361,16 +322,14 @@ func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseUR
 		if response.StatusCode != want {
 			return harnessStep{}, fmt.Errorf("grouped native route %s returned %d, want %d", route, response.StatusCode, want)
 		}
-		for header, value := range map[string]string{
-			"X-Scenery-Contract-Revision": bundle.ContractRevision, "X-Scenery-Implementation-Revision": bundle.ImplementationRevision,
-			"X-Scenery-Build-Input-Digest": bundle.BuildInput.Digest, "X-Scenery-Go-Target": bundle.Target, "X-Scenery-Process-ID": hostPID,
-		} {
-			if got := response.Header.Get(header); got != value {
-				return harnessStep{}, fmt.Errorf("%s answered %s %q, want the linked runtime bundle's %q", route, header, got, value)
-			}
+		if want != http.StatusOK {
+			continue
 		}
-		if want == http.StatusOK && (response.Header.Get("X-Scenery-Service-Process-ID") == "" || response.Header.Get("X-Scenery-Service-Process-ID") == hostPID) {
-			return harnessStep{}, fmt.Errorf("%s did not name its answering service process", route)
+		if got := harnessResponseIdentity(response); got != served || response.Header.Get("X-App-Host-Pid") != hostPID {
+			return harnessStep{}, fmt.Errorf("%s answered build %+v from host %q, want the served %+v from host %q", route, got, response.Header.Get("X-App-Host-Pid"), served, hostPID)
+		}
+		if worker := response.Header.Get("X-App-Worker-Pid"); worker == "" || worker == hostPID {
+			return harnessStep{}, fmt.Errorf("%s did not name its answering worker process", route)
 		}
 	}
 	expected := 1

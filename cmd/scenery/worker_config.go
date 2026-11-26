@@ -9,6 +9,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/workerplan"
 	workerruntime "scenery.sh/runtime"
 )
 
@@ -21,19 +22,18 @@ func (bundle *workerBundle) projectConfig(result *compiler.Result) error {
 	if err != nil {
 		return err
 	}
-	bundle.Host.Observability = workerruntime.ObservabilityConfig{
-		Logs:    workerruntime.EndpointFilterConfig(cfg.Observability.Logs),
-		Tracing: workerruntime.EndpointFilterConfig(cfg.Observability.Tracing),
+	bundle.Host.Observability = workerplan.ObservabilityConfig{
+		Logs:    workerplan.EndpointFilterConfig(cfg.Observability.Logs),
+		Tracing: workerplan.EndpointFilterConfig(cfg.Observability.Tracing),
 	}
 	if cfg.Auth.Enabled {
-		bundle.Auth = &workerAuthPlan{StandardConfig: auth.StandardConfig{
-			Enabled: true, AutoBootstrapDatabase: cfg.Auth.AutoBootstrapDatabase,
-			GoogleOAuth: auth.GoogleOAuthConfig{Enabled: cfg.Auth.GoogleOAuth.Enabled}, Connections: cfg.Auth.Connections,
-			DevBootstrap: auth.DevBootstrapConfig{
+		bundle.Auth = &workerplan.StandardAuth{
+			Enabled: true, GoogleOAuth: workerplan.GoogleOAuth{Enabled: cfg.Auth.GoogleOAuth.Enabled}, Connections: cfg.Auth.Connections,
+			DevBootstrap: workerplan.DevBootstrap{
 				Enabled: cfg.Auth.DevBootstrap.Enabled, DefaultUserEmail: cfg.Auth.DevBootstrap.DefaultUserEmail,
 				DefaultTenantID: cfg.Auth.DevBootstrap.DefaultTenantID,
 			},
-		}}
+		}
 		if cfg.Auth.AutoBootstrapDatabase {
 			bundle.Auth.BootstrapSQL, err = auth.StandardSchemaSQL()
 			if err != nil {

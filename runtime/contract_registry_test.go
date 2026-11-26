@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -85,36 +84,4 @@ func TestContractRegistryRejectsProviderABIMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "requires provider") {
 		t.Fatalf("provider ABI mismatch error = %v", err)
 	}
-}
-
-func TestContractRegistrySealRollsBackRuntimeRegistrations(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/one": "sha256:contract", "adapter/two": "sha256:contract"}, RequiredAddresses: []string{"house/service/one", "house/service/two"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding := "test/contract-registry/atomic-binding"
-	if err := registry.Register("adapter/one", ContractRegistration{
-		ContractRevision: "sha256:contract", PackageContractABIRevision: "sha256:one", RuntimeABI: ContractRuntimeABI,
-		CoveredAddresses: []string{"house/service/one"}, Apply: func() error {
-			return RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: binding, Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return nil, nil }})
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	boom := errors.New("boom")
-	if err := registry.Register("adapter/two", ContractRegistration{
-		ContractRevision: "sha256:contract", PackageContractABIRevision: "sha256:two", RuntimeABI: ContractRuntimeABI,
-		CoveredAddresses: []string{"house/service/two"}, Apply: func() error { return boom },
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.Seal(); !errors.Is(err, boom) {
-		t.Fatalf("seal error = %v", err)
-	}
-	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: binding, Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return nil, nil }}); err != nil {
-		t.Fatalf("failed Seal leaked binding registration: %v", err)
-	}
-	global.mu.Lock()
-	delete(global.contractBindings, binding)
-	global.mu.Unlock()
 }

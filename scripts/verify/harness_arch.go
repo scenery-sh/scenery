@@ -23,22 +23,19 @@ const (
 )
 
 var allowedDirectGoDeps = map[string]string{
-	"github.com/fsnotify/fsnotify":           "file watching for scenery up live rebuilds",
-	"github.com/jackc/pgx/v5":                "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
-	"github.com/golang-jwt/jwt/v5":           "JWT signing and verification for standard auth",
-	"github.com/google/uuid":                 "UUID generation and parsing for standard auth database records",
-	"github.com/google/jsonschema-go":        "test-only JSON Schema validation of MCP results against advertised tool schemas; already required by the MCP go-sdk",
-	"github.com/gorilla/websocket":           "dashboard JSON-RPC websocket transport",
-	"github.com/hashicorp/hcl/v2":            "lossless .scn syntax parsing and deterministic source formatting",
-	"github.com/modelcontextprotocol/go-sdk": "private Streamable HTTP MCP gateway transport and protocol implementation",
-	"github.com/zclconf/go-cty":              "typed literal values exposed by the HCL v2 syntax API",
-	"golang.org/x/crypto":                    "password hashing primitives for standard auth",
-	"golang.org/x/mod":                       "Go module parsing for self-harness dependency checks",
-	"golang.org/x/net":                       "IDNA2008 non-transitional URL host normalization required by the current scalar contract",
-	"golang.org/x/sys":                       "portable OS syscalls for doctor disk and memory readiness probes",
-	"golang.org/x/text":                      "Unicode 17.0 NFC normalization required by the current relative_path scalar contract",
-	"golang.org/x/tools":                     "Go package loading/parser pipeline",
-	"gopkg.in/yaml.v3":                       "SQLC generator graph inspection from sqlc.yaml without shell parsing",
+	"github.com/fsnotify/fsnotify":    "file watching for scenery up live rebuilds",
+	"github.com/jackc/pgx/v5":         "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
+	"github.com/google/uuid":          "UUID generation and parsing for standard auth database records",
+	"github.com/google/jsonschema-go": "test-only JSON Schema validation of MCP results against advertised tool schemas",
+	"github.com/gorilla/websocket":    "dashboard JSON-RPC websocket transport",
+	"github.com/hashicorp/hcl/v2":     "lossless .scn syntax parsing and deterministic source formatting",
+	"github.com/zclconf/go-cty":       "typed literal values exposed by the HCL v2 syntax API",
+	"golang.org/x/mod":                "Go module parsing for self-harness dependency checks",
+	"golang.org/x/net":                "IDNA2008 non-transitional URL host normalization required by the current scalar contract",
+	"golang.org/x/sys":                "portable OS syscalls for doctor disk and memory readiness probes",
+	"golang.org/x/text":               "Unicode 17.0 NFC normalization required by the current relative_path scalar contract",
+	"golang.org/x/tools":              "Go package loading/parser pipeline",
+	"gopkg.in/yaml.v3":                "SQLC generator graph inspection from sqlc.yaml without shell parsing",
 }
 
 var forbiddenSourceImports = map[string]string{
@@ -167,13 +164,8 @@ var packageLayerRules = []packageLayerRule{
 		// store) into application packages and their tests.
 		Name:             "application SDK packages stay free of the runtime implementation",
 		PathPrefixes:     []string{"auth/", "db/", "errs/", "object/", "storage/", "datasource/", "internal/appsdk/", "runtime/shared/"},
-		ForbiddenImports: []string{"scenery.sh/runtime", "scenery.sh/internal/uigen", "scenery.sh/ui", "scenery.sh/internal/connectionvault", "scenery.sh/internal/connectionvault/sqlstore", "scenery.sh/internal/connectionruntime", "scenery.sh/internal/authprovider/google", "scenery.sh/internal/authprovider/oauth2"},
+		ForbiddenImports: []string{"scenery.sh/runtime", "scenery.sh/internal/uigen", "scenery.sh/ui"},
 		AllowTestImports: []string{"scenery.sh/runtime"},
-	},
-	{
-		Name:             "connection vault stays independent of concrete providers and composition",
-		PathPrefixes:     []string{"internal/connectionvault/"},
-		ForbiddenImports: []string{"scenery.sh/internal/authprovider/google", "scenery.sh/internal/authprovider/oauth2", "scenery.sh/internal/connectionruntime", "scenery.sh/runtime", "scenery.sh/auth", "scenery.sh/internal/compiler", "scenery.sh/internal/generate", "scenery.sh/internal/uigen"},
 	},
 	{
 		Name:         "optional UI consumes the canonical graph without compiler or generation orchestration",

@@ -3,20 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"maps"
-	"net"
-	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"slices"
-	"syscall"
-	"time"
 
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/staticfrontend"
 )
@@ -26,28 +18,6 @@ type workerFrontend struct {
 	Root     string   `json:"root"`
 	Reserved []string `json:"reserved"`
 	Upstream string   `json:"upstream,omitempty"`
-}
-
-// requireWorkerFrontends rejects a frontend that the environment serves and
-// the worker Host would start without. The Host serves one frontend at the
-// application origin: the root frontend, declared as a static Vite build. It
-// has no route for another frontend and manages neither a development server
-// selected by root alone nor an upstream.
-func requireWorkerFrontends(cfg app.Config, envName string) error {
-	environment, err := cfg.ResolveEnv(envName)
-	if err != nil {
-		return err
-	}
-	root := cfg.RootFrontend()
-	for _, name := range slices.Sorted(maps.Keys(environment.Frontends)) {
-		if name != root {
-			return preconditionErrorf("frontend %q is not served by an application with worker services: its Host serves only the root frontend at the application origin; make %q the root frontend, or set envs.%s.frontends.%s.serve to \"disabled\"", name, name, environment.Name, name)
-		}
-		if environment.Frontends[name].Adapter != "vite" {
-			return preconditionErrorf("frontend %q is not served by an application with worker services: declare frontends.%s with \"adapter\": \"vite\" and \"mode\": \"static\", a workspace-relative root and no upstream", name, name)
-		}
-	}
-	return nil
 }
 
 func selectWorkerFrontend(root string, cfg app.Config, result *compiler.Result) (*workerFrontend, error) {
@@ -97,119 +67,4 @@ func buildWorkerFrontend(ctx context.Context, result *compiler.Result, frontend 
 		return nil, err
 	}
 	return &frontend, nil
-}
-
-func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (*workerFrontend, int, func(), error) {
-	clean := func() {}
-	frontendName := cfg.RootFrontend()
-	if frontendName == "" || cfg.Frontends[frontendName].Adapter != "vite" {
-		return nil, 0, clean, nil
-	}
-	resolved, err := cfg.ResolveEnv(env)
-	if err != nil {
-		return nil, 0, clean, err
-	}
-	frontendCfg, ok := resolved.Frontends[frontendName]
-	if !ok {
-		return nil, 0, clean, nil
-	}
-	frontend, err := selectWorkerFrontend(root, cfg, result)
-	if err != nil || frontend == nil {
-		return nil, 0, clean, err
-	}
-	if frontendCfg.Serve == "production" {
-		built, err := buildWorkerFrontend(ctx, result, *frontend)
-		if err != nil {
-			return nil, 0, clean, err
-		}
-		return built, 0, clean, nil
-	}
-	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "", false); err != nil {
-		return nil, 0, clean, err
-	}
-	return startWorkerVite(ctx, *frontend)
-}
-
-func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFrontend, int, func(), error) {
-	clean := func() {}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, 0, clean, err
-	}
-	address := listener.Addr().String()
-	_ = listener.Close()
-	_, port, _ := net.SplitHostPort(address)
-	program, args, err := managedFrontendCommand(frontend.Root, port, "", "/")
-	if err != nil {
-		return nil, 0, clean, err
-	}
-	cli, err := os.Executable()
-	if err != nil {
-		return nil, 0, clean, err
-	}
-	wrapperArgs := append([]string{"worker-frontend", frontend.Root, program}, append(args, "--strictPort")...)
-	process := exec.Command(cli, wrapperArgs...)
-	process.Dir, process.Stdout, process.Stderr = frontend.Root, os.Stderr, os.Stderr
-	devprocess.ConfigureDetachedChild(process)
-	if err := process.Start(); err != nil {
-		return nil, 0, clean, err
-	}
-	clean = func() {
-		_ = syscall.Kill(-process.Process.Pid, syscall.SIGKILL)
-		_ = process.Wait()
-	}
-	if err := waitWorkerReady(ctx, func(ctx context.Context) error {
-		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
-		if err != nil {
-			return err
-		}
-		return connection.Close()
-	}); err != nil {
-		clean()
-		return nil, 0, func() {}, err
-	}
-	frontend.Upstream = address
-	return &frontend, process.Process.Pid, clean, nil
-}
-
-// runWorkerFrontend supervises Vite inside a detached process group without
-// Linux PR_SET_PDEATHSIG so execve handoffs cannot abort Vite while still
-// reaping Vite if the parent exits abruptly.
-func runWorkerFrontend(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("invalid worker frontend arguments")
-	}
-	root, program, programArgs := args[0], args[1], args[2:]
-	parent := os.Getppid()
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
-	defer stop()
-	go watchWorkerAssistantParent(ctx, parent, stop)
-
-	cmd := exec.Command(program, programArgs...)
-	cmd.Dir, cmd.Stdout, cmd.Stderr = root, os.Stderr, os.Stderr
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		_ = cmd.Process.Signal(syscall.SIGTERM)
-		timer := time.NewTimer(2 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-done:
-		case <-timer.C:
-			_ = cmd.Process.Kill()
-			<-done
-		}
-		if pgid, err := syscall.Getpgid(0); err == nil && pgid > 1 {
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		}
-		return nil
-	}
 }

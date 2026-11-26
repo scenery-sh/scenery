@@ -171,7 +171,6 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 		args = append(args, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
 	patterns := append([]string(nil), target.Context.Patterns...)
-	patterns = append(patterns, "./scenery_internal_main")
 	if info, err := os.Stat(filepath.Join(result.Dir, codegen.ProcessMainRoot)); err == nil && info.IsDir() {
 		patterns = append(patterns, "./"+codegen.ProcessMainRoot+"/...")
 	}

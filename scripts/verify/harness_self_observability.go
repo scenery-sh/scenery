@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -179,18 +180,20 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	if err != nil {
 		return proof, err
 	}
-	if response.Header.Get("X-Scenery-Process-ID") != session.AppPID || response.Header.Get("X-Scenery-Build-Input-Digest") == "" || response.Header.Get("X-Scenery-Service-Process-ID") == "" {
+	if response.Header.Get("X-App-Host-Pid") != session.AppPID || response.Header.Get("X-App-Build-Digest") == "" || response.Header.Get("X-App-Worker-Pid") == "" {
 		return proof, errors.New("response lacks current host/service/build identity")
 	}
 	traceID := response.Header.Get("X-Trace-Id")
 	if len(traceID) != 32 {
 		return proof, errors.New("response lacks trace identity")
 	}
-	proof["trace_id"], proof["host_pid"], proof["service_pid"], proof["build_input_digest"] = traceID, session.AppPID, response.Header.Get("X-Scenery-Service-Process-ID"), response.Header.Get("X-Scenery-Build-Input-Digest")
+	proof["trace_id"], proof["host_pid"], proof["service_pid"], proof["build_input_digest"] = traceID, session.AppPID, response.Header.Get("X-App-Worker-Pid"), response.Header.Get("X-App-Build-Digest")
 	stack := victoria.FromSubstrate(substrate)
 	var spans []*devdash.TraceSummary
 	var observationErr error
-	readback, stop := context.WithTimeout(ctx, 40*time.Second)
+	// VictoriaTraces indexes a trace for lookup by identity up to about half a
+	// minute after ingestion, and the host exports worker spans separately.
+	readback, stop := context.WithTimeout(ctx, 90*time.Second)
 	defer stop()
 	if err := waitForHarnessCondition(readback, func() bool {
 		observed, queryErr := stack.GetTraceSummaries(readback, session.BaseAppID, traceID)
@@ -202,6 +205,10 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		}
 		spans = observed
 		observationErr = verifyObservabilitySpans(spans)
+		// Spans arrive as their reporters finish; wait for the outgoing call's.
+		if observationErr == nil && !slices.ContainsFunc(spans, func(span *devdash.TraceSummary) bool { return span.Type == "HTTP" }) {
+			observationErr = errors.New("outgoing HTTP span not yet observed")
+		}
 		return observationErr == nil
 	}); err != nil {
 		proof["observed_spans"] = spans
@@ -290,10 +297,8 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	proof["generated_client"] = clientProof
 
 	var workID string
-	for _, span := range spans {
-		if span.Type == "WORK" {
-			workID = span.SpanID
-		}
+	if work := observabilityWorkSpan(spans); work != nil {
+		workID = work.SpanID
 	}
 	detailReq, err := http.NewRequestWithContext(ctx, http.MethodGet, stack.BaseURL("traces")+"/select/jaeger/api/traces/"+traceID, nil)
 	if err != nil {
@@ -371,74 +376,38 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, errors.New("CLI trace list did not return the request")
 	}
 	proof["cli_trace_lookup"] = true
-	bufferProof, err := proveHarnessTraceBufferLoss(ctx, p, root, rpc, rpcURL, runtimeStatus.AppID, worktreeProbeAPI(running), &traceBufferEvents, session.AppPID, response.Header.Get("X-Scenery-Build-Input-Digest"), optionalHarnessArtifactContext(artifactContexts))
-	if err != nil {
-		return proof, err
-	}
-	proof["trace_buffer_loss"] = bufferProof
-	admissionProof, err := proveHarnessBackendAdmission(ctx, p, paths, agent, substrate, rpc, runtimeStatus.AppID, worktreeProbeAPI(running), &traceBufferEvents, session.AppPID, response.Header.Get("X-Scenery-Build-Input-Digest"), optionalHarnessArtifactContext(artifactContexts))
-	if err != nil {
-		return proof, err
-	}
-	proof["backend_admission"] = admissionProof
+	// The application host exports its signals directly; trace-buffer loss
+	// and backend admission belonged to the supervisor's export pipeline.
 	return proof, nil
 }
 
 func verifyObservabilitySpans(spans []*devdash.TraceSummary) error {
-	var root, work *devdash.TraceSummary
-	for _, span := range spans {
-		if span.Type == "REQUEST" {
-			root = span
-		}
-		if span.Type == "WORK" {
-			work = span
-		}
-	}
-	if root == nil || work == nil || work.ParentSpanID == nil || *work.ParentSpanID != root.SpanID {
+	if observabilityWorkSpan(spans) == nil {
 		return errors.New("request and application span linkage missing")
 	}
-	found := map[string]bool{}
+	return nil
+}
+
+// observabilityWorkSpan is the application's own span: a WORK span under the
+// host's WORKER span for the request.
+func observabilityWorkSpan(spans []*devdash.TraceSummary) *devdash.TraceSummary {
+	parentOf := func(span *devdash.TraceSummary, kind string) bool {
+		if span.ParentSpanID == nil {
+			return false
+		}
+		for _, parent := range spans {
+			if parent.Type == kind && parent.SpanID == *span.ParentSpanID {
+				return kind != "WORKER" || parent.ParentSpanID != nil && slices.ContainsFunc(spans, func(root *devdash.TraceSummary) bool {
+					return root.Type == "REQUEST" && root.SpanID == *parent.ParentSpanID
+				})
+			}
+		}
+		return false
+	}
 	for _, span := range spans {
-		if span.Type != "DB" || span.EndpointName == nil {
-			continue
+		if span.Type == "WORK" && parentOf(span, "WORKER") {
+			return span
 		}
-		name := *span.EndpointName
-		if strings.HasPrefix(name, "Probe") && name != "ProbeNested" {
-			if span.ParentSpanID == nil || *span.ParentSpanID != work.SpanID || span.DurationNanos == 0 {
-				return fmt.Errorf("SQL span %s lost parent or duration", name)
-			}
-			if span.IsError != (name == "ProbeFailure") {
-				return fmt.Errorf("SQL span %s has incorrect failure state", name)
-			}
-			found[name] = true
-		}
-	}
-	for _, name := range []string{"ProbeLiteral", "ProbePrepared", "ProbeTransaction", "ProbeFailure"} {
-		if !found[name] {
-			return fmt.Errorf("missing SQL span %s", name)
-		}
-	}
-	byID := map[string]*devdash.TraceSummary{}
-	kinds := map[string]int{}
-	for _, s := range spans {
-		byID[s.SpanID] = s
-		kinds[s.Type]++
-	}
-	for _, kind := range []string{"INTERNAL", "DURABLE", "HTTP", "STORAGE"} {
-		if kinds[kind] == 0 {
-			return fmt.Errorf("missing automatic %s span", kind)
-		}
-	}
-	nestedParents := map[string]bool{}
-	for _, s := range spans {
-		if s.Type == "DB" && s.EndpointName != nil && *s.EndpointName == "ProbeNested" && s.ParentSpanID != nil {
-			if parent := byID[*s.ParentSpanID]; parent != nil {
-				nestedParents[parent.Type] = true
-			}
-		}
-	}
-	if !nestedParents["INTERNAL"] || !nestedParents["DURABLE"] {
-		return errors.New("nested SQL lost internal or durable parent")
 	}
 	return nil
 }

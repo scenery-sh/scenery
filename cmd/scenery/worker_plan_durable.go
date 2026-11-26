@@ -8,10 +8,10 @@ import (
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/graph"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
 
-func (p workerPlanProjection) durable(service workerruntime.WorkerServicePlan, execution, operation graph.Resource) (workerruntime.WorkerDurablePlan, error) {
+func (p workerPlanProjection) durable(service workerplan.WorkerServicePlan, execution, operation graph.Resource) (workerplan.WorkerDurablePlan, error) {
 	spec := execution.Spec
 	retry, _ := spec["retry"].(map[string]any)
 	retention, _ := spec["retention"].(map[string]any)
@@ -19,9 +19,9 @@ func (p workerPlanProjection) durable(service workerruntime.WorkerServicePlan, e
 	dedupe, _ := spec["deduplication"].(map[string]any)
 	factor, _ := strconv.ParseFloat(cp.StringValue(retry["factor"]), 64)
 	jitter, _ := strconv.ParseFloat(cp.StringValue(retry["jitter"]), 64)
-	plan := workerruntime.WorkerDurablePlan{
+	plan := workerplan.WorkerDurablePlan{
 		Operation: operation.Address,
-		Registration: workerruntime.ContractDurableRegistration{
+		Registration: workerplan.ContractDurableRegistration{
 			// Like the native runtime, an unnamed durable execution is its own task:
 			// executions sharing one empty name would lease each other's jobs.
 			Address: execution.Address, ExternalName: firstNonEmpty(cp.StringValue(spec["external_name"]), execution.Address), Service: service.Name,
@@ -49,8 +49,8 @@ func (p workerPlanProjection) durable(service workerruntime.WorkerServicePlan, e
 	return plan, err
 }
 
-func projectWorkerKeys(shape cp.OperationInputShape, keys []any) ([]workerruntime.WorkerKeyField, error) {
-	var fields []workerruntime.WorkerKeyField
+func projectWorkerKeys(shape cp.OperationInputShape, keys []any) ([]workerplan.WorkerKeyField, error) {
+	var fields []workerplan.WorkerKeyField
 	for _, value := range keys {
 		expression := cp.TypeExpression(value)
 		name, ok := strings.CutPrefix(expression, "input.")
@@ -58,7 +58,7 @@ func projectWorkerKeys(shape cp.OperationInputShape, keys []any) ([]workerruntim
 		if !ok || !exists {
 			return nil, fmt.Errorf("durable key is not a declared input field: %s", expression)
 		}
-		fields = append(fields, workerruntime.WorkerKeyField{Name: field.WireName, Type: cp.TypeExpression(field.Type)})
+		fields = append(fields, workerplan.WorkerKeyField{Name: field.WireName, Type: cp.TypeExpression(field.Type)})
 	}
 	return fields, nil
 }

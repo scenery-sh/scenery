@@ -152,7 +152,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Logs OTLP endpoint, usually VictoriaLogs",
+      "rationale": "Logs OTLP/HTTP endpoint, used as given: the worktree's VictoriaLogs in development, or a per-signal override of OTEL_EXPORTER_OTLP_ENDPOINT for a production scenery-host.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -174,7 +174,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Metrics OTLP endpoint, usually VictoriaMetrics",
+      "rationale": "Metrics OTLP/HTTP endpoint, used as given: the worktree's VictoriaMetrics in development, or a per-signal override of OTEL_EXPORTER_OTLP_ENDPOINT for a production scenery-host.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -196,7 +196,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Traces OTLP endpoint, usually VictoriaTraces",
+      "rationale": "Traces OTLP/HTTP endpoint, used as given: the worktree's VictoriaTraces in development, or a per-signal override of OTEL_EXPORTER_OTLP_ENDPOINT for a production scenery-host.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -744,28 +744,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Marks the background child used by `scenery up --detach`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_DEV_ENDPOINTS",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "app.identity",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`1` enables dev/admin endpoints such as `/__scenery/config` and `/debug/pprof/*`",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1358,7 +1336,7 @@
         "tests"
       ],
       "owner": "scenery runtime / storage",
-      "rationale": "Strict current storage runtime artifact. Managed descriptors bind canonical worktree ownership and incarnation; explicit headless local roots remain external and cannot gain managed purge authority. Carries store policy and validated local/proxy capability metadata, never raw credentials.",
+      "rationale": "Strict current storage runtime artifact, inline JSON or a file path. Managed descriptors bind canonical worktree ownership and incarnation; explicit headless local roots remain external and cannot gain managed purge authority. Carries store policy and local, proxy or s3 backend metadata; S3 credentials are {\"$env\": \"NAME\"} references resolved by scenery-host, never stored values.",
       "preferred_surface": ".scenery.json storage declarations plus scenery.sh/storage",
       "replacement": "",
       "sunset": "",
@@ -1887,6 +1865,138 @@
       "sunset": "",
       "docs": [
         "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_CONFIG_FILE",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.config",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / host",
+      "rationale": "Path of the runtime configuration snapshot a production scenery-host reads when started without --config, for container and service-manager deployments. Values and secrets may be {\"$env\": \"NAME\"} references resolved at startup; a missing variable stops the host.",
+      "preferred_surface": "scenery-host --config <path>",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "observability",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / host",
+      "rationale": "Base OTLP/HTTP collector URL of a production scenery-host; /v1/traces, /v1/logs and /v1/metrics are appended. http and https only, without credentials in the URL.",
+      "preferred_surface": "Standard OpenTelemetry exporter environment",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_HEADERS",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "observability",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / host",
+      "rationale": "Comma-separated, URL-encoded key=value headers, such as Authorization, that a production scenery-host sends with every OTLP export request.",
+      "preferred_surface": "Standard OpenTelemetry exporter environment",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_ACCESS_KEY_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Access key of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "access_key_id in SCENERY_STORAGE_CONFIG, usually an {\"$env\": \"NAME\"} reference",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_SECRET_ACCESS_KEY",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Secret key of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "secret_access_key in SCENERY_STORAGE_CONFIG, usually an {\"$env\": \"NAME\"} reference",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_SESSION_TOKEN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Optional temporary session token of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "session_token in SCENERY_STORAGE_CONFIG",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
       ]
     }
   ]

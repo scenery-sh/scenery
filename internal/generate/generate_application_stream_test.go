@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestGeneratedHTTPByteStreamKeepsBodyOutOfOutcomeClone(t *testing.T) {
+func TestGeneratedStreamOperationReturnsItsByteStream(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	for index := range result.Manifest.Resources {
 		resource := &result.Manifest.Resources[index]
@@ -30,20 +30,12 @@ func TestGeneratedHTTPByteStreamKeepsBodyOutOfOutcomeClone(t *testing.T) {
 	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		"ProcessScene(context.Context, contract.ProcessSceneInput) (contract.ProcessSceneOutcome, scenery.ByteStream, error)",
-		"outcome, stream, err := service.ProcessScene(ctx, copied)",
-		"if len(typed.Value.Content) != 0",
-		"typed.Value.Content = nil",
-		"outcome = typed",
-		"contract.CloneProcessSceneOutcome(outcome)",
-		"sceneryruntime.NewContractStreamOutcome(cloned, stream)",
-		"stream, err := streamed.TakeStream()",
-		"sceneryruntime.EncodeContractByteStreamWithOptions(request, 200, stream, []string{\"model/gltf-binary\"}",
+		"outcome, stream, err := service.ProcessScene(ctx, input)",
+		"out, err := contract.MarshalProcessSceneOutcome(outcome)",
+		"return out, stream, err",
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("streaming adapter missing %q:\n%s", fragment, adapter)
 		}
-	}
-	if strings.Contains(adapter, "EncodeContractRepresentationWithOptions(request, 200, typed.Value.Content") {
-		t.Fatalf("streaming adapter buffered its response body:\n%s", adapter)
 	}
 }

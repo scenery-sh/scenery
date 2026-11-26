@@ -171,7 +171,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 		},
 		{
 			name:             "connection directory docs discovery",
-			paths:            []string{"auth", "internal/connectionvault"},
+			paths:            []string{"auth", "internal/connectionapi"},
 			wantClasses:      []string{harnessValidationReleaseRuntime},
 			wantCommands:     []string{"go run ./scripts/verify --probe auth --summary --write", harnessValidationFullCommand},
 			wantRelevantDocs: []string{"ARCHITECTURE.md"},

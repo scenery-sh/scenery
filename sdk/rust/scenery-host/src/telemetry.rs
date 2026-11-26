@@ -34,8 +34,11 @@ pub(crate) struct Sink {
     logs: Filter,
     tracing: Filter,
     session: String,
+    /// root_hash names the development worktree the exported signals belong to.
+    root_hash: String,
     sender: Option<mpsc::Sender<Value>>,
     victoria: Option<mpsc::Sender<(String, Value)>>,
+    exporter: Option<crate::otlp::Flush>,
     report_dir: PathBuf,
     reports: ReportIdentity,
     working_directory: String,
@@ -60,10 +63,11 @@ impl Sink {
         app: &str,
         development: bool,
         filters: &Observability,
-        victoria: crate::otlp::Endpoints,
+        export: crate::otlp::Export,
         reports: &ReportIdentity,
     ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
+        let root_hash = env::var("SCENERY_APP_ROOT_HASH").unwrap_or_default();
         let mut sender = None;
         if !development
             && let (Ok(endpoint), Ok(token)) = (
@@ -88,14 +92,17 @@ impl Sink {
             .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".scenery")))
             .unwrap_or_else(|| PathBuf::from("."))
             .join("reports");
+        let (victoria, exporter) = crate::otlp::start(export)?.unzip();
         Ok(Self {
             app: app.into(),
             development,
             logs: Filter::new(&filters.logs),
             tracing: Filter::new(&filters.tracing),
             session,
+            root_hash,
             sender,
-            victoria: crate::otlp::start(victoria)?,
+            victoria,
+            exporter,
             report_dir,
             reports: reports.clone(),
             working_directory: env::current_dir()
@@ -103,6 +110,19 @@ impl Sink {
                 .unwrap_or_default(),
             recent: development.then(|| Mutex::new(Recent::default())),
         })
+    }
+
+    /// Whether any consumer takes request records: the development report
+    /// receiver, the development history, or an OTLP exporter.
+    fn records(&self) -> bool {
+        self.sender.is_some() || self.recent.is_some() || self.victoria.is_some()
+    }
+
+    /// Delivers the records still queued for export, waiting at most `limit`.
+    pub(crate) async fn flush(&self, limit: Duration) {
+        if let Some(exporter) = &self.exporter {
+            exporter.finish(limit).await;
+        }
     }
 
     fn retain(&self, kind: &str, mut value: Value) {
@@ -148,7 +168,13 @@ impl Sink {
 
     fn export(&self, kind: &str, value: &Value) {
         if let Some(sender) = &self.victoria {
-            let _ = sender.try_send((kind.into(), value.clone()));
+            let mut value = value.clone();
+            if !self.root_hash.is_empty()
+                && value["app_root_hash"].as_str().is_none_or(str::is_empty)
+            {
+                value["app_root_hash"] = json!(self.root_hash);
+            }
+            let _ = sender.try_send((kind.into(), value));
         }
     }
 
@@ -179,8 +205,16 @@ impl Sink {
                 _ => continue,
             };
             if record.is_object() {
+                // A worker states its application and session once per
+                // report; exported records carry them like the host's own.
+                let mut record = record.clone();
+                for key in ["app_id", "session_id"] {
+                    if record[key].as_str().is_none_or(str::is_empty) {
+                        record[key] = report[key].clone();
+                    }
+                }
                 self.retain(kind, record.clone());
-                self.export(kind, record);
+                self.export(kind, &record);
             }
         }
         Ok(())
@@ -329,7 +363,7 @@ impl Sink {
         code: &str,
         attrs: Map<String, Value>,
     ) {
-        if self.sender.is_none() && self.recent.is_none() {
+        if !self.records() {
             return;
         }
         let at = OffsetDateTime::now_utc();
@@ -366,9 +400,7 @@ impl Sink {
     }
 
     pub(crate) fn started(&self, call: &Call, service: &Service, operation: &str) {
-        if !self.logs_enabled(call, service, operation)
-            || self.recent.is_none() && self.sender.is_none()
-        {
+        if !self.logs_enabled(call, service, operation) || !self.records() {
             return;
         }
         self.report("log", "log_event", json!({
@@ -610,8 +642,10 @@ mod tests {
             logs: Filter::new(&EndpointFilter::default()),
             tracing: Filter::new(&EndpointFilter::default()),
             session: "session".into(),
+            root_hash: "root".into(),
             sender,
             victoria: None,
+            exporter: None,
             report_dir: directory.join("reports"),
             reports: ReportIdentity {
                 schema_revision: "sha256:fixture".into(),
@@ -714,6 +748,28 @@ mod tests {
         assert!(!entries.contains(&"rpt_0000000000000000.json".to_owned()));
         assert!(!entries.contains(&"rpt_0000000000000005.json".to_owned()));
         assert!(entries.contains(&"rpt_0000000000000006.json".to_owned()));
+        Ok(())
+    }
+
+    #[test]
+    fn worker_spans_are_exported_under_their_reported_application() -> Result<()> {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let mut sink = test_sink(std::path::Path::new(""), false, None);
+        sink.victoria = Some(sender);
+        sink.report_dir = PathBuf::new();
+        sink.working_directory = String::new();
+        sink.ingest(
+            json!({"reports":[{"type":"trace-summary","app_id":"inbox","session_id":"session",
+                "trace_summary":{"trace_id":"t","span_id":"s","type":"HTTP"}}]})
+            .to_string()
+            .as_bytes(),
+        )?;
+        let (kind, record) = receiver.try_recv()?;
+        assert_eq!(kind, "trace-summary");
+        assert_eq!(
+            (record["app_id"].as_str(), record["session_id"].as_str()),
+            (Some("inbox"), Some("session"))
+        );
         Ok(())
     }
 }

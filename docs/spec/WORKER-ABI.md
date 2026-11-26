@@ -110,6 +110,10 @@ deadline.
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
 | `telemetry` | POST a batch of up to 64 span, log, and metric records. The Host supplies the correlation identities from the invocation. |
 
+The Host chooses each store's backend from its configuration: a local
+directory, the development storage proxy, or an S3-compatible bucket. A
+worker observes the same requests, records, and failures from each.
+
 `events/emit` is reserved. The current `.scn` graph has no event declaration
 for the Host to authorize.
 

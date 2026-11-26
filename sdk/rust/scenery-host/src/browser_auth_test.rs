@@ -196,6 +196,23 @@ async fn development_email_session_and_oauth_connection_routes() -> Result<()> {
     let repeated: Value = bootstrap().send().await?.error_for_status()?.json().await?;
     assert_eq!(repeated["user"]["id"], user);
     assert_eq!(repeated["current_tenant_id"], workspace);
+    // A developing host signs in its default identity publicly too; explicit
+    // identity claims remain private.
+    let public: Value = http
+        .post(format!("{base}/users/dev-bootstrap"))
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(public["user"]["id"], user);
+    let claimed = http
+        .post(format!("{base}/users/dev-bootstrap"))
+        .json(&json!({"user_id": "owner"}))
+        .send()
+        .await?;
+    assert_eq!(claimed.status(), StatusCode::FORBIDDEN);
 
     let token = session["token"].as_str().unwrap();
     let path = format!("{base}/auth/connections/files");

@@ -65,19 +65,6 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 	return a.compilerValid == b.compilerValid && stampMapsEqual(a.files, b.files) && runtimeCompilerFilesEqual(a, b)
 }
 
-// buildInputSnapshotsEqual compares the complete authored/runtime input set.
-// Generated presence is publication output, not authority to accept or reject
-// a candidate prepared from the captured authored bytes.
-func buildInputSnapshotsEqual(a, b fileSnapshot) bool {
-	if a.retryGenerated && len(changedGeneratedContent(a, b)) > 0 {
-		return false
-	}
-	if len(changedConsumedGenerated(a, b)) > 0 {
-		return false
-	}
-	return a.compilerValid == b.compilerValid && stampMapsEqual(a.files, b.files) && runtimeCompilerFilesEqual(a, b)
-}
-
 func runtimeCompilerFilesEqual(a, b fileSnapshot) bool {
 	for path, stamp := range a.compilerFiles {
 		if !compilerFileAffectsRuntime(a, b, path) {

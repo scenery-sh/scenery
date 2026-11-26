@@ -76,8 +76,8 @@ func TestWatchRescanWorkFollowsChangesNotTreeSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats := fresh.scanStats; stats.dirsReused != 0 || stats.dirsRead != directories || !buildInputSnapshotsEqual(edited, fresh) {
-		t.Fatalf("fresh scan = %+v (equal %t)", stats, buildInputSnapshotsEqual(edited, fresh))
+	if stats := fresh.scanStats; stats.dirsReused != 0 || stats.dirsRead != directories || !snapshotsEqual(edited, fresh) {
+		t.Fatalf("fresh scan = %+v (equal %t)", stats, snapshotsEqual(edited, fresh))
 	}
 }
 

@@ -10,10 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"scenery.sh/internal/harnessreport"
 	"sort"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/harnessreport"
 
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/testsuite"

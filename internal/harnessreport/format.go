@@ -1,8 +1,9 @@
 package harnessreport
 
 import (
-	"scenery.sh/internal/machine"
 	"strings"
+
+	"scenery.sh/internal/machine"
 )
 
 func newCLIPayloadIdentity(kind string) PayloadIdentity { return machine.NewPayloadIdentity(kind) }

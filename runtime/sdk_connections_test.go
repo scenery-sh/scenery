@@ -3,10 +3,8 @@ package runtime
 import (
 	"context"
 	"testing"
-	"time"
 
 	"scenery.sh/errs"
-	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
 
@@ -48,38 +46,7 @@ func TestConnectionWorkerHelperCannotEraseExternalRequestAuthority(t *testing.T)
 			})
 		}
 	}
-	workerCtx, finish := enterDurableInvocation(t.Context(), "worker", "task", "execution", time.Minute, nil, 0, "", "", 1)
-	result := make(chan error, 1)
-	go func() { _, err := (sdkHost{}).ConnectionToken(workerCtx, "owner", "files", nil); result <- err }()
-	if err := <-result; errs.Code(err) != errs.ConnectionNotConfigured {
-		t.Fatalf("admitted worker: %v", err)
-	}
-	finish(nil)
 	if _, err := (sdkHost{}).ConnectionToken(context.Background(), "owner", "files", nil); errs.Code(err) != errs.PermissionDenied {
 		t.Fatalf("unadmitted background call: %v", err)
-	}
-}
-
-func TestForwardedConnectionAuthorityUsesAdmittedPrincipal(t *testing.T) {
-	for _, worker := range []bool{false, true} {
-		principal := "other-owner"
-		if worker {
-			principal = "workload:std.workload_identity.scheduler"
-		}
-		ctx, restore, err := enterProcessLinkedCall(t.Context(), runtimeapi.InvocationMetadata{ID: "forwarded", Principal: principal, ConnectionWorker: worker}, &processLinkCallState{
-			Auth: processLinkAuth{UID: "owner"}, Request: processLinkRequestState{Type: shared.InternalCall},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = (sdkHost{}).ConnectionToken(ctx, "owner", "files", nil)
-		restore()
-		want := errs.PermissionDenied
-		if worker {
-			want = errs.ConnectionNotConfigured
-		}
-		if errs.Code(err) != want {
-			t.Fatalf("forwarded authority: %v, want %s", err, want)
-		}
 	}
 }

@@ -5,13 +5,19 @@
   "type": "object",
   "required": [
     "kind",
-    "schema_revision",
-    "output_path",
-    "descriptor_path",
-    "copied",
-    "candidate_identity",
-    "verification_module_path",
-    "verification_module_digest"
+    "schema_revision"
+  ],
+  "anyOf": [
+    {
+      "required": [
+        "output_path"
+      ]
+    },
+    {
+      "required": [
+        "oci"
+      ]
+    }
   ],
   "additionalProperties": false,
   "properties": {
@@ -19,78 +25,42 @@
       "const": "scenery.build.result"
     },
     "schema_revision": {
-      "const": "sha256:8f2a6000ec184b2759af05987c8d1a1d372d9c9decfc2ac89c4fddb2b24ea48e"
+      "const": "sha256:ec81503bb7e8d37ae0b258b779649b1e474dd32e0b2d5c98ba1d6d6b20f1a76b"
     },
     "output_path": {
+      "description": "The application bundle directory, or with --oci-context the image build context directory.",
       "type": "string",
       "minLength": 1
     },
-    "descriptor_path": {
-      "type": "string"
-    },
-    "copied": {
-      "type": "boolean"
-    },
-    "candidate_identity": {
-      "anyOf": [
-        {
-          "type": "null"
+    "oci": {
+      "description": "The Linux container image of an --oci build.",
+      "type": "object",
+      "required": [
+        "image",
+        "platform",
+        "built"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "contractRevision",
-            "implementationRevision",
-            "buildInputDigest",
-            "target",
-            "specRevision",
-            "producer",
-            "frameworkSourceDigest",
-            "frameworkExecutableDigest"
-          ],
-          "properties": {
-            "contractRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "implementationRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "buildInputDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "target": {
-              "type": "string",
-              "minLength": 1
-            },
-            "specRevision": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "producer": {
-              "$ref": "scenery.cli.schema.json#/$defs/producer"
-            },
-            "frameworkSourceDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "frameworkExecutableDigest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          }
+        "platform": {
+          "enum": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        },
+        "built": {
+          "description": "Whether Docker built and loaded the image; false when only the build context was written.",
+          "type": "boolean"
+        },
+        "image_id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
         }
-      ]
-    },
-    "verification_module_path": {
-      "type": "string"
-    },
-    "verification_module_digest": {
-      "type": "string",
-      "pattern": "^(|sha256:[0-9a-f]{64})$"
+      }
     }
   }
 }

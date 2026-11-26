@@ -129,25 +129,3 @@ func copyHarnessFrameworkSource(repoRoot, origin string) error {
 	}
 	return nil
 }
-
-func verifyHarnessFrameworkBuildInputs(manifest *build.BuildInputManifest, selected build.FrameworkSelection) error {
-	if manifest == nil {
-		return fmt.Errorf("runtime has no actual build inputs")
-	}
-	expected := map[string]string{
-		"framework/scenery.sh/source":     selected.Source.Digest,
-		"producer/scenery-cli/executable": selected.ExecutableDigest,
-	}
-	for _, input := range manifest.Entries {
-		if want, ok := expected[input.Identity]; ok {
-			if input.Digest != want {
-				return fmt.Errorf("runtime %s is %s, selected %s", input.Identity, input.Digest, want)
-			}
-			delete(expected, input.Identity)
-		}
-	}
-	if len(expected) != 0 {
-		return fmt.Errorf("runtime build inputs omit selected producer evidence: %v", expected)
-	}
-	return nil
-}

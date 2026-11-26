@@ -8,18 +8,18 @@ import (
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/mcpprojection"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
 
 type workerAssistantPlan struct {
-	Address            string                           `json:"address"`
-	Path               string                           `json:"path"`
-	MCPServer          string                           `json:"mcp_server"`
-	Authentication     string                           `json:"authentication"`
-	SessionAccess      string                           `json:"session_access"`
-	RuntimeRevision    string                           `json:"runtime_revision"`
-	CapabilityRevision string                           `json:"capability_revision"`
-	Policy             workerruntime.ContractHTTPPolicy `json:"policy"`
+	Address            string                        `json:"address"`
+	Path               string                        `json:"path"`
+	MCPServer          string                        `json:"mcp_server"`
+	Authentication     string                        `json:"authentication"`
+	SessionAccess      string                        `json:"session_access"`
+	RuntimeRevision    string                        `json:"runtime_revision"`
+	CapabilityRevision string                        `json:"capability_revision"`
+	Policy             workerplan.ContractHTTPPolicy `json:"policy"`
 }
 
 func (bundle *workerBundle) projectAssistants(result *compiler.Result) error {
@@ -74,7 +74,7 @@ func (p workerPlanProjection) assistant(result *compiler.Result, resource graph.
 			"pipeline":      surface["pipeline"],
 		},
 	}
-	policy := p.policy(workerruntime.WorkerServicePlan{Name: resource.Name}, owner, graph.Resource{})
+	policy := p.policy(workerplan.WorkerServicePlan{Name: resource.Name}, owner, graph.Resource{})
 	populateWorkerGatewayHTTPPolicy(&policy, gateway, gateway.Spec)
 	return workerAssistantPlan{
 		Address: resource.Address, Path: firstNonEmpty(cp.StringValue(surface["path"]), "/assistants/"+resource.Name),

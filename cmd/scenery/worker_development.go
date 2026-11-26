@@ -76,12 +76,7 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs
 
 func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Result) (workerBundle, error) {
 	if !result.Valid() {
-		for _, diagnostic := range result.Diagnostics {
-			if diagnostic.Severity == "error" {
-				return workerBundle{}, &cliDiagnosticError{code: contractInvalidExitCode(result), diagnostic: diagnostic}
-			}
-		}
-		return workerBundle{}, fmt.Errorf("invalid application graph")
+		return workerBundle{}, invalidGraphError(result)
 	}
 	declarations, err := workerCompilerInputs(result)
 	if err != nil {
@@ -238,4 +233,14 @@ func (rust *workerRustDevelopment) digest(root string, service rustbuild.Service
 		}
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+// invalidGraphError reports the first error diagnostic of an invalid graph.
+func invalidGraphError(result *compiler.Result) error {
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Severity == "error" {
+			return &cliDiagnosticError{code: contractInvalidExitCode(result), diagnostic: diagnostic}
+		}
+	}
+	return fmt.Errorf("invalid application graph")
 }

@@ -44,7 +44,7 @@ func TestDetachedStartupDiagnosticRoundTrip(t *testing.T) {
 			writer := &detachedStartupTestWriter{}
 			reporter := &detachedDevStartupReporter{writer: writer}
 			original := &cliDiagnosticError{err: errors.New("raw-child-secret"), code: tc.code, diagnostic: tc.diagnostic}
-			wrapped := &silentCLIError{err: devBuildPhaseError{Err: original}, code: tc.code}
+			wrapped := &silentCLIError{err: devBuildOperationError{err: original}, code: tc.code}
 			if got := reporter.Report(wrapped); !errors.Is(got, wrapped) {
 				t.Fatalf("report changed the existing diagnostic wrapper: %v", got)
 			}

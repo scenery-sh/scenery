@@ -378,7 +378,7 @@ impl Host {
     pub(crate) fn new(
         bundle: Bundle,
         configuration: Value,
-        victoria: crate::otlp::Endpoints,
+        export: crate::otlp::Export,
         control_token: String,
         dev_status: Option<Arc<crate::dev::Status>>,
         lifetime: (CancellationToken, crate::assistant::Gateway),
@@ -388,11 +388,17 @@ impl Host {
         let development = dev_status.is_some();
         let scope = project_snapshot(&configuration, "host", &bundle.host_config_keys);
         let auth = Authentication::new(bundle.auth.as_ref(), &scope, development)?;
+        // Telemetry carries the runtime application identity its workers
+        // report under, which a supervisor may set apart from the graph name.
+        let app = std::env::var("SCENERY_APP_ID")
+            .ok()
+            .filter(|app| !app.trim().is_empty())
+            .unwrap_or_else(|| bundle.host.name.clone());
         let telemetry = telemetry::Sink::new(
-            &bundle.host.name,
+            &app,
             development,
             &bundle.host.observability,
-            victoria,
+            export,
             &bundle.reports,
         )?;
         Ok(Self {

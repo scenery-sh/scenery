@@ -11,6 +11,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::net::UnixStream;
 
+use crate::config::Lookup;
 use crate::host::{Fault, Host, Reply, Scope, header, json_reply};
 use crate::plan::Service;
 use crate::process::hex;
@@ -97,20 +98,20 @@ pub(crate) async fn serve(
     } else {
         ""
     };
+    let selection = crate::local_storage::Selection {
+        config: &configuration,
+        store,
+        name,
+        tenant,
+        key,
+        recursive,
+        query: &query,
+    };
     if store["kind"] == "local" {
-        return crate::local_storage::serve(
-            request,
-            crate::local_storage::Selection {
-                config: &configuration,
-                store,
-                name,
-                tenant,
-                key,
-                recursive,
-                query: &query,
-            },
-        )
-        .await;
+        return crate::local_storage::serve(request, selection).await;
+    }
+    if store["kind"] == "s3" {
+        return crate::s3_storage::serve(request, selection).await;
     }
     if store["kind"] != "proxy" {
         return Err(Fault::new(
@@ -216,19 +217,61 @@ pub(crate) fn failure(host: &Host, fault: Fault) -> Reply {
 }
 
 fn config() -> Result<serde_json::Value> {
-    let config = std::env::var("SCENERY_STORAGE_CONFIG").context("storage is not configured")?;
+    load(&|name: &str| std::env::var_os(name))?.context("storage is not configured")
+}
+
+/// Reads `SCENERY_STORAGE_CONFIG`, inline JSON or a file path, and resolves
+/// its `{"$env": "NAME"}` references.
+fn load(lookup: Lookup) -> Result<Option<serde_json::Value>> {
+    let Some(config) = lookup(STORAGE_CONFIG)
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
     let data = if config.trim_start().starts_with('{') {
+        ensure!(
+            config.len() <= 4 << 20,
+            "{STORAGE_CONFIG} exceeds 4 MiB"
+        );
         config.into_bytes()
     } else {
-        std::fs::read(PathBuf::from(config))?
+        crate::config::read_file_limited(&PathBuf::from(&config))
+            .with_context(|| format!("read {STORAGE_CONFIG} file {config}"))?
     };
-    let value = values::parse(&data)?;
+    let mut value = values::parse(&data).with_context(|| format!("parse {STORAGE_CONFIG}"))?;
     ensure!(
         value["kind"] == "scenery.storage.runtime",
         "invalid storage runtime configuration"
     );
-    Ok(value)
+    crate::config::resolve_env(&mut value, lookup)
+        .with_context(|| format!("resolve {STORAGE_CONFIG}"))?;
+    Ok(Some(value))
 }
+
+/// Checks a production host's storage configuration once at startup, so a
+/// missing secret or a malformed bucket stops the host before it serves.
+pub(crate) fn validate(lookup: Lookup) -> Result<()> {
+    let Some(config) = load(lookup)? else {
+        return Ok(());
+    };
+    let stores = config["stores"]
+        .as_object()
+        .context("storage configuration has no stores")?;
+    for (name, store) in stores {
+        match store["kind"].as_str() {
+            Some("s3") => {
+                crate::s3_storage::Bucket::from_config(store, lookup)
+                    .with_context(|| format!("storage store {name}"))?;
+            }
+            Some("local" | "proxy") => {}
+            _ => anyhow::bail!("storage store {name} has an unsupported kind"),
+        }
+    }
+    Ok(())
+}
+
+const STORAGE_CONFIG: &str = "SCENERY_STORAGE_CONFIG";
 
 fn namespace_binding(namespace: &serde_json::Value) -> Result<String> {
     // The existing storage service signs the Go struct's field order.

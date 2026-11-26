@@ -24,10 +24,9 @@ content-revisioned graph (source, effective, and expanded views). Source files
 must stay inside the workspace with no symlinks. Go comments and `init()`
 register nothing.
 
-Set `worker_host = true` in `app.scn`'s `workspace` block to select the Rust
-host and worker ABI for an application with only Go services.
-An application with Rust, JavaScript, or TypeScript workers already uses the
-Rust host. Worker bundles currently support HTTP and internal bindings.
+Every application runs on the Rust application host (`scenery-host`) over
+Worker ABI v1, whatever languages its services use. Go, Rust, JavaScript, and
+TypeScript services are workers of one host bundle.
 
 ## 2. Core Kernel
 
@@ -106,8 +105,9 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   without running application code. Development replaces only the worker
   whose module build inputs changed. The artifact target embeds the JavaScript
   and Bun runtime in a per-module executable in the Host's portable bundle.
-  Bundle execution requires the build platform and architecture.
-- A worker bundle links each Go service from the `go_target` its build
+  Bundle execution requires the build platform and architecture;
+  `scenery build --oci` builds a Linux image instead (section 8).
+- A host bundle links each Go service from the `go_target` its build
   selects: the target named by `scenery build --target`, otherwise the target
   with role `artifact`, or `development` for `scenery up` and
   `scenery build --development`.
@@ -153,3 +153,57 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 - CLI JSON responses use strict `scenery.cli` / `scenery.cli.event` envelopes
   (`docs/schemas/scenery.cli.schema.json`) carrying exact `spec_revision`,
   `schema_revision`, `producer`, and structured `diagnostics`.
+
+## 8. Production Host
+
+`scenery build` writes a bundle that starts as
+`<bundle>/scenery-host --listen <host:port> [--config <file>]`. `--listen`
+falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
+`127.0.0.1:4000`; a container binds `0.0.0.0:4000`.
+
+- **Configuration.** The runtime configuration snapshot
+  (`kind = "scenery.config.snapshot"`, at most 4 MiB) comes from `--config`,
+  `SCENERY_CONFIG_FILE`, or the inherited descriptor named by
+  `SCENERY_CONFIG_SNAPSHOT_FD`, in that order; naming both a file and a
+  descriptor is an error. Any value may be `{"$env": "NAME"}`: the Host
+  substitutes the variable's text, or its bytes for an entry of `secrets`.
+  An unreadable or malformed snapshot or an unset variable stops the Host
+  before any worker starts.
+- **Storage.** `SCENERY_STORAGE_CONFIG` stores have `kind` `local`, `proxy`,
+  or `s3`. An `s3` store names `region` and `bucket`, optionally `endpoint`
+  (an http or https origin; default `https://s3.<region>.amazonaws.com`),
+  `prefix`, `path_style` (default true with an `endpoint`), and
+  `access_key_id`, `secret_access_key`, `session_token`, which fall back to
+  the standard `AWS_*` variables and accept `{"$env": "NAME"}`. Requests are
+  signed with AWS Signature Version 4. Objects live under
+  `<prefix><store>/shared/` or, tenant-scoped,
+  `<prefix><store>/tenants/<base64url(tenant)>/`. Writes upload a signed
+  payload digest and honor `If-Match` and `If-None-Match: *`; deletes check
+  preconditions against the current version first; user metadata travels as
+  one `x-amz-meta-metadata` value (the backend's metadata limit applies).
+  Listing entries omit `content_type` and `sha256`; a read returns both.
+- **Telemetry.** A development Host exports to its worktree's loopback
+  Victoria. A production Host exports OTLP/HTTP protobuf to
+  `OTEL_EXPORTER_OTLP_ENDPOINT` with `/v1/traces`, `/v1/logs`, and
+  `/v1/metrics` appended, or to the per-signal
+  `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` as given, sending the URL-encoded
+  `OTEL_EXPORTER_OTLP_HEADERS`. URLs must be http or https without
+  credentials. Delivery is queued and drops records when the queue is full;
+  stopping flushes the queue within 5 seconds.
+- **Schedules.** Slots are the UTC instants a schedule's `every` divides.
+  With `DATABASE_URL`, replicas claim each slot in
+  `scenery.schedule_slots` and run it once between them; `skip`, `replace`,
+  and `queue` runs hold a 30-second lease renewed every 10 seconds, so a
+  crashed replica's run expires instead of blocking its schedule, a stopping
+  Host releases its leases, and `replace` ends the leased run it supersedes. Claims older than a day are
+  pruned. Without a database the Host schedules alone, in memory, and an
+  unavailable database skips a slot rather than risk running it twice.
+- **Images.** `scenery build --oci <image> [--platform linux/amd64|linux/arm64]`
+  cross-compiles Go services with cgo disabled from the selected `go_target`
+  (a `platform = "host"` target adopts the image platform) and Bun services
+  for the platform, then writes a two-stage Dockerfile whose Debian 12
+  builder stage compiles the Host and Rust services and seals their digests
+  into the manifest. The `gcr.io/distroless/cc-debian12` runtime stage runs
+  `/app/scenery-host --listen 0.0.0.0:4000` as user 65532. `--oci-context
+  <dir>` writes the reproducible context instead of building it with Docker
+  Buildx.

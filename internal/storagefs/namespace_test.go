@@ -5,9 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"scenery.sh/internal/atomicfile"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/atomicfile"
 )
 
 // Unit tests exercise the protocol with injected durability boundaries. Real

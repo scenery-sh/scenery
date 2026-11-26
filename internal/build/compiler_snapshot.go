@@ -2,7 +2,6 @@ package build
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -220,18 +219,4 @@ func capturedFileIdentityValid(file SourceSnapshotFile) bool {
 	}
 	digest := sha256.Sum256(file.Data)
 	return int64(len(file.Data)) == file.Size && hex.EncodeToString(digest[:]) == file.Hash
-}
-
-// CompileContractWithSnapshot returns the canonical graph used by the build.
-// The optional startup result is reused only after complete captured-input
-// verification; callers still perform their supersession gate before candidate
-// publication.
-func CompileContractWithSnapshot(root string, snapshot *SourceSnapshot) (*compiler.Result, error) {
-	return compileWorkspaceContract(root, snapshot)
-}
-
-func CompileContractWithSnapshotContext(ctx context.Context, root string, snapshot *SourceSnapshot) (*compiler.Result, error) {
-	return observeBuild(ctx, "contract.check", func() (*compiler.Result, error) {
-		return compileWorkspaceContract(root, snapshot)
-	})
 }

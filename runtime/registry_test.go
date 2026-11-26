@@ -9,8 +9,6 @@ import (
 	"testing/synctest"
 
 	"scenery.sh/internal/appsdk"
-	"scenery.sh/internal/mcpapi"
-	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/runtime/shared"
 )
 
@@ -207,12 +205,12 @@ func TestSetAppConfigUsesTestEnvironment(t *testing.T) {
 
 	t.Setenv("SCENERY_RUNTIME_ENV", "test")
 	SetAppConfig(AppConfig{Name: "testapp", ListenAddr: "127.0.0.1:4000"})
-	meta := Meta()
+	meta := appsdk.Metadata()
 	if meta.Environment.Type != shared.EnvTest {
-		t.Fatalf("Meta().Environment.Type = %q, want %q", meta.Environment.Type, shared.EnvTest)
+		t.Fatalf("appsdk.Metadata().Environment.Type = %q, want %q", meta.Environment.Type, shared.EnvTest)
 	}
 	if meta.Environment.Name != "test" {
-		t.Fatalf("Meta().Environment.Name = %q, want %q", meta.Environment.Name, "test")
+		t.Fatalf("appsdk.Metadata().Environment.Name = %q, want %q", meta.Environment.Name, "test")
 	}
 }
 
@@ -224,57 +222,33 @@ func TestSetAppConfigUsesSessionIdentityEnv(t *testing.T) {
 	t.Setenv("SCENERY_RUNTIME_APP_ID", "demo--feature-a")
 	t.Setenv("SCENERY_SESSION_ID", "feature-a-123abc")
 	SetAppConfig(AppConfig{Name: "demo", ListenAddr: "127.0.0.1:4000"})
-	meta := Meta()
+	meta := appsdk.Metadata()
 	if meta.AppID != "demo" {
-		t.Fatalf("Meta().AppID = %q, want source app id", meta.AppID)
+		t.Fatalf("appsdk.Metadata().AppID = %q, want source app id", meta.AppID)
 	}
 	if meta.BaseAppID != "demo" {
-		t.Fatalf("Meta().BaseAppID = %q, want demo", meta.BaseAppID)
+		t.Fatalf("appsdk.Metadata().BaseAppID = %q, want demo", meta.BaseAppID)
 	}
 	if meta.RuntimeAppID != "demo--feature-a" {
-		t.Fatalf("Meta().RuntimeAppID = %q, want demo--feature-a", meta.RuntimeAppID)
+		t.Fatalf("appsdk.Metadata().RuntimeAppID = %q, want demo--feature-a", meta.RuntimeAppID)
 	}
 	if meta.SessionID != "feature-a-123abc" {
-		t.Fatalf("Meta().SessionID = %q, want feature-a-123abc", meta.SessionID)
+		t.Fatalf("appsdk.Metadata().SessionID = %q, want feature-a-123abc", meta.SessionID)
 	}
 }
 
 func replaceGlobalRegistryForTest() func() {
 	prev := global
 	previousMetadata := *appsdk.Metadata()
-	activeAssistantMCPGateways.Lock()
-	prevAssistantMCPGateways := activeAssistantMCPGateways.values
-	activeAssistantMCPGateways.values = make(map[string]mcpapi.Gateway)
-	activeAssistantMCPGateways.Unlock()
-	assistantMCPGatewayReadinessState.Lock()
-	prevAssistantMCPGatewayReadiness := assistantMCPGatewayReadinessState.values
-	assistantMCPGatewayReadinessState.values = make(map[string]assistantMCPGatewayReadiness)
-	assistantMCPGatewayReadinessState.Unlock()
 	global = &registry{
-		endpoints:                 make(map[string]*Endpoint),
-		cronJobs:                  make(map[string]*CronJob),
-		durableTasks:              make(map[string]*DurableTask),
-		contractDurableExecutions: make(map[string]ContractDurableRegistration),
-		contractBindings:          make(map[string]ContractInternalBindingRegistration),
-		mcpTools:                  make(map[string]MCPToolRegistration),
-		assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
-		assistants:                make(map[string]AssistantRegistration),
-		assistantClients:          make(map[string]AssistantClient),
-		contractPages:             make(map[string]ContractPageRegistration),
-		serviceInitializers:       make(map[string]serviceInitializer),
-		serviceInitOrder:          make(map[string]int),
-		serviceShutdowns:          make(map[string]serviceShutdown),
+		serviceInitializers: make(map[string]serviceInitializer),
+		serviceInitOrder:    make(map[string]int),
+		serviceShutdowns:    make(map[string]serviceShutdown),
 	}
 	appsdk.SetMetadata(shared.AppMetadata{Environment: appsdk.DefaultEnvironment()})
 	return func() {
 		global = prev
 		appsdk.SetMetadata(previousMetadata)
-		activeAssistantMCPGateways.Lock()
-		activeAssistantMCPGateways.values = prevAssistantMCPGateways
-		activeAssistantMCPGateways.Unlock()
-		assistantMCPGatewayReadinessState.Lock()
-		assistantMCPGatewayReadinessState.values = prevAssistantMCPGatewayReadiness
-		assistantMCPGatewayReadinessState.Unlock()
 	}
 }
 

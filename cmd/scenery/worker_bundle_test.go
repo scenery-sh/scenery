@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
-	"net/http/httptest"
+	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
@@ -16,57 +14,8 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
-
-func TestWorkerHTTPParametersMapOpenAndClosedEnumsToString(t *testing.T) {
-	enum := func(name string, open bool) graph.Resource {
-		return graph.Resource{Address: "orders/enum/" + name, Module: "orders", Kind: "scenery.enum", Name: name, Spec: map[string]any{
-			"open": open, "value": []any{map[string]any{"name": "ready"}, map[string]any{"name": "done"}},
-		}}
-	}
-	projection := workerPlanProjection{resources: map[string]graph.Resource{
-		"orders/enum/status":   enum("status", true),
-		"orders/enum/priority": enum("priority", false),
-		"orders/record/Query": {Address: "orders/record/Query", Module: "orders", Kind: "scenery.record", Name: "Query", Spec: map[string]any{"field": []any{
-			map[string]any{"name": "status", "type": map[string]any{"$ref": "enum.status"}},
-			map[string]any{"name": "history", "type": map[string]any{"$expression": "optional(list(enum.status))"}},
-			map[string]any{"name": "priority", "type": map[string]any{"$ref": "enum.priority"}},
-		}}},
-	}}
-	operation := graph.Resource{Address: "orders/operation/list", Module: "orders", Kind: "scenery.operation", Name: "list", Spec: map[string]any{
-		"input": map[string]any{"$ref": "record.Query"},
-	}}
-	parameter := func(name string) map[string]any {
-		return map[string]any{"name": name, "to": map[string]any{"$ref": "operation.list.input." + name}}
-	}
-	schema, err := projection.httpRequest(map[string]any{"query_parameter": []any{parameter("status"), parameter("history"), parameter("priority")}}, operation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	types := map[string]string{}
-	for _, mapping := range schema.Mappings {
-		types[mapping.Name] = mapping.Type
-		if closed := mapping.Name == "priority"; closed != (len(mapping.EnumValues) > 0) {
-			t.Fatalf("%s enum values = %v", mapping.Name, mapping.EnumValues)
-		}
-	}
-	if types["status"] != "string" || types["history"] != "optional(list(string))" || types["priority"] != "string" {
-		t.Fatalf("mapped types = %v", types)
-	}
-	// An open enum accepts a value outside its declared set; a closed one does not.
-	decoded, err := workerruntime.DecodeContractInput[map[string]json.RawMessage](httptest.NewRequest("GET", "/orders?status=archived&history=ready&history=later&priority=done", nil), nil, schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(decoded["status"]) != `"archived"` || string(decoded["history"]) != `["ready","later"]` || string(decoded["priority"]) != `"done"` {
-		t.Fatalf("decoded input = %s", decoded)
-	}
-	_, err = workerruntime.DecodeContractInput[map[string]json.RawMessage](httptest.NewRequest("GET", "/orders?status=ready&priority=urgent", nil), nil, schema)
-	if err == nil || !strings.Contains(err.Error(), "priority") {
-		t.Fatalf("closed enum accepted an undeclared value: %v", err)
-	}
-}
 
 func TestDeclaredDatabaseSetupRunsApplyThenSeedsBeforeWorkers(t *testing.T) {
 	t.Parallel()
@@ -111,64 +60,6 @@ func TestDeclaredDatabaseSetupRunsApplyThenSeedsBeforeWorkers(t *testing.T) {
 	}
 }
 
-func TestWorkerApplicationsRejectFrontendsTheHostDoesNotServe(t *testing.T) {
-	vite := appcfg.FrontendConfig{Root: "web", Adapter: "vite", Mode: "static"}
-	envs := map[string]appcfg.EnvConfig{
-		"local": {Default: true, Frontends: map[string]appcfg.EnvFrontendConfig{"blog": {Serve: "disabled"}}},
-		"all":   {},
-	}
-	for _, test := range []struct {
-		name      string
-		root, env string
-		frontends map[string]appcfg.FrontendConfig
-		want      string
-	}{
-		{name: "no frontend"},
-		{name: "static vite root", frontends: map[string]appcfg.FrontendConfig{"web": vite}},
-		{name: "managed root", frontends: map[string]appcfg.FrontendConfig{"web": {Root: "web"}}, want: `declare frontends.web with "adapter": "vite" and "mode": "static"`},
-		{name: "shared upstream", frontends: map[string]appcfg.FrontendConfig{"web": {Upstream: "127.0.0.1:5173", AllowSharedUpstream: true}}, want: `declare frontends.web with "adapter": "vite"`},
-		{name: "disabled secondary", root: "web", frontends: map[string]appcfg.FrontendConfig{"web": vite, "blog": {Root: "blog"}}},
-		{name: "served secondary", root: "web", env: "all", frontends: map[string]appcfg.FrontendConfig{"web": vite, "blog": {Root: "blog"}}, want: `set envs.all.frontends.blog.serve to "disabled"`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			err := requireWorkerFrontends(appcfg.Config{Root: test.root, Frontends: test.frontends, Envs: envs}, test.env)
-			if test.want == "" {
-				if err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), test.want) || cliExitCode(err) != 3 {
-				t.Fatalf("error = %v (exit %d), want %q", err, cliExitCode(err), test.want)
-			}
-		})
-	}
-}
-
-func TestWorkerBundleBuildResultConformsToDeclaredSchema(t *testing.T) {
-	// `help build -o json` declares scenery.build.result for an application
-	// build, whether it produces one Go executable or a worker bundle.
-	payload := workerBundleBuildResult("/tmp/app/dist/bundle")
-	if payload["kind"] != "scenery.build.result" || payload["output_path"] != "/tmp/app/dist/bundle" {
-		t.Fatalf("payload = %v", payload)
-	}
-	schemas := filepath.Join(repoRootForTest(t), "docs", "schemas")
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(schemas, "scenery.build.result.schema.json"), payload); len(diagnostics) != 0 {
-		t.Fatalf("worker bundle build result diagnostics = %s", strings.Join(diagnostics, "\n"))
-	}
-	var stdout bytes.Buffer
-	if err := writeCLIJSON(&stdout, payload); err != nil {
-		t.Fatal(err)
-	}
-	var envelope map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(schemas, "scenery.cli.schema.json"), envelope); len(diagnostics) != 0 {
-		t.Fatalf("worker bundle build CLI envelope diagnostics = %s", strings.Join(diagnostics, "\n"))
-	}
-}
-
 func TestWorkerBundleBuildRejectsUndeclaredGoTargetBeforeBuilding(t *testing.T) {
 	fixture := filepath.Join(repoRootForTest(t), "testdata", "apps", "ts-only")
 	err := buildCommand(io.Discard, []string{"--app-root", fixture, "--target", "missing"})
@@ -184,7 +75,7 @@ func TestWorkerBundleLinksGoServicesFromTheSelectedTarget(t *testing.T) {
 		{Address: "app/go_target/development", Kind: "scenery.go-target", Name: "development", Spec: map[string]any{"role": "development"}},
 		{Address: "jobs/service/jobs", Module: "jobs", Kind: "scenery.service", Name: "jobs", Spec: map[string]any{"runtime": "go"}},
 	}}}
-	bundle := workerBundle{Host: workerHostPlan{Workers: []workerruntime.WorkerServicePlan{{Address: "jobs/service/jobs", Process: "worker-jobs"}}}}
+	bundle := workerBundle{Host: workerHostPlan{Workers: []workerplan.WorkerServicePlan{{Address: "jobs/service/jobs", Process: "worker-jobs"}}}}
 	// A production bundle asks for the artifact target; the named target wins.
 	for _, test := range []struct{ role, target string }{{"artifact", ""}, {"artifact", "linux"}} {
 		_, err := bundle.addGoWorkers(context.Background(), compiled, test.role, test.target, nil, nil)
@@ -240,5 +131,36 @@ func TestWorkerBundleRejectsCrossPlatformGoTarget(t *testing.T) {
 	}
 	if err := validateWorkerBundleTargetPlatform(compiled, "artifact", ""); err != nil {
 		t.Fatalf("implicit empty target without Go service should pass: %v", err)
+	}
+}
+
+// A rebuild replaces the previous bundle at its destination, while any other
+// existing entry is refused untouched.
+func TestWorkerBundlePublicationReplacesOnlyAPreviousBundle(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	stage := func(marker string) string {
+		staging := filepath.Join(root, "staging-"+marker)
+		for _, name := range []string{"manifest.json", "scenery-host"} {
+			writeWatchFile(t, staging, name, marker)
+		}
+		return staging
+	}
+	destination := filepath.Join(root, "bundle")
+	for _, marker := range []string{"first", "second"} {
+		if err := publishWorkerBundle(stage(marker), destination); err != nil {
+			t.Fatalf("publish %s: %v", marker, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(destination, "manifest.json")); err != nil || string(data) != "second" {
+		t.Fatalf("published manifest = %q, %v", data, err)
+	}
+	other := filepath.Join(root, "other")
+	writeWatchFile(t, other, "notes.txt", "keep")
+	if err := publishWorkerBundle(stage("third"), other); cliExitCode(err) != 3 {
+		t.Fatalf("publish over another directory = %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(other, "notes.txt")); err != nil || string(data) != "keep" {
+		t.Fatalf("other directory = %q, %v", data, err)
 	}
 }

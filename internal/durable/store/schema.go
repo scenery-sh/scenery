@@ -2,6 +2,6 @@ package store
 
 import sdksource "scenery.sh/sdk/rust"
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 var initSchemaSQL = sdksource.DurableSchema

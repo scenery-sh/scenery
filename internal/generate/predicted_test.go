@@ -4,14 +4,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/runtimeassets"
 )
-
-func TestAssistantAssetDescriptorKindMatchesRuntimeAssets(t *testing.T) {
-	if AssistantAssetDescriptorKind != runtimeassets.AssistantAssetKind {
-		t.Fatalf("AssistantAssetDescriptorKind = %q, want %q", AssistantAssetDescriptorKind, runtimeassets.AssistantAssetKind)
-	}
-}
 
 func TestApplyImplementationCheckUsesInjectedCheckInProcess(t *testing.T) {
 	t.Parallel()

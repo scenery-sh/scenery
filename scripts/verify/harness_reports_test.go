@@ -155,7 +155,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	if reads != 3 {
 		t.Fatalf("product schema reads = %d, want 3", reads)
 	}
-	if len(report.Validated) != 26 {
+	if len(report.Validated) != 27 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

@@ -220,7 +220,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	}
 	// Change the owned co-development origin after startup. All following real
 	// rebuilds must keep using the selected immutable source and matching CLI.
-	originInput := filepath.Join(framework.SourceOrigin, "runtime/contract_preflight.go")
+	originInput := filepath.Join(framework.SourceOrigin, "runtime/registry.go")
 	content, err := os.ReadFile(originInput)
 	if err != nil {
 		return nil, err
@@ -232,12 +232,13 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err != nil {
 		return nil, err
 	}
-	bundle, err := build.ReadRuntimeBundle(appRoot, "development")
+	// The host is started only after the session verified this selection.
+	selection, err := build.ReadFrameworkSelection(appRoot)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyHarnessFrameworkBuildInputs(bundle.BuildInput, framework); err != nil {
-		return nil, err
+	if selection.Source.Digest != framework.Source.Digest || selection.ExecutableDigest != framework.ExecutableDigest {
+		return nil, fmt.Errorf("runtime framework selection %s/%s differs from the selected %s/%s", selection.Source.Digest, selection.ExecutableDigest, framework.Source.Digest, framework.ExecutableDigest)
 	}
 	transition, err := proveHarnessCrossSpecFramework(ctx, framework.SourceOrigin, appRoot, binary, env)
 	if err != nil {

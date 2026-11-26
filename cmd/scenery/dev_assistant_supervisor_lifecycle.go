@@ -17,11 +17,11 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/assistantadapter/eve"
+	"scenery.sh/internal/assistantcontrol"
 	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/runtime"
 )
 
 // assistantHelperEnv is deliberately an allowlist. Only credentials selected
@@ -412,9 +412,9 @@ func (s *assistantSupervisor) Contract() *compiler.Result {
 // RuntimeConfig returns the stable private descriptor slots prepared for the
 // current graph. The app child receives these before helpers start, so its MCP
 // gateway can bind first and its bootstrap can retry helper probes.
-func (s *assistantSupervisor) RuntimeConfig() runtime.AssistantRuntimeConfig {
+func (s *assistantSupervisor) RuntimeConfig() assistantcontrol.RuntimeConfig {
 	if s == nil {
-		return runtime.AssistantRuntimeConfig{}
+		return assistantcontrol.RuntimeConfig{}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -423,13 +423,13 @@ func (s *assistantSupervisor) RuntimeConfig() runtime.AssistantRuntimeConfig {
 		addresses = append(addresses, address)
 	}
 	sort.Strings(addresses)
-	config := runtime.AssistantRuntimeConfig{Assistants: make([]runtime.AssistantBootstrapDescriptor, 0, len(addresses))}
+	config := assistantcontrol.RuntimeConfig{Assistants: make([]assistantcontrol.HelperDescriptor, 0, len(addresses))}
 	for _, address := range addresses {
 		prepared := s.prepared[address]
 		if !prepared.hasDescriptor() {
 			continue
 		}
-		config.Assistants = append(config.Assistants, runtime.AssistantBootstrapDescriptor{
+		config.Assistants = append(config.Assistants, assistantcontrol.HelperDescriptor{
 			AssistantAddress: prepared.definition.Address, ControlAddress: prepared.controlURL,
 			ControlToken: prepared.controlToken, MCPListenAddress: prepared.mcpListenAddress,
 			MCPBridgeSecret: string(prepared.bridgeSecret), RuntimeRevision: prepared.definition.RuntimeRevision,

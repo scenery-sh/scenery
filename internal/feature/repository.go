@@ -13,11 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/redact"
 	"slices"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/redact"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)

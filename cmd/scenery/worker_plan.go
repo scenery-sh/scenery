@@ -13,17 +13,17 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/graph"
-	workerruntime "scenery.sh/runtime"
+	"scenery.sh/internal/workerplan"
 )
 
 type workerPlanProjection struct {
 	resources map[string]graph.Resource
-	services  map[string]workerruntime.WorkerServicePlan
+	services  map[string]workerplan.WorkerServicePlan
 }
 
-func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServicePlan, error) {
+func projectWorkerServices(manifest *graph.Manifest) ([]workerplan.WorkerServicePlan, error) {
 	projection := workerPlanProjection{
-		resources: cp.ResourcesByAddress(manifest), services: make(map[string]workerruntime.WorkerServicePlan),
+		resources: cp.ResourcesByAddress(manifest), services: make(map[string]workerplan.WorkerServicePlan),
 	}
 	operationOwners := make(map[string]string)
 	moduleOwners := make(map[string]string)
@@ -40,10 +40,10 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		}
 		moduleOwners[resource.Module] = resource.Address
 		digest := sha256.Sum256([]byte(resource.Address))
-		service := workerruntime.WorkerServicePlan{
+		service := workerplan.WorkerServicePlan{
 			Address: resource.Address, Name: resource.Name, Module: resource.Module, Process: fmt.Sprintf("worker-%x", digest[:8]),
-			Operations: make(map[string]workerruntime.WorkerOperationPlan), Clients: make(map[string]workerruntime.WorkerClientPlan),
-			Durable: make(map[string]workerruntime.WorkerDurablePlan), Stores: make(map[string]string),
+			Operations: make(map[string]workerplan.WorkerOperationPlan), Clients: make(map[string]workerplan.WorkerClientPlan),
+			Durable: make(map[string]workerplan.WorkerDurablePlan), Stores: make(map[string]string),
 		}
 		dependencies, err := compiler.ServiceGoDependencies(projection.resources, resource)
 		if err != nil {
@@ -56,7 +56,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		}
 		for _, client := range cp.NamedChildren(resource.Spec, "client") {
 			binding := workerReference(resource, client["binding"], "binding")
-			service.Clients[cp.StringValue(client["name"])] = workerruntime.WorkerClientPlan{
+			service.Clients[cp.StringValue(client["name"])] = workerplan.WorkerClientPlan{
 				Binding: binding, Enqueue: cp.StringValue(projection.resources[binding].Spec["delivery"]) == "enqueue",
 			}
 		}
@@ -79,7 +79,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 				outcomes[kind+"."+cp.StringValue(variant["name"])] = workerTypeExpression(operation.Module, variant["type"])
 			}
 		}
-		service.Operations[operation.Address] = workerruntime.WorkerOperationPlan{
+		service.Operations[operation.Address] = workerplan.WorkerOperationPlan{
 			Input: workerTypeExpression(operation.Module, operation.Spec["input"]), Outcomes: outcomes,
 		}
 	}
@@ -117,7 +117,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		catchup, _ := schedule.Spec["catchup"].(map[string]any)
 		policySource := schedule
 		policySource.Spec = invoke
-		service.Schedules = append(service.Schedules, workerruntime.WorkerSchedulePlan{
+		service.Schedules = append(service.Schedules, workerplan.WorkerSchedulePlan{
 			Address: schedule.Address, Operation: operation, Execution: execution, Input: input,
 			Authorization: workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
 			Policy:  projection.policy(service, policySource, projection.resources[operation]),
@@ -148,7 +148,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		addresses = append(addresses, address)
 	}
 	sort.Strings(addresses)
-	services := make([]workerruntime.WorkerServicePlan, 0, len(addresses))
+	services := make([]workerplan.WorkerServicePlan, 0, len(addresses))
 	for _, address := range addresses {
 		services = append(services, projection.services[address])
 	}
@@ -193,8 +193,8 @@ func qualifyWorkerType(module, expression string) string {
 	return out.String()
 }
 
-func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, binding, operation graph.Resource) (workerruntime.WorkerBindingPlan, error) {
-	result := workerruntime.WorkerBindingPlan{
+func (p workerPlanProjection) binding(service workerplan.WorkerServicePlan, binding, operation graph.Resource) (workerplan.WorkerBindingPlan, error) {
+	result := workerplan.WorkerBindingPlan{
 		Address: binding.Address, Operation: operation.Address, Policy: p.policy(service, binding, operation),
 	}
 	delivery := cp.StringValue(binding.Spec["delivery"])
@@ -227,8 +227,8 @@ func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, b
 	return result, nil
 }
 
-func (p workerPlanProjection) policy(service workerruntime.WorkerServicePlan, binding, operation graph.Resource) workerruntime.ContractHTTPPolicy {
-	policy := workerruntime.ContractHTTPPolicy{ServiceName: service.Name, OperationAddress: operation.Address, BindingAddress: binding.Address}
+func (p workerPlanProjection) policy(service workerplan.WorkerServicePlan, binding, operation graph.Resource) workerplan.ContractHTTPPolicy {
+	policy := workerplan.ContractHTTPPolicy{ServiceName: service.Name, OperationAddress: operation.Address, BindingAddress: binding.Address}
 	auth := p.resources[workerReference(binding, binding.Spec["authorization"], "authorization")]
 	policy.AuthorizationStrategy = cp.StringValue(auth.Spec["strategy"])
 	if policy.AuthorizationStrategy == "" {
@@ -252,7 +252,7 @@ func (p workerPlanProjection) policy(service workerruntime.WorkerServicePlan, bi
 		case map[string]any:
 			expression = cp.StringValue(value["$expression"])
 		}
-		policy.AuthorizationRules = append(policy.AuthorizationRules, workerruntime.ContractAuthorizationRule{
+		policy.AuthorizationRules = append(policy.AuthorizationRules, workerplan.ContractAuthorizationRule{
 			Name: cp.StringValue(rule["name"]), Effect: effect, Expression: expression,
 		})
 	}

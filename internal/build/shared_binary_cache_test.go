@@ -5,12 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
-
-	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/gotarget"
 )
 
 func TestSharedBinaryWaitIsContextCancelable(t *testing.T) {
@@ -67,23 +63,5 @@ func TestSharedBinaryTicketQueueOrdersActiveAndReclaimsStale(t *testing.T) {
 	}
 	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale ticket remains: %v", err)
-	}
-}
-
-func prepareSharedBinaryTestResult(root string, result *Result) {
-	result.AppRoot = root
-	result.Target.Context.ModuleRoot = root
-	result.GoEnvironment = gotarget.Environment(result.Target.Context)
-	result.BuildInput = newBuildInputManifest(result.Target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("b", 64)})
-	bindSharedBinaryTestIdentity(result)
-}
-
-func bindSharedBinaryTestIdentity(result *Result) {
-	result.ImplementationRevisions, _ = compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: result.BuildInput.Digest})
-	result.RuntimeLinkerMetadata = map[string]string{
-		"scenery.sh/runtime.linkedContractRevision":       result.Contract.Manifest.ContractRevision,
-		"scenery.sh/runtime.linkedImplementationRevision": result.ImplementationRevisions[result.Target.Name],
-		"scenery.sh/runtime.linkedBuildInputDigest":       result.BuildInput.Digest,
-		"scenery.sh/runtime.linkedGoTarget":               result.Target.Name,
 	}
 }

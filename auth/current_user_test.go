@@ -88,7 +88,7 @@ func installCurrentUserTestService(t *testing.T, svc *Service) {
 	t.Helper()
 	resetStandardAuthStateForTest(t)
 	standardAuthState.mu.Lock()
-	standardAuthState.cfg = StandardConfig{Enabled: true}
+	standardAuthState.enabled = true
 	standardAuthState.svc = svc
 	standardAuthState.once.Do(func() {})
 	standardAuthState.mu.Unlock()

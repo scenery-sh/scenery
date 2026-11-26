@@ -9,9 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"scenery.sh/internal/devcache"
 	"slices"
 	"strings"
+
+	"scenery.sh/internal/devcache"
 )
 
 // DevelopmentInputs records the local package closure for each worker. Cargo

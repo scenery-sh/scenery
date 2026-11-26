@@ -16,7 +16,6 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -53,7 +52,7 @@ type harnessEditLatencySample struct {
 	Polls               int                       `json:"polls,omitempty"`
 	TransientFailures   int                       `json:"transient_failures,omitempty"`
 	ProcessID           string                    `json:"process_id,omitempty"`
-	Identity            build.CandidateIdentity   `json:"identity,omitempty"`
+	Identity            harnessServedIdentity     `json:"identity,omitempty"`
 	OperationID         string                    `json:"operation_id,omitempty"`
 	Phases              []harnessEditLatencyPhase `json:"phases,omitempty"`
 	Error               string                    `json:"error,omitempty"`
@@ -309,14 +308,12 @@ func (l *harnessEditLatencyLane) measure(ctx context.Context, ordinal int) harne
 				return result
 			}
 			result.OwnershipObservedMS = float64(time.Since(ownershipStarted).Microseconds()) / 1000
-			candidate, verifyErr := build.VerifyCandidate(ctx, l.appRoot, observation.identity.Target, build.RuntimeBundlePath(l.appRoot, observation.identity.Target))
+			candidate, verifyErr := harnessDevelopmentCandidate(ctx, l.appRoot, l.binary, l.env)
 			if verifyErr != nil {
 				result.Error = "verify matched candidate: " + verifyErr.Error()
 				return result
 			}
-			if observation.identity.ContractRevision != candidate.ContractRevision ||
-				observation.identity.ImplementationRevision != candidate.ImplementationRevision ||
-				observation.identity.BuildInputDigest != candidate.BuildInputDigest || observation.identity.Target != candidate.Target {
+			if !harnessSameBuild(observation.identity, candidate) {
 				result.Error = "matched response identity does not equal the exact current candidate"
 				return result
 			}
@@ -366,7 +363,7 @@ type harnessEditLatencyObservation struct {
 	completed       time.Time
 	requestDuration time.Duration
 	processID       string
-	identity        build.CandidateIdentity
+	identity        harnessServedIdentity
 }
 
 func (l *harnessEditLatencyLane) observe(ctx context.Context, want string) (harnessEditLatencyObservation, error) {
@@ -392,14 +389,9 @@ func (l *harnessEditLatencyLane) observe(ctx context.Context, want string) (harn
 	if response.StatusCode != http.StatusOK || json.Unmarshal(data, &body) != nil || body.Message != want {
 		return harnessEditLatencyObservation{}, nil
 	}
-	identity := build.CandidateIdentity{
-		ContractRevision:       response.Header.Get("X-Scenery-Contract-Revision"),
-		ImplementationRevision: response.Header.Get("X-Scenery-Implementation-Revision"),
-		BuildInputDigest:       response.Header.Get("X-Scenery-Build-Input-Digest"),
-		Target:                 response.Header.Get("X-Scenery-Go-Target"),
-	}
-	processID := response.Header.Get("X-Scenery-Process-ID")
-	if processID == "" || identity.ContractRevision == "" || identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.Target == "" {
+	identity := harnessResponseIdentity(response)
+	processID := response.Header.Get("X-App-Host-Pid")
+	if processID == "" || identity.ContractRevision == "" || identity.ImplementationRevision == "" || identity.BuildInputDigest == "" {
 		return harnessEditLatencyObservation{}, fmt.Errorf("matching response omitted exact execution identity")
 	}
 	return harnessEditLatencyObservation{matched: true, completed: completed, requestDuration: completed.Sub(started), processID: processID, identity: identity}, nil

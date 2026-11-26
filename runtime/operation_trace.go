@@ -76,16 +76,6 @@ func emitOperationEvent(reporter *devReporter, span *traceSpan, at time.Time, da
 	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event", AppID: reporter.appID, TraceEvent: &devreport.TraceEvent{TraceID: span.traceID, SpanID: span.spanID, EventID: reporter.nextEventID(), EventTime: at, Event: data}})
 }
 
-// finishOperation also records panics without exposing the panic payload or
-// changing the recovery policy of the surrounding execution adapter.
-func finishOperation(end func(error), err *error) {
-	if value := recover(); value != nil {
-		end(errors.New("operation panicked"))
-		panic(value)
-	}
-	end(*err)
-}
-
 func traceParentForContext(ctx context.Context) string {
 	state := stateFromContext(ctx)
 	if state == nil {
@@ -115,26 +105,6 @@ func parseTraceParent(value string) (string, string, bool) {
 		return "", "", false
 	}
 	return traceID, spanID, true
-}
-
-// Generated policy metadata identifies the semantic operation independently of
-// its HTTP, internal or MCP transport.
-func operationTraceIdentity(policy *ContractHTTPPolicy, fallback string, attributes map[string]any) (string, map[string]any) {
-	if attributes == nil {
-		attributes = map[string]any{}
-	}
-	if policy != nil {
-		if policy.ServiceName != "" {
-			fallback = policy.ServiceName
-		}
-		if policy.OperationAddress != "" {
-			attributes["operation_address"] = policy.OperationAddress
-		}
-		if policy.BindingAddress != "" {
-			attributes["binding_address"] = policy.BindingAddress
-		}
-	}
-	return fallback, attributes
 }
 
 func invocationCorrelation(state *requestState) devreport.InvocationCorrelation {

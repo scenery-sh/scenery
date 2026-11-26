@@ -1,22 +1,14 @@
 package generate
 
 import (
-	"fmt"
 	"math/big"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/spec"
-)
-
-var (
-	httpPathParameterPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
-	httpPathTailPattern      = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\.\.\.\}`)
 )
 
 var primitiveTypes = map[string]bool{
@@ -89,19 +81,6 @@ func projectionRevisionsForGateways(result *Result, references []string, revisio
 	return selected
 }
 
-func inputKeyFieldName(value any) (string, bool) {
-	reference, ok := value.(map[string]any)
-	if !ok {
-		return "", false
-	}
-	expression := strings.TrimSpace(stringValue(reference["$expression"]))
-	if expression == "" {
-		expression = strings.TrimSpace(stringValue(reference["$ref"]))
-	}
-	name, found := strings.CutPrefix(expression, "input.")
-	return name, found && scn.IdentifierPattern.MatchString(name)
-}
-
 func literalString(block *Block, name string) (string, bool) { return scn.LiteralString(block, name) }
 
 func MarshalCanonical(value any) ([]byte, error) { return spec.MarshalCanonical(value) }
@@ -144,47 +123,6 @@ func refOrString(value any) string {
 	return stringValue(value)
 }
 
-func expressionText(value any) string {
-	if expression, ok := value.(map[string]any); ok {
-		return strings.TrimSpace(stringValue(expression["$expression"]))
-	}
-	return strings.TrimSpace(stringValue(value))
-}
-
-func wrappedType(value, wrapper string) bool {
-	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, wrapper+"(") && strings.HasSuffix(value, ")")
-}
-
-type httpFieldSelection struct {
-	present bool
-	fields  map[string]bool
-	invalid []string
-}
-
-func httpBodyFieldSelection(body map[string]any, key string, operation Resource, shape operationInputShape) httpFieldSelection {
-	selection := httpFieldSelection{fields: map[string]bool{}}
-	value, exists := body[key]
-	if !exists {
-		return selection
-	}
-	selection.present = true
-	values, ok := value.([]any)
-	if !ok {
-		selection.invalid = append(selection.invalid, fmt.Sprint(value))
-		return selection
-	}
-	for _, item := range values {
-		field, whole, valid := resolveOperationInputTarget(operation, shape, refOrString(item))
-		if !valid || whole || selection.fields[field.Name] {
-			selection.invalid = append(selection.invalid, refOrString(item))
-			continue
-		}
-		selection.fields[field.Name] = true
-	}
-	return selection
-}
-
 func recordFieldType(resources map[string]Resource, module string, value any, path []string) any {
 	current := value
 	for _, name := range path {
@@ -218,72 +156,6 @@ func recordResourceForType(resources map[string]Resource, module string, value a
 	}
 	record, ok := resources[graph.ResourceAddress(module, "record", parts[1])]
 	return record, ok
-}
-
-func validateHTTPOutcomeValueRef(resources map[string]Resource, operation Resource, outcome, reference string) error {
-	if reference == "" {
-		return fmt.Errorf("requires a typed from reference")
-	}
-	if !strings.HasPrefix(outcome, "result.") && !strings.HasPrefix(outcome, "error.") {
-		if outcome == "dispatch.enqueued" {
-			parts := strings.Split(reference, ".")
-			if reference == "dispatch.receipt" || len(parts) == 3 && parts[0] == "dispatch" && parts[1] == "receipt" && oneOf(parts[2], "durable_identity", "execution_id", "accepted_revision", "status_url") {
-				return nil
-			}
-			return fmt.Errorf("from reference does not match dispatch.enqueued receipt")
-		}
-		problem := standardProblemSource(outcome)
-		parts := strings.Split(reference, ".")
-		if reference == problem || strings.HasPrefix(reference, problem+".") && len(parts) == 3 && oneOf(parts[2], "code", "message", "path") {
-			return nil
-		}
-		return fmt.Errorf("from reference does not match %s", outcome)
-	}
-	parts, outcomeParts := strings.Split(reference, "."), strings.Split(outcome, ".")
-	if len(parts) < 2 || parts[0] != outcomeParts[0] || parts[1] != outcomeParts[1] {
-		return fmt.Errorf("from reference does not match %s", outcome)
-	}
-	if len(parts) == 2 {
-		return nil
-	}
-	variantType := operationVariantType(operation, outcomeParts[0], outcomeParts[1])
-	if refOrString(variantType) == "std.type.problem" {
-		if len(parts) == 3 && oneOf(parts[2], "code", "message", "path") {
-			return nil
-		}
-		return fmt.Errorf("references an unknown problem field")
-	}
-	if recordFieldType(resources, operation.Module, variantType, parts[2:]) != nil {
-		return nil
-	}
-	return fmt.Errorf("references an unknown outcome field")
-}
-
-func standardProblemSource(outcome string) string {
-	if lastRef(outcome) == "enqueued" {
-		return "dispatch.receipt"
-	}
-	if outcome == "system.internal" {
-		return "system.problem"
-	}
-	if strings.HasPrefix(outcome, "admission.") {
-		return "admission.problem"
-	}
-	if strings.HasPrefix(outcome, "dispatch.") {
-		return "dispatch.problem"
-	}
-	return "transport.problem"
-}
-
-func joinHTTPPath(base, binding string) string {
-	if base == "" || base == "/" {
-		return binding
-	}
-	return strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(binding, "/")
-}
-
-func oneOf[T comparable](value T, candidates ...T) bool {
-	return slices.Contains(candidates, value)
 }
 
 func typeExpressionNames(raw string) []string {

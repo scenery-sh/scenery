@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
 
-	"scenery.sh/auth"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	cp "scenery.sh/internal/clientprojection"
@@ -19,20 +19,24 @@ import (
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/rustbuild"
+	"scenery.sh/internal/workerplan"
 	workerruntime "scenery.sh/runtime"
 )
 
 type workerBundle struct {
-	Version          int                    `json:"version"`
-	ContractRevision string                 `json:"contract_revision"`
-	Host             workerHostPlan         `json:"host"`
-	Types            contract.ManifestTypes `json:"types"`
-	Programs         []workerProgram        `json:"programs"`
-	Frontend         *workerFrontend        `json:"frontend,omitempty"`
-	Auth             *workerAuthPlan        `json:"auth,omitempty"`
-	HostConfigKeys   []string               `json:"host_config_keys,omitempty"`
-	Reports          workerReportIdentity   `json:"reports"`
+	Version          int                      `json:"version"`
+	ContractRevision string                   `json:"contract_revision"`
+	Host             workerHostPlan           `json:"host"`
+	Types            contract.ManifestTypes   `json:"types"`
+	Programs         []workerProgram          `json:"programs"`
+	Frontend         *workerFrontend          `json:"frontend,omitempty"`
+	Auth             *workerplan.StandardAuth `json:"auth,omitempty"`
+	HostConfigKeys   []string                 `json:"host_config_keys,omitempty"`
+	Reports          workerReportIdentity     `json:"reports"`
 	config           *workerruntime.ConfigSnapshot
+	// goPlatform builds the Go services for another platform, as an OCI
+	// image build does; nil builds them for this host.
+	goPlatform *compiler.GoPlatform
 }
 
 // workerReportIdentity is the identity the Host stamps on the failure reports
@@ -49,15 +53,10 @@ func currentWorkerReportIdentity() workerReportIdentity {
 	}
 }
 
-type workerAuthPlan struct {
-	auth.StandardConfig
-	BootstrapSQL string `json:"bootstrap_sql,omitempty"`
-}
-
 type workerHostPlan struct {
 	Name          string
-	Observability workerruntime.ObservabilityConfig
-	Workers       []workerruntime.WorkerServicePlan
+	Observability workerplan.ObservabilityConfig
+	Workers       []workerplan.WorkerServicePlan
 	MCPServers    map[string]mcpcontract.Manifest `json:",omitempty"`
 	Assistants    []workerAssistantPlan           `json:",omitempty"`
 }
@@ -74,7 +73,7 @@ type workerProgram struct {
 	config     *workerruntime.ConfigSnapshot
 }
 
-func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
+func projectRustBuilds(result *compiler.Result, plan []workerplan.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
 	resources := cp.ResourcesByAddress(result.Manifest)
 	modules := make(map[string]graph.Resource)
 	for _, module := range result.Manifest.Resources {
@@ -206,9 +205,11 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:    workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
-		Types:   types,
-		Reports: currentWorkerReportIdentity(),
+		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
+		Types: types,
+		// An application without native services still has a program list.
+		Programs: []workerProgram{},
+		Reports:  currentWorkerReportIdentity(),
 	}
 	if err := bundle.projectAssistants(result); err != nil {
 		return workerBundle{}, nil, nil, err
@@ -262,7 +263,11 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		}
 	}
 	if !reused {
-		preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+		if bundle.goPlatform != nil {
+			preparation, err = build.PrepareForPlatformContext(ctx, root, cfg, compiled, goTarget, role, *bundle.goPlatform)
+		} else {
+			preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -357,8 +362,8 @@ func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination str
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(destination); err == nil || !os.IsNotExist(err) {
-		return fmt.Errorf("bundle destination already exists or cannot be inspected: %s", destination)
+	if _, err := workerBundleDestinationExists(destination); err != nil {
+		return err
 	}
 	staging, err := os.MkdirTemp(parent, ".worker-bundle-")
 	if err != nil {
@@ -398,7 +403,45 @@ func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination str
 	if err := os.WriteFile(filepath.Join(staging, "manifest.json"), append(data, '\n'), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(staging, destination)
+	return publishWorkerBundle(staging, destination)
+}
+
+// publishWorkerBundle moves a staged bundle to destination. A rebuild
+// replaces the previous bundle there; anything else is never removed.
+func publishWorkerBundle(staging, destination string) error {
+	exists, err := workerBundleDestinationExists(destination)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return os.Rename(staging, destination)
+	}
+	retired := staging + ".retired"
+	if err := os.Rename(destination, retired); err != nil {
+		return err
+	}
+	if err := os.Rename(staging, destination); err != nil {
+		return errors.Join(err, os.Rename(retired, destination))
+	}
+	return os.RemoveAll(retired)
+}
+
+// workerBundleDestinationExists reports whether destination holds a previous
+// bundle and refuses any other existing entry.
+func workerBundleDestinationExists(destination string) (bool, error) {
+	info, err := os.Lstat(destination)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, name := range []string{"manifest.json", "scenery-host"} {
+		if entry, err := os.Lstat(filepath.Join(destination, name)); !info.IsDir() || err != nil || !entry.Mode().IsRegular() {
+			return false, preconditionErrorf("bundle destination %s exists and is not an application bundle", destination)
+		}
+	}
+	return true, nil
 }
 
 func copyWorkerExecutable(source, target string) error {

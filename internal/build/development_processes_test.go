@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -131,8 +132,8 @@ func TestDevelopmentProcessManifestsFollowEachEntrypointImportClosure(t *testing
 
 func TestDevelopmentProcessBuildArgsMoveEveryLinkerFlagIntoEachEntrypoint(t *testing.T) {
 	pending := []*DevelopmentProcess{
-		{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i1", BuildInputDigest: "b1", GoTarget: "development"}},
-		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i2", BuildInputDigest: "b2", GoTarget: "development"}},
+		{Name: "greeter_greeter", Package: "./scenery_internal_processes/services/greeter_greeter", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i1", BuildInputDigest: "b1", GoTarget: "development"}},
+		{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i2", BuildInputDigest: "b2", GoTarget: "development"}},
 	}
 	args := developmentProcessBuildArgs([]string{"-ldflags", "-s=false", " -trimpath ", "-ldflags=-X=main.flavor=dev"}, developmentLinkerFlags, "/out", pending)
 	for _, arg := range args {
@@ -290,7 +291,7 @@ func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing
 		t.Fatal(err)
 	}
 	var listed bytes.Buffer
-	for _, dir := range []string{"scenery_internal_main", "scenery_internal_processes/host", "scenery_internal_processes/services/echo_echo"} {
+	for _, dir := range []string{"scenery_internal_processes/services/echo_echo"} {
 		path := filepath.Join(canonical, filepath.FromSlash(dir))
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			t.Fatal(err)
@@ -307,7 +308,7 @@ func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{DevelopmentProcessHost, "echo_echo"} {
+	for _, name := range []string{"echo_echo"} {
 		if _, _, err := manifest.developmentProcessDigest(name); err != nil {
 			t.Fatalf("process %s was not found through the linked workspace: %v", name, err)
 		}
@@ -316,7 +317,7 @@ func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing
 
 func TestDevelopmentProcessBuildArgsTrimPathsByDefault(t *testing.T) {
 	pending := []*DevelopmentProcess{
-		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "development"}},
+		{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "development"}},
 	}
 	args := developmentProcessBuildArgs(nil, developmentLinkerFlags, "/out", pending)
 	if len(args) < 2 || args[0] != "build" || args[1] != "-trimpath" {
@@ -338,15 +339,6 @@ func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
 	contract := &compiler.Result{Manifest: &compiler.Manifest{}}
 	development := &Result{Contract: contract, Target: &compiler.GoBuildTarget{Name: "development", Role: "development"}}
 	artifact := &Result{Contract: contract, Target: &compiler.GoBuildTarget{Name: "production", Role: "artifact"}}
-	if err := developmentProcessTarget(artifact, false); err != nil {
-		t.Fatalf("service entrypoints rejected an artifact target: %v", err)
-	}
-	if err := developmentProcessTarget(artifact, true); err == nil {
-		t.Fatal("the development process model linked a host from an artifact target")
-	}
-	if err := developmentProcessTarget(development, true); err != nil {
-		t.Fatal(err)
-	}
 	process := &DevelopmentProcess{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "production"}}
 	linker := func(result *Result) string {
 		prefix := "-ldflags=" + process.Package + "="
@@ -357,7 +349,7 @@ func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
 		t.Fatalf("linker flags: development %q, artifact %q", linker(development), linker(artifact))
 	}
 	key := func(result *Result) string {
-		key, err := developmentProcessKey(process, nil, developmentLinkerDefaults(result))
+		key, err := developmentProcessKey(process, nil, developmentLinkerDefaults(result), crossPlatform(result))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -365,6 +357,17 @@ func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
 	}
 	if key(development) == key(artifact) {
 		t.Fatal("development and artifact executables share an identity")
+	}
+	// An executable built for another platform never shares a native key.
+	native := *artifact.Target
+	native.Context.GOOS, native.Context.GOARCH = runtime.GOOS, runtime.GOARCH
+	linux := native
+	linux.Context.GOOS, linux.Context.GOARCH = "linux", "riscv64"
+	if crossPlatform(&Result{Target: &native}) != "" || key(&Result{Contract: contract, Target: &native}) != key(artifact) {
+		t.Fatal("a native target changed its executable identity")
+	}
+	if crossPlatform(&Result{Target: &linux}) != "linux/riscv64" || key(&Result{Contract: contract, Target: &linux}) == key(artifact) {
+		t.Fatal("a cross-platform executable shares the native identity")
 	}
 }
 

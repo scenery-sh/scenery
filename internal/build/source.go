@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -688,33 +687,6 @@ func removeUnexpectedFilesFromListsObserved(root string, sourceFiles, generatedF
 	return nil
 }
 
-func pruneStaleWorkspaceBinaries(root string, keepPaths ...string) error {
-	keep := make(map[string]struct{}, len(keepPaths))
-	for _, path := range keepPaths {
-		if path != "" && filepath.Clean(filepath.Dir(path)) == filepath.Clean(root) {
-			keep[filepath.Base(path)] = struct{}{}
-		}
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !isFingerprintBinaryName(name) {
-			continue
-		}
-		if _, ok := keep[name]; ok {
-			continue
-		}
-		path := filepath.Join(root, name)
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove stale build binary %s: %w", path, err)
-		}
-	}
-	return nil
-}
-
 func isFingerprintBinaryName(name string) bool {
 	const prefix = "scenery-app-"
 	const fingerprintLength = 16
@@ -727,36 +699,4 @@ func isFingerprintBinaryName(name string) bool {
 		}
 	}
 	return true
-}
-
-// DevelopmentGoInputsChanged reports whether an edit can affect Go workspace
-// materialization or linked native inputs. The process linker further narrows
-// Go edits by the resolved import closures of the individual entrypoints.
-func DevelopmentGoInputsChanged(result *Result, paths []string) (bool, error) {
-	if result == nil || len(paths) == 0 {
-		return false, nil
-	}
-	native := append(stringValuesForBuild(result.Target.Effective["native_inputs"]), stringValuesForBuild(result.Target.Effective["native_input"])...)
-	for _, path := range paths {
-		path = filepath.ToSlash(path)
-		if _, found := result.SourceStamps[path]; found || isGoWorkspaceSourceFile(path) {
-			return true, nil
-		}
-		for _, input := range native {
-			if path == input || strings.HasPrefix(path, input+"/") {
-				return true, nil
-			}
-		}
-	}
-	// A new file of an arbitrary type can enter an existing go:embed glob.
-	files, err := listSourceFiles(result.AppRoot)
-	if err != nil {
-		return false, err
-	}
-	for _, path := range paths {
-		if _, found := slices.BinarySearch(files, filepath.ToSlash(path)); found {
-			return true, nil
-		}
-	}
-	return false, nil
 }

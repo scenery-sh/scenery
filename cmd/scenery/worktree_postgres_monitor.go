@@ -39,8 +39,8 @@ func (s *devSupervisor) rememberWorktreeDatabase(database postgresdb.Database, a
 }
 
 // The monitor observes only. It never starts, allocates or adopts a database.
-// An authenticated endpoint change wakes the existing serialized rebuild loop,
-// which refreshes child configuration through the ordinary resolver.
+// An authenticated endpoint change restarts the host through the serialized
+// rebuild loop, which refreshes its configuration through the ordinary resolver.
 func (s *devSupervisor) startPostgresEndpointMonitor() {
 	if s.worktreeRootPaths == nil {
 		return
@@ -89,11 +89,9 @@ func (s *devSupervisor) startPostgresEndpointMonitor() {
 			stillCurrent := s.postgresTarget == target
 			s.mu.RUnlock()
 			if stillCurrent {
-				select {
-				case s.rebuildRequests <- struct{}{}:
-					s.eventSink().Emit(s.ctx, devdash.DevSource{ID: "postgres", Kind: "substrate", Name: "PostgreSQL", Status: "starting"}, "info", "restarting the app for a verified worktree PostgreSQL endpoint change", nil)
-				default:
-				}
+				// Workers read database endpoints when they start.
+				s.requestHostRestart()
+				s.eventSink().Emit(s.ctx, devdash.DevSource{ID: "postgres", Kind: "substrate", Name: "PostgreSQL", Status: "starting"}, "info", "restarting the app for a verified worktree PostgreSQL endpoint change", nil)
 			}
 		}
 	}()

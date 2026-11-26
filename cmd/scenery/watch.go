@@ -561,6 +561,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		if handoff := supervisor.frameworkHandoffBeforeBuild(ctx, &failedHandoff); handoff != nil {
 			return handoff
 		}
+		// A running host rebuilds and publishes source edits itself.
+		if supervisor.hostOwnsChanges() {
+			continue
+		}
 		// A build blocked by a cause no ordinary edit resolves is not
 		// repeated until the inputs that can resolve it change; an explicit
 		// rebuild request still builds.

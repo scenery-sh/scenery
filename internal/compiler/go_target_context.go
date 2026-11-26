@@ -96,6 +96,21 @@ func (e *GoTargetSelectionError) Error() string {
 }
 
 func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarget, error) {
+	return ResolveGoBuildTargetFor(result, name, defaultRole, nil)
+}
+
+// GoPlatform is the operating system and architecture a build produces for
+// instead of the build host's, as an OCI image build does for Linux.
+type GoPlatform struct {
+	GOOS   string
+	GOARCH string
+}
+
+// ResolveGoBuildTargetFor resolves the target like ResolveGoBuildTarget.
+// A non-nil platform replaces the platform of a `platform = "host"` target
+// and disables its cgo; a target fixed to another platform, or one that
+// requires cgo, cannot build for it.
+func ResolveGoBuildTargetFor(result *Result, name, defaultRole string, platform *GoPlatform) (GoBuildTarget, error) {
 	if result == nil || result.Manifest == nil {
 		return GoBuildTarget{}, fmt.Errorf("valid contract is required")
 	}
@@ -121,7 +136,7 @@ func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarg
 	if target.Address == "" {
 		return GoBuildTarget{}, &GoTargetSelectionError{Name: name, DefaultRole: defaultRole, Available: sortedResourceNames(targets)}
 	}
-	resolved, err := resolveGoVerificationTarget(result, targets, target)
+	resolved, err := resolveGoVerificationTarget(result, targets, target, platform)
 	if err != nil {
 		return GoBuildTarget{}, err
 	}
@@ -168,7 +183,7 @@ func goVerificationTargets(result *Result) ([]goVerificationTarget, error) {
 	}
 	resolved := make([]goVerificationTarget, 0, len(selected))
 	for _, target := range selected {
-		resolvedTarget, err := resolveGoVerificationTarget(result, targets, target)
+		resolvedTarget, err := resolveGoVerificationTarget(result, targets, target, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +211,7 @@ func VerificationGoTargets(result *Result) ([]GoBuildTarget, error) {
 	return resolved, nil
 }
 
-func resolveGoVerificationTarget(result *Result, targets map[string]Resource, target Resource) (goVerificationTarget, error) {
+func resolveGoVerificationTarget(result *Result, targets map[string]Resource, target Resource, platform *GoPlatform) (goVerificationTarget, error) {
 	byAddress := resourcesByAddress(result.Manifest)
 	effective, err := effectiveGoTarget(target, targets, nil)
 	if err != nil {
@@ -210,6 +225,17 @@ func resolveGoVerificationTarget(result *Result, targets map[string]Resource, ta
 	}
 	cgo := stringValue(effective["cgo"])
 	cgoEnabled := cgo == "enabled" || cgo == "host" && build.Default.CgoEnabled
+	if platform != nil {
+		if stringValue(effective["platform"]) == "host" {
+			goos, goarch = platform.GOOS, platform.GOARCH
+		} else if goos != platform.GOOS || goarch != platform.GOARCH {
+			return goVerificationTarget{}, fmt.Errorf("%s builds for %s/%s, not %s/%s", target.Address, goos, goarch, platform.GOOS, platform.GOARCH)
+		}
+		if cgo == "enabled" {
+			return goVerificationTarget{}, fmt.Errorf("%s requires cgo, which cannot build for %s/%s", target.Address, platform.GOOS, platform.GOARCH)
+		}
+		cgoEnabled = false
+	}
 	architecture, _, err := goArchitectureContext(goarch, stringValues(effective["architecture_features"]))
 	if err != nil {
 		return goVerificationTarget{}, fmt.Errorf("%s: %w", target.Address, err)
