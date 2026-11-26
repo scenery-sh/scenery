@@ -733,6 +733,155 @@ func TestWorkerWatcherOnAdoptUpdatesDevStateAndClearsFailedAttempt(t *testing.T)
 	}
 }
 
+func TestWorkerWatcherOnAdoptRestoresExplicitDepsAndRevertReconcilesFirst(t *testing.T) {
+	var mu sync.Mutex
+	var currentGen uint64 = 1
+	putMode := "commit_and_fail"
+	getOK := false
+
+	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodGet:
+			mu.Lock()
+			ok := getOK
+			current := currentGen
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"current": current})
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			mode := putMode
+			if mode == "ok" || mode == "commit_and_fail" {
+				if gen, okGen := body["generation"].(float64); okGen {
+					currentGen = uint64(gen)
+				}
+			}
+			mu.Unlock()
+			if mode == "ok" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	root := filepath.Join(dir, "app")
+	extraRel := filepath.Join("node_modules", "extra", "index.js")
+	writeWatchFile(t, root, ".scenery.json", `{"name":"adopt-deps","id":"adopt-deps","envs":{"local":{"default":true}}}`)
+	writeWatchFile(t, root, extraRel, "export const v = 1;\n")
+	writeWatchFile(t, root, "a.txt", "v2\n")
+
+	inputWatch, err := openWorkerInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inputWatch.fs.Close() }()
+
+	baseInputs, err := inputWatch.capture(nil, nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputsWithExtra, err := reconcileExplicitJSDependencies(inputWatch, baseInputs, nil, []string{extraRel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate refresh's defer rollback after publish enters unconfirmed.
+	inputWatch.setExplicit(nil, false)
+
+	compiled := &compiler.Result{Root: root, Manifest: &graph.Manifest{ContractRevision: "c1"}}
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	bundle1 := workerBundle{ContractRevision: "c1", Programs: []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity}}}
+	bundle2 := workerBundle{ContractRevision: "c1", Programs: []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:2", Identity: identity}}}
+	bundle3 := workerBundle{ContractRevision: "c1", Programs: []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:3", Identity: identity}}}
+
+	p1 := newTestDummyWorkerProcess(dir, 501, bundle1.Programs[0])
+	control := &workerDevControl{watch: inputWatch}
+	dev := &workerDevelopment{watch: inputWatch, compiled: compiled, envName: "local", applied: baseInputs}
+	watch := &workerWatcher{
+		token: "tok", client: client, dev: dev, devControl: control,
+		bundle: bundle1, active: map[string]*workerProcess{"a": p1}, all: []*workerProcess{p1},
+		generation: 1, sequence: 1, retireDrainTimeout: 5 * time.Millisecond, retireForceInterval: 5 * time.Millisecond,
+		startWorker: func(_ context.Context, _, _, _ string, program workerProgram) (*workerProcess, error) {
+			return newTestDummyWorkerProcess(dir, 502, program), nil
+		},
+	}
+	watch.generations.add(1, watch.active)
+
+	candidateB := *dev
+	if err := watch.replaceWithAdopt(context.Background(), bundle2, nil, func(adoptCtx context.Context) {
+		timing := workerRebuildTiming{Generation: watch.generation}
+		watch.commitRefreshCandidate(adoptCtx, candidateB, nil, []string{extraRel}, false, "", workerEdit{}, inputsWithExtra, time.Now(), &timing)
+	}); err == nil {
+		t.Fatal("replaceWithAdopt during commit_and_fail outage must fail")
+	}
+	control.failure(inputsWithExtra, &devBuildFailure{Stderr: "outage"}, &workerRebuildTiming{})
+
+	mu.Lock()
+	getOK = true
+	mu.Unlock()
+	if err := watch.reconcileUnconfirmed(context.Background()); err != nil {
+		t.Fatalf("reconcileUnconfirmed(explicit deps adopt) = %v", err)
+	}
+	watch.retirements.Wait()
+	if !slices.Equal(inputWatch.explicitList(), []string{extraRel}) {
+		t.Fatalf("explicit deps after adoption = %v, want [%s]", inputWatch.explicitList(), extraRel)
+	}
+	captured, err := inputWatch.capture(nil, nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.mu.RLock()
+	servingDigest := control.serving.SourceSnapshotDigest
+	attempt := control.attempt
+	control.mu.RUnlock()
+	if attempt != nil || servingDigest != workerSourceDigest(captured) {
+		t.Fatalf("after explicit dep adoption: attempt=%v digest=%q want nil & %q", attempt, servingDigest, workerSourceDigest(captured))
+	}
+
+	// Revert during unconfirmed: refresh(inputsWithExtra) where current == watch.dev.applied must still reconcile Gen 3 first.
+	inputsC := maps.Clone(inputsWithExtra)
+	inputsC["a.txt"] = workerInput{Digest: [32]byte{9}, Mode: 0o644}
+	p3 := newTestDummyWorkerProcess(dir, 503, bundle3.Programs[0])
+	watch.sequence = 3
+	watch.generations.add(3, map[string]*workerProcess{"a": p3})
+	watch.unconfirmed = []unconfirmedWorkerGeneration{{
+		number: 3, bundle: bundle3, processes: map[string]*workerProcess{"a": p3}, started: []*workerProcess{p3},
+		onAdopt: func(context.Context) { watch.dev.applied = inputsC },
+	}}
+	mu.Lock()
+	getOK = false
+	mu.Unlock()
+	if _, err := watch.refresh(context.Background(), inputsWithExtra, time.Now()); err == nil {
+		t.Fatal("refresh with unconfirmed generation must fail while Host status is unavailable even when current == applied")
+	}
+	mu.Lock()
+	getOK = true
+	currentGen = 3
+	putMode = "ok"
+	mu.Unlock()
+	applied, err := watch.refresh(context.Background(), inputsWithExtra, time.Now())
+	if err != nil {
+		t.Fatalf("refresh after revert & unconfirmed adoption = %v", err)
+	}
+	watch.retirements.Wait()
+	control.mu.RLock()
+	servingAfterRevert := control.serving.SourceSnapshotDigest
+	control.mu.RUnlock()
+	if watch.generation != 3 || !maps.Equal(applied, inputsWithExtra) || !maps.Equal(watch.dev.applied, inputsWithExtra) || servingAfterRevert != workerSourceDigest(inputsWithExtra) {
+		t.Fatalf("after revert refresh = (gen=%d, appliedEq=%v, devAppliedEq=%v, digestEq=%v)", watch.generation, maps.Equal(applied, inputsWithExtra), maps.Equal(watch.dev.applied, inputsWithExtra), servingAfterRevert == workerSourceDigest(inputsWithExtra))
+	}
+}
+
 func TestPrepareWorkerDevAssistantsStartsEmptyAndReconcilesFirstAssistant(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

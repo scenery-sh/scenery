@@ -198,7 +198,9 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 						schedule()
 					}
 				} else if applied != nil {
-					pendingSourceSync = false
+					if len(watch.unconfirmed) == 0 {
+						pendingSourceSync = false
+					}
 					seen = applied
 					if startConfigWatch() || configTicks != nil {
 						checkConfig()
@@ -319,12 +321,12 @@ func workerMilliseconds(duration time.Duration) float64 {
 }
 
 func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) (applied workerInputs, returnErr error) {
+	if err := watch.reconcileUnconfirmed(ctx); err != nil {
+		return nil, err
+	}
 	paths := changedWorkerInputs(watch.dev.applied, current)
 	if len(paths) == 0 {
 		return current, nil
-	}
-	if err := watch.reconcileUnconfirmed(ctx); err != nil {
-		return nil, err
 	}
 	started := time.Now()
 	edit := watch.dev.classify(paths)
@@ -406,22 +408,6 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	slices.Sort(timing.SkippedModules)
 	adoptTimingBase := timing
 	readyStarted := time.Now()
-	commitRefreshCandidate := func(adoptCtx context.Context, adoptTiming *workerRebuildTiming) {
-		if dbChanged {
-			candidate.dbSetupFingerprint = dbSetup.Fingerprint
-		}
-		candidate.applied = appliedCurrent
-		candidate.ensureAssistantCompiled().Store(candidate.compiled)
-		if edit.declarations && candidate.assistantState != nil {
-			reconcileWorkerAssistants(adoptCtx, candidate.assistantState, candidate.compiled, candidate.watch.root)
-		}
-		*watch.dev = candidate
-		if adoptTiming != nil && watch.devControl != nil {
-			adoptTiming.Generation = watch.generation
-			adoptTiming.TotalMS = workerMilliseconds(time.Since(detected))
-			watch.devControl.publish(appliedCurrent, watch.bundle, watch.generation, adoptTiming)
-		}
-	}
 	err = watch.replaceWithAdopt(ctx, bundle, func() error {
 		if err := candidate.verify(appliedCurrent); err != nil {
 			return err
@@ -433,14 +419,34 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	}, func(adoptCtx context.Context) {
 		adoptTiming := adoptTimingBase
 		adoptTiming.ReadyMS = workerMilliseconds(time.Since(readyStarted))
-		commitRefreshCandidate(adoptCtx, &adoptTiming)
+		watch.commitRefreshCandidate(adoptCtx, candidate, prevDeps, nextDeps, dbChanged, dbSetup.Fingerprint, edit, appliedCurrent, detected, &adoptTiming)
 	})
 	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
 	if err != nil {
 		return nil, err
 	}
-	commitRefreshCandidate(ctx, nil)
+	watch.commitRefreshCandidate(ctx, candidate, prevDeps, nextDeps, dbChanged, dbSetup.Fingerprint, edit, appliedCurrent, detected, nil)
 	return appliedCurrent, nil
+}
+
+func (watch *workerWatcher) commitRefreshCandidate(ctx context.Context, candidate workerDevelopment, prevDeps, nextDeps []string, dbChanged bool, dbFingerprint string, edit workerEdit, appliedCurrent workerInputs, detected time.Time, adoptTiming *workerRebuildTiming) {
+	if dbChanged {
+		candidate.dbSetupFingerprint = dbFingerprint
+	}
+	if adoptTiming != nil && candidate.watch != nil && !slices.Equal(prevDeps, nextDeps) {
+		candidate.watch.setExplicit(nextDeps, true)
+	}
+	candidate.applied = appliedCurrent
+	candidate.ensureAssistantCompiled().Store(candidate.compiled)
+	if edit.declarations && candidate.assistantState != nil {
+		reconcileWorkerAssistants(ctx, candidate.assistantState, candidate.compiled, candidate.watch.root)
+	}
+	*watch.dev = candidate
+	if adoptTiming != nil && watch.devControl != nil {
+		adoptTiming.Generation = watch.generation
+		adoptTiming.TotalMS = workerMilliseconds(time.Since(detected))
+		watch.devControl.publish(appliedCurrent, watch.bundle, watch.generation, adoptTiming)
+	}
 }
 
 func reconcileWorkerAssistants(ctx context.Context, state *workerAssistantWatchState, compiled *compiler.Result, root string) {
