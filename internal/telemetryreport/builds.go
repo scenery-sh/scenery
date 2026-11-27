@@ -499,8 +499,26 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			}
 		case "build.step":
 			var step buildStepData
-			if json.Unmarshal(data.Data, &step) != nil || step.OperationID == "" {
+			if json.Unmarshal(data.Data, &step) != nil {
 				invalidRecord()
+				return
+			}
+			// Assistant preparation steps are standalone supervisor events emitted
+			// outside any build request and carry no operation_id; retain their
+			// cache work without treating them as malformed build-request steps.
+			if step.OperationID == "" {
+				if !strings.HasPrefix(step.Name, "assistant.") {
+					invalidRecord()
+					return
+				}
+				timing := decodeSupervisorTiming(step.DurationMS)
+				invalid := timing.invalid
+				if !recordCacheWork(builds, step, timing) {
+					invalid = true
+				}
+				if invalid {
+					invalidRecord()
+				}
 				return
 			}
 			timing := decodeSupervisorTiming(step.DurationMS)

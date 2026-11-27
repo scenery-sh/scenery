@@ -198,3 +198,36 @@ func TestSupervisorCacheRetainsUntimedWork(t *testing.T) {
 		t.Fatalf("valid zero and partial cache cohort = %+v", cache)
 	}
 }
+
+func TestSupervisorStandaloneAssistantStepsCountCacheWorkWithoutInvalid(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	assistantEvent := func(name string, duration float64) any {
+		return supervisorEventLine("build.step", at, map[string]any{
+			"name": name, "assistant": "copilot", "started_at": at,
+			"duration_ms": duration, "cache": "hit", "reason": "verified_independent_copy", "ok": true,
+		})
+	}
+	report := supervisorTimingFixture(t,
+		assistantEvent("assistant.cache_copy", 910.5),
+		assistantEvent("assistant.stage", 1149.25),
+	)
+	if report.Sources.SupervisorInvalid != 0 || report.Sources.Supervisor[0].Invalid != 0 || report.Sources.Supervisor[0].Status != "complete" {
+		t.Fatalf("assistant steps marked invalid: %+v", report.Sources)
+	}
+	if report.Builds.Rebuilds.Count != 0 || len(report.Builds.Steps) != 0 {
+		t.Fatalf("standalone assistant steps polluted rebuilds/steps: %+v", report.Builds)
+	}
+	if len(report.Builds.CacheWork) != 2 {
+		t.Fatalf("assistant cache work = %+v", report.Builds.CacheWork)
+	}
+
+	// Non-assistant build.step without operation_id and malformed assistant timings remain invalid.
+	badReport := supervisorTimingFixture(t,
+		supervisorTimingEvent("build.step", "", "compile", 10, true),
+		assistantEvent("assistant.stage", -1),
+	)
+	if badReport.Sources.SupervisorInvalid != 2 || badReport.Sources.Supervisor[0].Invalid != 2 || badReport.Sources.Supervisor[0].Status != "partial" {
+		t.Fatalf("malformed standalone steps not flagged invalid: %+v", badReport.Sources)
+	}
+}
