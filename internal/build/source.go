@@ -9,8 +9,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"golang.org/x/mod/modfile"
 
@@ -114,42 +117,86 @@ func syncSourceFilesFromDiskObserved(root, appRoot string, prevStamps map[string
 	if err != nil {
 		return nil, nil, err
 	}
+	type hashedFile struct {
+		present bool
+		reused  bool
+		stamp   SourceStamp
+		raw     []byte
+		err     error
+	}
+	results := make([]hashedFile, len(currentFiles))
+	if len(currentFiles) > 0 {
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(currentFiles))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(currentFiles) {
+						return
+					}
+					rel := currentFiles[i]
+					src := filepath.Join(appRoot, filepath.FromSlash(rel))
+					info, err := os.Stat(src)
+					if err != nil {
+						if errors.Is(err, os.ErrNotExist) {
+							continue
+						}
+						results[i].err = err
+						continue
+					}
+					stamp := sourceStampFromInfo(info)
+					raw, err := os.ReadFile(src)
+					if err != nil {
+						if errors.Is(err, os.ErrNotExist) {
+							continue
+						}
+						results[i].err = err
+						continue
+					}
+					sum := sha256.Sum256(raw)
+					stamp.Hash = hex.EncodeToString(sum[:])
+					if _, ok := skip[rel]; ok {
+						results[i] = hashedFile{present: true, stamp: stamp}
+						continue
+					}
+					if prev, ok := prevStamps[rel]; ok && prev == stamp {
+						if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+							results[i] = hashedFile{present: true, reused: true, stamp: stamp}
+							continue
+						} else if !errors.Is(err, os.ErrNotExist) {
+							results[i].err = err
+							continue
+						}
+					}
+					results[i] = hashedFile{present: true, stamp: stamp, raw: raw}
+				}
+			})
+		}
+		wg.Wait()
+	}
 	stamps := make(map[string]SourceStamp, len(currentFiles))
-	for _, rel := range currentFiles {
-		src := filepath.Join(appRoot, filepath.FromSlash(rel))
-		info, err := os.Stat(src)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return nil, nil, err
+	for i, rel := range currentFiles {
+		res := results[i]
+		if res.err != nil {
+			return nil, nil, res.err
 		}
-		stamp := sourceStampFromInfo(info)
-		raw, err := os.ReadFile(src)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return nil, nil, err
-		}
-		sum := sha256.Sum256(raw)
-		stamp.Hash = hex.EncodeToString(sum[:])
-		if _, ok := skip[rel]; ok {
-			stamps[rel] = stamp
+		if !res.present {
 			continue
 		}
-		if prev, ok := prevStamps[rel]; ok && prev == stamp {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
-				mutation.reused()
-				stamps[rel] = stamp
-				continue
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, nil, err
-			}
+		if _, ok := skip[rel]; ok {
+			stamps[rel] = res.stamp
+			continue
 		}
-		data := raw
+		if res.reused {
+			mutation.reused()
+			stamps[rel] = res.stamp
+			continue
+		}
+		data := res.raw
 		if rel == "go.mod" {
-			data, err = patchGoModData(raw, filepath.Dir(src))
+			data, err = patchGoModData(res.raw, filepath.Dir(filepath.Join(appRoot, filepath.FromSlash(rel))))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -157,7 +204,7 @@ func syncSourceFilesFromDiskObserved(root, appRoot string, prevStamps map[string
 		if _, err := writeFileIfChangedObserved(root, rel, data, mutation); err != nil {
 			return nil, nil, err
 		}
-		stamps[rel] = stamp
+		stamps[rel] = res.stamp
 	}
 	for rel := range prevStamps {
 		if _, generated := skip[rel]; generated {
@@ -357,15 +404,41 @@ func currentAppSourceFingerprintFromDisk(appRoot string) (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	for _, rel := range files {
-		data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
-		if err != nil {
-			return "", err
+	type hashedEntry struct {
+		sum [sha256.Size]byte
+		err error
+	}
+	entries := make([]hashedEntry, len(files))
+	if len(files) > 0 {
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(files))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(files) {
+						return
+					}
+					rel := files[i]
+					data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
+					if err != nil {
+						entries[i].err = err
+						continue
+					}
+					entries[i].sum = sha256.Sum256(data)
+				}
+			})
 		}
-		sum := sha256.Sum256(data)
+		wg.Wait()
+	}
+	for i, rel := range files {
+		if entries[i].err != nil {
+			return "", entries[i].err
+		}
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(hex.EncodeToString(sum[:])))
+		_, _ = h.Write([]byte(hex.EncodeToString(entries[i].sum[:])))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

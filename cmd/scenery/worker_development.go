@@ -44,8 +44,8 @@ type workerRustDevelopment struct {
 	pythonModules []string
 }
 
-func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs workerInputs, compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
-	dev := &workerDevelopment{watch: watch, applied: inputs}
+func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, captureInputs func() (workerInputs, error), compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
+	dev := &workerDevelopment{watch: watch}
 	result := compiled
 	if result == nil {
 		var err error
@@ -58,10 +58,33 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
-	if _, err := dev.rust.rebuild(ctx, watch.root, inputs, true); err != nil {
-		return nil, workerBundle{}, err
+	var (
+		inputs       workerInputs
+		inputsLoaded bool
+	)
+	loadInputs := func() (workerInputs, error) {
+		if inputsLoaded {
+			return inputs, nil
+		}
+		var captureErr error
+		inputs, captureErr = captureInputs()
+		if captureErr != nil {
+			return nil, captureErr
+		}
+		inputsLoaded = true
+		dev.applied = inputs
+		return inputs, nil
 	}
-	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
+	if len(dev.rust.services) > 0 {
+		loaded, err := loadInputs()
+		if err != nil {
+			return nil, workerBundle{}, err
+		}
+		if _, err := dev.rust.rebuild(ctx, watch.root, loaded, true); err != nil {
+			return nil, workerBundle{}, err
+		}
+		bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
+	}
 	for i := range dev.js {
 		program, _, err := (&dev.js[i]).run(ctx, watch.root, false)
 		if err != nil {
@@ -76,14 +99,20 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs
 		}
 		bundle.Programs = append(bundle.Programs, program)
 	}
-	if err := watch.addExplicit(inputs, dev.jsDependencies()); err != nil {
-		return nil, workerBundle{}, err
-	}
+	// Go worker builds do not consume workerInputs; overlapping capture with
+	// addGoWorkers hides full-tree hashing behind workspace cache verification.
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
 	if err := bundle.projectConfig(dev.compiled); err != nil {
+		return nil, workerBundle{}, err
+	}
+	loaded, err := loadInputs()
+	if err != nil {
+		return nil, workerBundle{}, err
+	}
+	if err := watch.addExplicit(loaded, dev.jsDependencies()); err != nil {
 		return nil, workerBundle{}, err
 	}
 	return dev, bundle, nil

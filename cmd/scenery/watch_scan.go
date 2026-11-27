@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/dirlisting"
@@ -135,54 +138,122 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 			snapshot.consumedGenerated[rel] = true
 		}
 	}
+	genList := make([]string, 0, len(generated))
 	for rel := range generated {
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
-		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
-		if snapshot.generated[rel] {
-			stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
-			if !reused {
-				stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
-				if err != nil {
-					continue
-				}
-			}
-			snapshot.generatedContent[rel] = stamp
-		}
+		genList = append(genList, rel)
 	}
-	for _, found := range candidates {
-		rel, path := found.rel, found.path
-		if generated[rel] {
-			continue
+	if len(genList) > 0 {
+		type genResult struct {
+			regular bool
+			has     bool
+			stamp   fileStamp
 		}
-
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		var data []byte
-		stamp, reused := reusableStamp(previous.files, rel, info, false)
-		if !reused {
-			stamp, data, err = stampWatchedFile(path, info, false)
-			if err != nil {
-				continue
-			}
-			snapshot.scanStats.filesHashed++
-			snapshot.scanStats.bytesHashed += int64(len(data))
-		}
-		snapshot.files[rel] = stamp
-		if filepath.Ext(rel) == ".go" {
-			patterns, cached := cachedGoEmbedPatterns(path, stamp)
-			if !cached {
-				if data == nil {
-					if data, err = os.ReadFile(path); err != nil {
+		genResults := make([]genResult, len(genList))
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(genList))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(genList) {
+						return
+					}
+					rel := genList[i]
+					full := filepath.Join(root, filepath.FromSlash(rel))
+					info, err := os.Lstat(full)
+					if err != nil || !info.Mode().IsRegular() {
 						continue
 					}
+					genResults[i].regular = true
+					stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
+					if !reused {
+						stamp, _, err = stampWatchedFile(full, info, false)
+						if err != nil {
+							continue
+						}
+					}
+					genResults[i].has = true
+					genResults[i].stamp = stamp
 				}
-				patterns = parseGoEmbedPatterns(string(data))
-				storeGoEmbedPatterns(path, stamp, patterns)
+			})
+		}
+		wg.Wait()
+		for i, rel := range genList {
+			snapshot.generated[rel] = genResults[i].regular
+			if genResults[i].has {
+				snapshot.generatedContent[rel] = genResults[i].stamp
 			}
-			pkgDir := filepath.Dir(rel)
-			for _, pattern := range patterns {
+		}
+	}
+	type candResult struct {
+		ok          bool
+		stamp       fileStamp
+		hashed      bool
+		bytesHashed int64
+		patterns    []string
+	}
+	candResults := make([]candResult, len(candidates))
+	if len(candidates) > 0 {
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(candidates))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(candidates) {
+						return
+					}
+					rel, path := candidates[i].rel, candidates[i].path
+					if generated[rel] {
+						continue
+					}
+					info, err := os.Lstat(path)
+					if err != nil || !info.Mode().IsRegular() {
+						continue
+					}
+					var data []byte
+					stamp, reused := reusableStamp(previous.files, rel, info, false)
+					if !reused {
+						stamp, data, err = stampWatchedFile(path, info, false)
+						if err != nil {
+							continue
+						}
+					}
+					res := candResult{ok: true, stamp: stamp, hashed: !reused, bytesHashed: int64(len(data))}
+					if filepath.Ext(rel) == ".go" {
+						patterns, cached := cachedGoEmbedPatterns(path, stamp)
+						if !cached {
+							if data == nil {
+								if data, err = os.ReadFile(path); err != nil {
+									continue
+								}
+							}
+							patterns = parseGoEmbedPatterns(string(data))
+							storeGoEmbedPatterns(path, stamp, patterns)
+						}
+						res.patterns = patterns
+					}
+					candResults[i] = res
+				}
+			})
+		}
+		wg.Wait()
+	}
+	for i, found := range candidates {
+		res := candResults[i]
+		if !res.ok {
+			continue
+		}
+		if res.hashed {
+			snapshot.scanStats.filesHashed++
+			snapshot.scanStats.bytesHashed += res.bytesHashed
+		}
+		snapshot.files[found.rel] = res.stamp
+		if len(res.patterns) > 0 {
+			pkgDir := filepath.Dir(found.rel)
+			for _, pattern := range res.patterns {
 				if err := addEmbeddedSnapshotFiles(root, pkgDir, pattern, snapshot.files, previous.files, ignore); err != nil {
 					return fileSnapshot{}, err
 				}
