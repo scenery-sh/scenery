@@ -480,6 +480,18 @@ func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error
 	return done
 }
 
+func (s *devSupervisor) waitForStorageStartup(ctx context.Context) error {
+	if s == nil || s.storageStartupDone == nil {
+		return nil
+	}
+	select {
+	case <-s.storageStartupDone:
+		return s.storageStartupErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *devSupervisor) waitForStartupReady(ctx context.Context) error {
 	s.mu.RLock()
 	ready := s.startupReady

@@ -155,11 +155,6 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	}); err != nil {
 		return nil, nil, nil, err
 	}
-	if initial {
-		if err := s.waitForStartupReady(ctx); err != nil {
-			return nil, nil, nil, err
-		}
-	}
 	var contract *compiler.Result
 	if err := s.console.Phase("Building scenery application graph", func() error {
 		contract, err = compiler.CompileContext(ctx, s.root)
@@ -199,6 +194,9 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	}
 	var environment *devRuntimeEnvironment
 	if err := s.console.Phase("Resolving database and storage capabilities", func() error {
+		if err := s.waitForStorageStartup(ctx); err != nil {
+			return err
+		}
 		environment, err = s.prepareRuntimeEnvironment(ctx, contract)
 		if err != nil {
 			return err
@@ -258,7 +256,7 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 		if err != nil {
 			return err
 		}
-		if dev, bundle, err = startWorkerDevelopment(ctx, scope, inputs); err != nil {
+		if dev, bundle, err = startWorkerDevelopment(ctx, scope, inputs, contract); err != nil {
 			return err
 		}
 		if generation.config, err = s.resolveGenerationConfig(ctx, dev.compiled.Manifest); err != nil {
@@ -320,6 +318,11 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	if options.Assistants.RuntimePath != "" {
 		if err := s.assistants.StartPrepared(ctx); err != nil {
 			s.eventSink().Emit(ctx, devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Status: "error"}, "error", "assistant helpers unavailable", map[string]any{"error": err.Error()})
+		}
+	}
+	if initial {
+		if err := s.waitForStartupReady(ctx); err != nil {
+			return nil, metadata, apiEncoding, err
 		}
 	}
 	return generation, metadata, apiEncoding, nil

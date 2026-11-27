@@ -12,6 +12,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
+	"scenery.sh/internal/gotarget"
 )
 
 func TestSyncSourceFilesDetectsNewFiles(t *testing.T) {
@@ -278,5 +279,21 @@ func TestLoadPrimedWorkspaceReusesBuildStateAndVerification(t *testing.T) {
 	otherContract.Manifest = &otherManifest
 	if _, ok, err := LoadPrimedWorkspace(appDir, cfg, &otherContract); err != nil || ok {
 		t.Fatalf("LoadPrimedWorkspace(changed contract) = ok:%t err:%v, want miss", ok, err)
+	}
+}
+
+func TestImplementationVerificationKeySupportsPinnedFramework(t *testing.T) {
+	t.Parallel()
+	_, result := newCachedBuildTestWorkspace(t, "graph-pinned-verify")
+	result.GoEnvironment = gotarget.Environment(result.Target.Context)
+	result.FrameworkFingerprint = ""
+	pinnedKey := implementationVerificationKey(result)
+	if pinnedKey == "" {
+		t.Fatal("implementationVerificationKey returned empty key for pinned workspace without local framework replace")
+	}
+	result.FrameworkFingerprint = "sha256:local-framework"
+	localKey := implementationVerificationKey(result)
+	if localKey == "" || localKey == pinnedKey {
+		t.Fatalf("local framework key %q must be non-empty and distinct from pinned key %q", localKey, pinnedKey)
 	}
 }

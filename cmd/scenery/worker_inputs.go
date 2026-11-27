@@ -8,8 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"scenery.sh/internal/appwalk"
@@ -84,8 +87,14 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 	if watch.skip(start) {
 		return nil
 	}
+	type candidate struct {
+		path string
+		rel  string
+		mode fs.FileMode
+	}
+	var candidates []candidate
 	ignore := watchignore.NewGitignore(watch.root)
-	return filepath.WalkDir(start, func(path string, entry fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(start, func(path string, entry fs.DirEntry, err error) error {
 		if errors.Is(err, os.ErrNotExist) && path != watch.root {
 			return nil
 		}
@@ -118,13 +127,6 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 			}
 			return nil
 		}
-		digest, err := hashWorkerInput(path)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
 		info, err := entry.Info()
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -132,9 +134,52 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 		if err != nil {
 			return err
 		}
-		inputs[rel] = workerInput{Digest: digest, Mode: info.Mode().Perm()}
+		candidates = append(candidates, candidate{path: path, rel: rel, mode: info.Mode().Perm()})
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hashed struct {
+		ok     bool
+		digest [sha256.Size]byte
+		err    error
+	}
+	results := make([]hashed, len(candidates))
+	workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(candidates))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for {
+				index := int(next.Add(1)) - 1
+				if index >= len(candidates) {
+					return
+				}
+				digest, err := hashWorkerInput(candidates[index].path)
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				if err != nil {
+					results[index].err = err
+					return
+				}
+				results[index] = hashed{ok: true, digest: digest}
+			}
+		})
+	}
+	wg.Wait()
+	for index, item := range results {
+		if item.err != nil {
+			return item.err
+		}
+		if item.ok {
+			inputs[candidates[index].rel] = workerInput{Digest: item.digest, Mode: candidates[index].mode}
+		}
+	}
+	return nil
 }
 
 // hashWorkerInput streams the file: an input may be far larger than memory

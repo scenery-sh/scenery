@@ -13,7 +13,9 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/rustbuild"
 )
 
@@ -42,11 +44,15 @@ type workerRustDevelopment struct {
 	pythonModules []string
 }
 
-func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
+func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs workerInputs, compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
 	dev := &workerDevelopment{watch: watch, applied: inputs}
-	result, err := compiler.CompileContext(ctx, watch.root)
-	if err != nil {
-		return nil, workerBundle{}, err
+	result := compiled
+	if result == nil {
+		var err error
+		result, err = compiler.CompileContext(ctx, watch.root)
+		if err != nil {
+			return nil, workerBundle{}, err
+		}
 	}
 	bundle, err := dev.prepare(ctx, result)
 	if err != nil {
@@ -91,7 +97,7 @@ func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Resu
 	if err != nil {
 		return workerBundle{}, err
 	}
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development")
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development", false)
 	if err != nil {
 		return workerBundle{}, err
 	}
@@ -102,6 +108,23 @@ func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Resu
 	dev.python, err = projectPythonBuilds(result, bundle, "development")
 	if err != nil {
 		return workerBundle{}, err
+	}
+	// Pure-Go development apps already verify/publish Go contracts inside
+	// addGoWorkers (via LoadPrimedWorkspace/PrepareCachedWorkspaceHeldContext or
+	// PrepareBuildGoWorkspace); only polyglot or non-Go apps need an upfront
+	// contracts snapshot here before Rust/JS/Python builders run.
+	hasGoWorkers := false
+	resources := cp.ResourcesByAddress(result.Manifest)
+	for _, service := range bundle.Host.Workers {
+		if cp.StringValue(resources[service.Address].Spec["runtime"]) == "go" {
+			hasGoWorkers = true
+			break
+		}
+	}
+	if !hasGoWorkers || len(selection) > 0 || len(dev.js) > 0 || len(dev.python) > 0 {
+		if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
+			return workerBundle{}, err
+		}
 	}
 	dev.compiled, dev.declarations = result, declarations
 	dev.rust.selection, dev.rust.services, dev.rust.generated = selection, services, dev.watch.generated
