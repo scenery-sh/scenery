@@ -14,6 +14,7 @@ import (
 // or another build.
 type workspaceInventory struct {
 	root    string
+	mu      sync.Mutex
 	files   map[string]workspaceRead
 	digests map[string]workspaceDigest
 	stats   map[string]workspaceStat
@@ -43,21 +44,31 @@ func newWorkspaceInventory(root string) *workspaceInventory {
 // the import list of one file are both named by the same stamp.
 func (inventory *workspaceInventory) lstat(rel string) (os.FileInfo, error) {
 	rel = filepath.ToSlash(rel)
-	if previous, ok := inventory.stats[rel]; ok {
+	inventory.mu.Lock()
+	previous, ok := inventory.stats[rel]
+	inventory.mu.Unlock()
+	if ok {
 		return previous.info, previous.err
 	}
 	info, err := buildInputLstat(filepath.Join(inventory.root, filepath.FromSlash(rel)))
+	inventory.mu.Lock()
 	inventory.stats[rel] = workspaceStat{info, err}
+	inventory.mu.Unlock()
 	return info, err
 }
 
 func (inventory *workspaceInventory) read(rel string) ([]byte, error) {
 	rel = filepath.ToSlash(rel)
-	if previous, ok := inventory.files[rel]; ok {
+	inventory.mu.Lock()
+	previous, ok := inventory.files[rel]
+	inventory.mu.Unlock()
+	if ok {
 		return previous.data, previous.err
 	}
 	data, err := os.ReadFile(filepath.Join(inventory.root, filepath.FromSlash(rel)))
+	inventory.mu.Lock()
 	inventory.files[rel] = workspaceRead{data, err}
+	inventory.mu.Unlock()
 	return data, err
 }
 
@@ -67,7 +78,10 @@ func (inventory *workspaceInventory) read(rel string) ([]byte, error) {
 // (cachedBuildInputFileDigest), so a write by any process is read again.
 func (inventory *workspaceInventory) digest(rel string) (string, bool, error) {
 	rel = filepath.ToSlash(rel)
-	if previous, ok := inventory.digests[rel]; ok {
+	inventory.mu.Lock()
+	previous, ok := inventory.digests[rel]
+	inventory.mu.Unlock()
+	if ok {
 		return previous.digest, previous.exists, previous.err
 	}
 	result := workspaceDigest{}
@@ -83,7 +97,9 @@ func (inventory *workspaceInventory) digest(rel string) (string, bool, error) {
 		result.digest, _, result.err = cachedBuildInputFileDigest(path, info, os.ReadFile)
 		result.exists = result.err == nil
 	}
+	inventory.mu.Lock()
 	inventory.digests[rel] = result
+	inventory.mu.Unlock()
 	return result.digest, result.exists, result.err
 }
 

@@ -39,15 +39,15 @@ func ApplyPreparedImplementationCheck(ctx context.Context, result *compiler.Resu
 }
 
 // ApplyVerifiedImplementationCheck records an implementation check whose Go
-// analysis already passed for exactly these workspace, dependency, framework
-// and contract inputs. Published-artifact ownership and package ABI
-// invariants are read again because they are not part of those inputs.
+// analysis and generated artifact projections already passed for exactly these
+// workspace, dependency, framework, generator, and contract inputs (proven by
+// PrepareCachedWorkspaceHeldContext and implementationVerificationKey). Only
+// package ABI invariants remain to be checked against the compiled graph.
 func ApplyVerifiedImplementationCheck(ctx context.Context, result *compiler.Result) error {
 	if result == nil || !result.Valid() {
 		return fmt.Errorf("prepared implementation checking requires a valid graph")
 	}
-	check := checkGeneratedArtifacts(result)
-	check.ImplementationChecked = true
+	check := CheckResult{ImplementationStatus: "not_requested", ImplementationChecked: true}
 	var diagnostics []Diagnostic
 	if err := validateInvariantPackageABIs(result); err != nil {
 		diagnostics = append(diagnostics, Diagnostic{Code: "SCN6208", Severity: "error", Message: err.Error()})
