@@ -8,6 +8,27 @@ import (
 	"time"
 )
 
+// NewLocalTCPTransport returns a pooled loopback transport sized for local
+// development proxies (including unbundled Vite module bursts over HTTP/2).
+// Bounding MaxConnsPerHost below the default OS listen backlog (somaxconn=128
+// on macOS) queues excess requests cleanly instead of overflowing loopback
+// accept queues and turning burst traffic into spurious 503s.
+func NewLocalTCPTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          128,
+		MaxIdleConnsPerHost:   64,
+		MaxConnsPerHost:       64,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+}
+
+var defaultLocalTCPTransport = NewLocalTCPTransport()
+
 // UnixTransportCache reuses one *http.Transport per unix socket path so proxied
 // requests share connections instead of leaking a fresh transport — its idle
 // connections, their read/write goroutines, and a file descriptor — on every
@@ -29,8 +50,9 @@ func (c *UnixTransportCache) For(addr string) *http.Transport {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", addr)
 		},
-		MaxIdleConns:          32,
-		MaxIdleConnsPerHost:   8,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   32,
+		MaxConnsPerHost:       64,
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: time.Second,
 	}

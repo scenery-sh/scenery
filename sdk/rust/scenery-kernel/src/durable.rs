@@ -22,6 +22,9 @@ use crate::process::{DRAIN_TIMEOUT, random_hex};
 use crate::{transport, values};
 
 const SCHEMA: &str = include_str!("durable_schema.sql");
+const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_NAME: &str = "domain_events";
+const SCHEMA_CHECKSUM: &str = "durable-postgres-v4";
 
 pub(crate) struct Engine {
     client: Mutex<Option<Arc<Client>>>,
@@ -643,17 +646,57 @@ pub(crate) async fn enqueue_job(
     Ok((job, inserted))
 }
 
-/// Installs the durable and schedule tables. The statements are idempotent
-/// and serialized with every other host and the Go store.
-pub(crate) async fn install_schema(client: &Client) -> Result<()> {
-    client
-        .batch_execute(&format!(
-            "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
-             INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
-             VALUES(4,'domain_events','durable-postgres-v4') ON CONFLICT(version) DO NOTHING; COMMIT;"
-        ))
+/// Installs the durable and schedule tables. Once the current schema version is
+/// recorded in `scenery.durable_schema_migrations`, startup skips DDL so live
+/// consumers and schedulers never contend with `ALTER TABLE` or index locks.
+pub(crate) async fn install_schema(client: &mut Client) -> Result<()> {
+    let tx = client
+        .transaction()
         .await
-        .context("initialize durable schema")
+        .context("initialize durable schema")?;
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0))",
+        &[],
+    )
+    .await
+    .context("initialize durable schema")?;
+    let ledger_exists: bool = tx
+        .query_one(
+            "SELECT to_regclass('scenery.durable_schema_migrations') IS NOT NULL",
+            &[],
+        )
+        .await
+        .context("initialize durable schema")?
+        .get(0);
+    if ledger_exists {
+        let installed: bool = tx
+            .query_one(
+                "SELECT EXISTS (
+                    SELECT 1 FROM scenery.durable_schema_migrations
+                    WHERE version = $1 AND checksum = $2
+                )",
+                &[&SCHEMA_VERSION, &SCHEMA_CHECKSUM],
+            )
+            .await
+            .context("initialize durable schema")?
+            .get(0);
+        if installed {
+            tx.commit().await.context("initialize durable schema")?;
+            return Ok(());
+        }
+    }
+    tx.batch_execute(SCHEMA)
+        .await
+        .context("initialize durable schema")?;
+    tx.execute(
+        "INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
+         VALUES($1,$2,$3) ON CONFLICT(version) DO NOTHING",
+        &[&SCHEMA_VERSION, &SCHEMA_NAME, &SCHEMA_CHECKSUM],
+    )
+    .await
+    .context("initialize durable schema")?;
+    tx.commit().await.context("initialize durable schema")?;
+    Ok(())
 }
 
 /// Brings the stored task declarations in line with this deployment, as the

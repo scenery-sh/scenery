@@ -167,6 +167,24 @@ async fn postgres_guards_revisions_and_releases_leases() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires a local PostgreSQL database in DATABASE_URL"]
+async fn install_schema_skips_ddl_once_current_version_is_installed() -> Result<()> {
+    let (mut holder, _holder_driver) = connect().await?;
+    install_schema(&mut holder).await?;
+    let tx = holder.transaction().await?;
+    tx.batch_execute(
+        "LOCK TABLE scenery.durable_jobs, scenery.durable_tasks IN ROW EXCLUSIVE MODE",
+    )
+    .await?;
+    let (mut starter, _starter_driver) = connect().await?;
+    tokio::time::timeout(Duration::from_secs(2), install_schema(&mut starter))
+        .await
+        .context("install_schema blocked on live table locks")??;
+    tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn execute_next_returns_immediately_when_stop_is_cancelled() -> Result<()> {
     let (_sender, receiver) = tokio::sync::watch::channel(None);
     let bundle: crate::plan::Bundle = serde_json::from_value(json!({

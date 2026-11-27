@@ -70,8 +70,8 @@ impl Slots {
     pub(crate) async fn ensure_schema(&self) -> Result<()> {
         self.installed
             .get_or_try_init(|| async {
-                let (client, _driver) = crate::durable::connect().await?;
-                crate::durable::install_schema(&client).await
+                let (mut client, _driver) = crate::durable::connect().await?;
+                crate::durable::install_schema(&mut client).await
             })
             .await?;
         Ok(())
@@ -326,8 +326,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a local PostgreSQL database in DATABASE_URL"]
     async fn competing_replicas_run_each_slot_exactly_once() -> Result<()> {
-        let setup = client().await?;
-        install_schema(&setup).await?;
+        let mut setup = client().await?;
+        install_schema(&mut setup).await?;
         setup
             .execute(
                 "DELETE FROM scenery.schedule_slots WHERE service = $1",
@@ -404,8 +404,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a local PostgreSQL database in DATABASE_URL"]
     async fn overlap_policies_and_leases_hold_across_replicas() -> Result<()> {
-        let client = client().await?;
-        install_schema(&client).await?;
+        let mut client = client().await?;
+        install_schema(&mut client).await?;
         let service = "slots-policy:jobs/service/jobs";
         client
             .execute(

@@ -176,9 +176,10 @@ func TestReverseProxyForLocalBackendReusesUnixTransport(t *testing.T) {
 		t.Fatal("cached unix transport has no IdleConnTimeout; idle connections never reap")
 	}
 
-	// A TCP backend leaves the default transport in place (proxy.Transport nil).
-	if tcp := reverseProxyForLocalBackend(localagent.Backend{Network: "tcp", Addr: "127.0.0.1:4000"}); tcp.Transport != nil {
-		t.Fatal("tcp backend should not install a custom transport")
+	// A TCP backend shares the bounded local TCP transport to avoid overflowing
+	// loopback accept queues under bursty HTTP/2 Vite dev loads.
+	if tcp := reverseProxyForLocalBackend(localagent.Backend{Network: "tcp", Addr: "127.0.0.1:4000"}); tcp.Transport != localTCPTransport {
+		t.Fatal("tcp backend should reuse the shared bounded local TCP transport")
 	}
 }
 
