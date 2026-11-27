@@ -9,10 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/mod/modfile"
 
@@ -119,6 +121,10 @@ var errAnalysisNotRetainable = errors.New("analysis is not retainable")
 // captureAnalysisStamp reads what identifies an analysis of the module at
 // moduleRoot for target.
 func captureAnalysisStamp(moduleRoot string, target *gotarget.Context, environment, buildFlags, patterns []string, linkedFrameworkRoot string) (analysisStamp, error) {
+	return captureAnalysisStampCached(moduleRoot, target, environment, buildFlags, patterns, linkedFrameworkRoot, nil)
+}
+
+func captureAnalysisStampCached(moduleRoot string, target *gotarget.Context, environment, buildFlags, patterns []string, linkedFrameworkRoot string, dirCache map[string]map[string]string) (analysisStamp, error) {
 	identity := sha256.New()
 	encoded, err := json.Marshal(struct {
 		Target      *gotarget.Context
@@ -173,17 +179,32 @@ func captureAnalysisStamp(moduleRoot string, target *gotarget.Context, environme
 		}
 		_, _ = identity.Write([]byte("\x00replace\x00" + replacement.Old.Path + "\x00" + digestAnalysisDirs(dirs)))
 	}
+	lookupDirs := func(dir string) (map[string]string, error) {
+		if dirCache != nil {
+			if cached, ok := dirCache[dir]; ok {
+				return cached, nil
+			}
+		}
+		dirs, err := analysisSourceDirs(dir)
+		if err != nil {
+			return nil, err
+		}
+		if dirCache != nil {
+			dirCache[dir] = dirs
+		}
+		return dirs, nil
+	}
 	if linkedFrameworkRoot != "" {
 		_, _ = identity.Write([]byte("\x00linked-framework\x00" + linkedFrameworkRoot))
 		if !contentAddressedDir(linkedFrameworkRoot) {
-			dirs, err := analysisSourceDirs(linkedFrameworkRoot)
+			dirs, err := lookupDirs(linkedFrameworkRoot)
 			if err != nil {
 				return analysisStamp{}, err
 			}
 			_, _ = identity.Write([]byte("\x00" + digestAnalysisDirs(dirs)))
 		}
 	}
-	dirs, err := analysisSourceDirs(moduleRoot)
+	dirs, err := lookupDirs(moduleRoot)
 	if err != nil {
 		return analysisStamp{}, err
 	}
@@ -221,12 +242,18 @@ func digestAnalysisDirs(dirs map[string]string) string {
 // contributes the names of its files there, because an embed pattern may reach
 // them.
 func analysisSourceDirs(root string) (map[string]string, error) {
+	type fileTask struct {
+		owner string
+		name  string
+		path  string
+	}
 	type pending struct {
 		sources []string
 		others  []string
 	}
 	collected := map[string]*pending{}
 	var owners []string
+	var tasks []fileTask
 	var walk func(dir, rel, owner string) error
 	walk = func(dir, rel, owner string) error {
 		entries, err := os.ReadDir(dir)
@@ -273,12 +300,7 @@ func analysisSourceDirs(root string) (map[string]string, error) {
 			entry := collected[owner]
 			if hasGoFile {
 				for _, name := range sources {
-					data, err := os.ReadFile(filepath.Join(dir, name))
-					if err != nil {
-						return err
-					}
-					sum := sha256.Sum256(data)
-					entry.sources = append(entry.sources, name+"\x00"+hex.EncodeToString(sum[:]))
+					tasks = append(tasks, fileTask{owner: owner, name: name, path: filepath.Join(dir, name)})
 				}
 			} else {
 				beneath := strings.TrimPrefix(strings.TrimPrefix(rel, owner), "/")
@@ -304,6 +326,40 @@ func analysisSourceDirs(root string) (map[string]string, error) {
 	}
 	if err := walk(root, "", "\x00none"); err != nil {
 		return nil, err
+	}
+	if len(tasks) > 0 {
+		type hashResult struct {
+			digest string
+			err    error
+		}
+		results := make([]hashResult, len(tasks))
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(tasks))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(tasks) {
+						return
+					}
+					data, err := os.ReadFile(tasks[i].path)
+					if err != nil {
+						results[i] = hashResult{err: err}
+						continue
+					}
+					sum := sha256.Sum256(data)
+					results[i] = hashResult{digest: tasks[i].name + "\x00" + hex.EncodeToString(sum[:])}
+				}
+			})
+		}
+		wg.Wait()
+		for i, res := range results {
+			if res.err != nil {
+				return nil, res.err
+			}
+			collected[tasks[i].owner].sources = append(collected[tasks[i].owner].sources, res.digest)
+		}
 	}
 	dirs := make(map[string]string, len(owners))
 	for _, owner := range owners {

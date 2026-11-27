@@ -22,7 +22,15 @@ type agentGraph struct {
 }
 
 func loadAgentGraph(ctx context.Context, root string) (agentGraph, error) {
-	result, err := compiler.CompileContext(ctx, root)
+	return loadAgentGraphWith(ctx, root, compiler.CompileContext)
+}
+
+func loadAgentGraphDeclarations(ctx context.Context, root string) (agentGraph, error) {
+	return loadAgentGraphWith(ctx, root, compiler.CompileDeclarationsUnvalidatedContext)
+}
+
+func loadAgentGraphWith(ctx context.Context, root string, compile func(context.Context, string) (*compiler.Result, error)) (agentGraph, error) {
+	result, err := compile(ctx, root)
 	if err != nil {
 		return agentGraph{}, err
 	}

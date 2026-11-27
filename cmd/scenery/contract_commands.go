@@ -11,6 +11,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contractagent"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
@@ -195,9 +196,12 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
-	result, err := checkCompiledContract(root)
+	result, err := compiler.CompileUnvalidatedContext(context.Background(), root)
 	if err != nil {
 		return err
+	}
+	if result.Valid() {
+		generate.ApplyImplementationCheck(result)
 	}
 	if result.Valid() {
 		if _, err := buildWorkerBundle(context.Background(), result, "development", "", true); err != nil {

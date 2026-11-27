@@ -145,7 +145,18 @@ func validateWorkerBundleTargetPlatform(result *compiler.Result, role, goTarget 
 // buildWorkerBundle builds every worker of the application for role. goTarget
 // names the go_target of its Go services; empty selects the one with that role.
 func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTarget string, check bool) (workerBundle, error) {
-	if !check {
+	if check {
+		hasExternal := false
+		for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+			if compiler.IsExternalWorkerRuntime(cp.StringValue(service.Spec["runtime"])) {
+				hasExternal = true
+				break
+			}
+		}
+		if !hasExternal {
+			return workerBundle{}, nil
+		}
+	} else {
 		if err := validateWorkerBundleTargetPlatform(result, role, goTarget); err != nil {
 			return workerBundle{}, err
 		}

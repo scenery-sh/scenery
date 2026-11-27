@@ -24,6 +24,7 @@ type Result struct {
 	OpenAPIRevisions        map[string]string          `json:"openapi_revision,omitempty"`
 	Diagnostics             []graph.Diagnostic         `json:"diagnostics"`
 	Sources                 []*scn.Source              `json:"-"`
+	declarationsOnly        bool
 }
 
 // AssistantRuntimeRevision is the helper implementation revision an assistant
