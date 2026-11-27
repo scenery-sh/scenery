@@ -253,3 +253,30 @@ func editedDuringAnotherBuild() {}
 	}
 	release()
 }
+
+func TestLoadPrimedWorkspaceReusesBuildStateAndVerification(t *testing.T) {
+	appDir, original := newCachedBuildTestWorkspace(t, "graph-primed")
+	cfg := appcfg.Config{Name: "buildtest"}
+	original.AppName = cfg.Name
+	original.verifiedImplementation = "verified-proof-key"
+	if err := savePrimedWorkspace(original); err != nil {
+		t.Fatalf("savePrimedWorkspace() error = %v", err)
+	}
+
+	loaded, ok, err := LoadPrimedWorkspace(appDir, cfg, original.Contract)
+	if err != nil || !ok || loaded == nil {
+		t.Fatalf("LoadPrimedWorkspace() = ok:%t err:%v", ok, err)
+	}
+	if loaded.verifiedImplementation != "verified-proof-key" {
+		t.Fatalf("verifiedImplementation = %q, want verified-proof-key", loaded.verifiedImplementation)
+	}
+
+	// Contract revision mismatch must miss cleanly instead of returning stale state.
+	otherContract := *original.Contract
+	otherManifest := *original.Contract.Manifest
+	otherManifest.ContractRevision = "changed-contract"
+	otherContract.Manifest = &otherManifest
+	if _, ok, err := LoadPrimedWorkspace(appDir, cfg, &otherContract); err != nil || ok {
+		t.Fatalf("LoadPrimedWorkspace(changed contract) = ok:%t err:%v, want miss", ok, err)
+	}
+}

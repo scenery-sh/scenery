@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/app"
@@ -52,13 +53,33 @@ func prepareForTarget(ctx context.Context, appRoot string, cfg app.Config, snaps
 	if target.Role == "contract" {
 		return nil, fmt.Errorf("go contract target %s does not produce a runtime binary", target.Name)
 	}
-	projection, err := observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
-		return generateHooks.PrepareBuildGoWorkspace(ctx, contract)
-	})
-	if err != nil {
-		return nil, err
+	var (
+		projection      generateapi.GoWorkspaceProjection
+		typeScriptPaths []string
+		goErr, tsErr    error
+		wg              sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		projection, goErr = observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
+			return generateHooks.PrepareBuildGoWorkspace(ctx, contract)
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		typeScriptPaths, tsErr = observeBuild(ctx, "projection.typescript", func() ([]string, error) {
+			return generateHooks.SyncCachedTypeScript(ctx, contract)
+		})
+	}()
+	wg.Wait()
+	if goErr != nil {
+		return nil, goErr
 	}
-	return prepareWithContractTargetContext(ctx, appRoot, cfg, snapshot, contract, target, projection)
+	if tsErr != nil {
+		return nil, tsErr
+	}
+	return prepareWithContractTargetContext(ctx, appRoot, cfg, snapshot, contract, target, projection, typeScriptPaths)
 }
 
 func preparedContractError(contract *compiler.Result) error {
@@ -97,11 +118,7 @@ func (e *ContractError) ExitCode() int {
 // The caller publishes public Go projections before implementation checking or
 // target preparation. Keep that transaction outside the shared workspace phase
 // so ordinary development does not publish the same projection twice.
-func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection) (*Result, error) {
-	typeScriptPaths, err := observeBuild(ctx, "projection.typescript", func() ([]string, error) { return generateHooks.SyncCachedTypeScript(ctx, contract) })
-	if err != nil {
-		return nil, err
-	}
+func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection, typeScriptPaths []string) (*Result, error) {
 	runtimePlan, err := generateHooks.RuntimeIntegrationPlan(contract)
 	if err != nil {
 		return nil, err

@@ -271,6 +271,11 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		return nil, err
 	}
 	reused := false
+	if preparation == nil && bundle.goPlatform == nil && goTarget == "" && role == "development" {
+		if loaded, ok, loadErr := build.LoadPrimedWorkspace(root, cfg, compiled); loadErr == nil && ok {
+			preparation = loaded
+		}
+	}
 	if preparation != nil {
 		copy := *preparation
 		copy.Contract = compiled

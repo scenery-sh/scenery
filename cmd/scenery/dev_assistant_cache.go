@@ -329,7 +329,7 @@ func assistantPreparedPath(path string) bool {
 
 // assistantVerifyWorkers bounds the files of one cloned tree that are read
 // and hashed at once.
-const assistantVerifyWorkers = 6
+const assistantVerifyWorkers = 16
 
 // assistantPreparedEntry describes one path of a prepared tree as its
 // descriptor would, without the content of a file: a relative symlink that
