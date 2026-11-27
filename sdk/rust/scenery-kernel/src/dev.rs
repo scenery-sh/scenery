@@ -611,7 +611,7 @@ impl WatcherLoop {
             staging.path(),
         )
         .await?;
-        Ok(serde_json::from_reader(fs::File::open(file)?)?)
+        Ok(serde_json::from_reader(io::BufReader::new(fs::File::open(file)?))?)
     }
 
     async fn check_migrations(&self, directory: &Path, selected: &Plan) -> Result<()> {

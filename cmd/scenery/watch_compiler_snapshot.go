@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/dirlisting"
@@ -43,37 +46,72 @@ func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous
 	snapshot.compilerFiles = make(map[string]fileStamp, len(inputs))
 	snapshot.compilerImpl = make(map[string]bool, len(inputs))
 	snapshot.compilerAbsent = make(map[string]bool)
-	for _, input := range inputs {
-		rel := filepath.ToSlash(input.Path)
-		if !input.Present {
-			path := filepath.Join(root, filepath.FromSlash(rel))
-			if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
-				snapshot.compilerValid = false
-				continue
-			}
-			snapshot.compilerAbsent[rel] = input.Implementation
+	type revisionResult struct {
+		rel     string
+		present bool
+		impl    bool
+		stamp   fileStamp
+		invalid bool
+	}
+	results := make([]revisionResult, len(inputs))
+	if len(inputs) > 0 {
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(inputs))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(inputs) {
+						return
+					}
+					input := inputs[i]
+					rel := filepath.ToSlash(input.Path)
+					if !input.Present {
+						path := filepath.Join(root, filepath.FromSlash(rel))
+						if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+							results[i] = revisionResult{invalid: true}
+							continue
+						}
+						results[i] = revisionResult{rel: rel, present: false, impl: input.Implementation}
+						continue
+					}
+					stamp, ok := snapshot.files[rel]
+					if !ok {
+						path := filepath.Join(root, filepath.FromSlash(rel))
+						info, statErr := os.Lstat(path)
+						if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+							results[i] = revisionResult{invalid: true}
+							continue
+						}
+						var reused bool
+						stamp, reused = reusableStamp(previous.compilerFiles, rel, info, false)
+						if !reused {
+							var stampErr error
+							stamp, _, stampErr = stampWatchedFile(path, info, false)
+							if stampErr != nil {
+								results[i] = revisionResult{invalid: true}
+								continue
+							}
+						}
+					}
+					results[i] = revisionResult{rel: rel, present: true, impl: input.Implementation, stamp: stamp}
+				}
+			})
+		}
+		wg.Wait()
+	}
+	for _, res := range results {
+		if res.invalid {
+			snapshot.compilerValid = false
 			continue
 		}
-		stamp, ok := snapshot.files[rel]
-		if !ok {
-			path := filepath.Join(root, filepath.FromSlash(rel))
-			info, statErr := os.Lstat(path)
-			if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-				snapshot.compilerValid = false
-				continue
-			}
-			var reused bool
-			stamp, reused = reusableStamp(previous.compilerFiles, rel, info, false)
-			if !reused {
-				stamp, _, err = stampWatchedFile(path, info, false)
-				if err != nil {
-					snapshot.compilerValid = false
-					continue
-				}
-			}
+		if !res.present {
+			snapshot.compilerAbsent[res.rel] = res.impl
+			continue
 		}
-		snapshot.compilerFiles[rel] = stamp
-		snapshot.compilerImpl[rel] = input.Implementation
+		snapshot.compilerFiles[res.rel] = res.stamp
+		snapshot.compilerImpl[res.rel] = res.impl
 	}
 }
 

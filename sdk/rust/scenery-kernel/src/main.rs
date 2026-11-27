@@ -48,7 +48,7 @@ mod values;
 
 use std::convert::Infallible;
 use std::fs::{File, Permissions};
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
@@ -101,7 +101,7 @@ fn bootstrap() -> Result<()> {
             snapshot,
             token,
             config,
-        } = serde_json::from_reader(file.take(36 << 20))?;
+        } = serde_json::from_reader(BufReader::new(file.take(36 << 20)))?;
         let resources = DevResources::inherit(&config, directory.clone())?;
         std::fs::remove_file(plan)?;
         if let Some(frontend) = &mut bundle.frontend
@@ -131,7 +131,7 @@ fn bootstrap() -> Result<()> {
             .context("invalid bundle path")?
             .canonicalize()?;
         let file = File::open(root.join("manifest.json"))?;
-        let mut bundle: Bundle = serde_json::from_reader(file.take(32 << 20))?;
+        let mut bundle: Bundle = serde_json::from_reader(BufReader::new(file.take(32 << 20)))?;
         if let Some(frontend) = &mut bundle.frontend {
             ensure!(
                 frontend.upstream.is_none(),
