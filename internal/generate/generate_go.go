@@ -11,10 +11,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
 )
@@ -78,13 +82,32 @@ func renderGoPackages(result *Result) ([]generatedFile, error) {
 	}
 	idx := newResourceIndex(result.Manifest.Resources)
 	modules := localModules(result.Manifest.Resources)
+	if len(modules) == 0 {
+		return nil, nil
+	}
+	perModule := make([][]generatedFile, len(modules))
+	errs := make([]error, len(modules))
+	workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(modules))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(modules) {
+					return
+				}
+				perModule[i], errs[i] = generateModuleContract(result, idx, modules[i])
+			}
+		})
+	}
+	wg.Wait()
 	var files []generatedFile
-	for _, module := range modules {
-		moduleFiles, err := generateModuleContract(result, idx, module)
-		if err != nil {
-			return nil, err
+	for i := range modules {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
-		files = append(files, moduleFiles...)
+		files = append(files, perModule[i]...)
 	}
 	return files, nil
 }
@@ -216,12 +239,7 @@ func generatedFileBytesEqual(path string, current, expected []byte) bool {
 }
 
 func skipGeneratedArtifactScanDirectory(name string) bool {
-	switch name {
-	case ".agents", ".claude", ".codex", ".git", ".scenery", "node_modules":
-		return true
-	default:
-		return false
-	}
+	return strings.HasPrefix(name, ".") || appwalk.SkipDirName(name)
 }
 
 func verifyGeneratedDescriptorWithExpected(path string, expected map[string][]byte) ([]string, bool, error) {

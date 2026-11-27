@@ -15,6 +15,9 @@ type CheckResult struct {
 // Check verifies generated artifacts and native Go implementations without
 // mutating the compiler result or the workspace.
 func Check(result *compiler.Result) CheckResult {
+	if result != nil && result.Valid() {
+		defer beginArtifactCheckScope(result)()
+	}
 	check := checkGeneratedArtifacts(result)
 	if result != nil && result.Valid() {
 		finishImplementationCheck(&check, VerifyImplementation(result))

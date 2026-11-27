@@ -3,8 +3,10 @@ package generate
 import (
 	"cmp"
 	"fmt"
+	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 // Adapters depend on declarations, not the build-specific identities embedded
@@ -66,16 +68,41 @@ func cloneApplicationAdapters(adapters []applicationAdapter) []applicationAdapte
 }
 
 func renderApplicationAdapters(result *Result, idx *resourceIndex, generatedImport string) ([]applicationAdapter, error) {
-	var adapters []applicationAdapter
-	err := forEachNativeServiceModule(result, func(module, service Resource) error {
-		adapter, err := renderApplicationAdapter(result, idx, module, service, generatedImport)
-		if err == nil {
-			adapters = append(adapters, adapter)
-		}
-		return err
-	})
-	if err != nil {
+	type target struct {
+		module  Resource
+		service Resource
+	}
+	var targets []target
+	if err := forEachNativeServiceModule(result, func(module, service Resource) error {
+		targets = append(targets, target{module: module, service: service})
+		return nil
+	}); err != nil {
 		return nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	adapters := make([]applicationAdapter, len(targets))
+	errs := make([]error, len(targets))
+	workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(targets))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(targets) {
+					return
+				}
+				adapters[i], errs[i] = renderApplicationAdapter(result, idx, targets[i].module, targets[i].service, generatedImport)
+			}
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
 	}
 	slices.SortFunc(adapters, func(a, b applicationAdapter) int {
 		return cmp.Compare(a.Address, b.Address)

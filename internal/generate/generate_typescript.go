@@ -180,9 +180,11 @@ func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOn
 		}
 	}
 	var err error
-	files, err = includeStaleGeneratedFilesOf(result, result.Root, files, map[string]bool{typescriptGeneratedDescriptorName: true}, protectedDescriptors)
-	if err != nil {
-		return nil, err
+	if selector == "" || len(files) > 0 {
+		files, err = includeStaleGeneratedFilesOf(result, result.Root, files, map[string]bool{typescriptGeneratedDescriptorName: true}, protectedDescriptors)
+		if err != nil {
+			return nil, err
+		}
 	}
 	files = append(files, cached...)
 	files, err = includeStaleUICatalogFiles(result, targets, files)

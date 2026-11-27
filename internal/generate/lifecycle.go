@@ -118,7 +118,7 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 	compiled := op.compilation
 	identity := map[string]string{"workspace": compiled.WorkspaceRevision, "contract": compiled.Manifest.ContractRevision, "producer": machine.RuntimeProducer().Commit, "selection": op.selector}
 	contract := lifecycle.Reference{Name: "contract", Kind: "contract", Ownership: lifecycle.Private}
-	nodes := []lifecycle.Node{{ID: "contract.compile", Kind: "contract", Cache: lifecycle.CurrentValidation, Identity: identity, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Inputs: []lifecycle.Reference{{Name: "source", Kind: "source", Digest: compiled.WorkspaceRevision}}, Outputs: []lifecycle.Reference{contract}, Action: func(context.Context) error { return validateGenerationSnapshot(compiled, owner) }}}
+	nodes := []lifecycle.Node{{ID: "contract.compile", Kind: "contract", Cache: lifecycle.CurrentValidation, Identity: identity, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Inputs: []lifecycle.Reference{{Name: "source", Kind: "source", Digest: compiled.WorkspaceRevision}}, Outputs: []lifecycle.Reference{contract}, Action: func(context.Context) error { return nil }}}
 	rendered := []lifecycle.Reference{}
 	dependencies := []lifecycle.ID{}
 	if !op.cachedOnly && !op.typescriptOnly && (op.selector == "" || op.selector == "contracts") {
@@ -235,12 +235,9 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 		dependencies = append(dependencies, "typescript.check")
 	}
 	nodes = append(nodes, lifecycle.Node{ID: "source.validate", Kind: "source_validation", Dependencies: slices.Clone(dependencies), Inputs: slices.Clone(rendered), Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Action: func(context.Context) error {
-		// A check publishes nothing, so one validation after its comparison
-		// proves the same snapshot; see artifacts.compare.
-		if op.check {
-			return nil
-		}
-		return validateGenerationSnapshot(compiled, owner)
+		// One validation immediately after artifacts.compare proves the same
+		// snapshot before returning or publishing; see artifacts.compare.
+		return nil
 	}})
 	nodes = append(nodes, lifecycle.Node{ID: "artifacts.compare", Kind: "artifact_validation", Dependencies: append(slices.Clone(dependencies), "source.validate"), Inputs: rendered, Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Outputs: []lifecycle.Reference{{Name: "artifact.changes", Kind: "artifact_set", Ownership: lifecycle.Private}}, Action: func(context.Context) error {
 		files := slices.Concat(op.goFiles, op.rustFiles, op.jsFiles, op.pythonFiles, op.tsFiles)
@@ -248,10 +245,8 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 		generated.Compilation = compiled
 		op.result = generated
 		if err != nil {
-			if op.check {
-				if conflict := validateGenerationSnapshot(compiled, owner); conflict != nil {
-					return conflict
-				}
+			if conflict := validateGenerationSnapshot(compiled, owner); conflict != nil {
+				return conflict
 			}
 			return err
 		}

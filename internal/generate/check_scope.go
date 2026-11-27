@@ -102,38 +102,84 @@ func generatedDescriptorName(name string) bool {
 // directories a generated artifact never lives in, and reads each directory
 // through the listings retained for root.
 func scanGeneratedDescriptors(root string) ([]generatedDescriptor, error) {
-	walk := dirlisting.TreeFor("generated-descriptors\x00" + filepath.Clean(root)).Begin(false)
-	var descriptors []generatedDescriptor
-	var visit func(path string, entry fs.DirEntry) error
-	visit = func(path string, entry fs.DirEntry) error {
-		if path != root && entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
-			return nil
-		}
-		if generatedDescriptorName(entry.Name()) {
-			descriptors = append(descriptors, generatedDescriptor{path: path, symlink: entry.Type()&os.ModeSymlink != 0})
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		entries, _, err := walk.ReadDir(path)
-		if err != nil {
-			return err
-		}
-		for _, child := range entries {
-			if err := visit(filepath.Join(path, child.Name()), child); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	walk := dirlisting.TreeFor("generated\x00" + filepath.Clean(root)).Begin(false)
 	info, err := os.Lstat(root)
 	if err != nil {
 		return nil, err
 	}
-	if err := visit(root, fs.FileInfoToDirEntry(info)); err != nil {
+	if !info.IsDir() {
+		walk.Finish()
+		return nil, nil
+	}
+	rootEntries, _, err := walk.ReadDir(root)
+	if err != nil {
 		return nil, err
 	}
+	var descriptors []generatedDescriptor
+	type branch struct {
+		path  string
+		entry fs.DirEntry
+	}
+	var branches []branch
+	for _, child := range rootEntries {
+		childPath := filepath.Join(root, child.Name())
+		if child.IsDir() {
+			if skipGeneratedArtifactScanDirectory(child.Name()) {
+				continue
+			}
+			branches = append(branches, branch{path: childPath, entry: child})
+			continue
+		}
+		if generatedDescriptorName(child.Name()) {
+			descriptors = append(descriptors, generatedDescriptor{path: childPath, symlink: child.Type()&os.ModeSymlink != 0})
+		}
+	}
+	if len(branches) > 0 {
+		type branchResult struct {
+			descriptors []generatedDescriptor
+			err         error
+		}
+		results := make([]branchResult, len(branches))
+		var wg sync.WaitGroup
+		for i, b := range branches {
+			wg.Go(func() {
+				var local []generatedDescriptor
+				var visit func(path string, entry fs.DirEntry) error
+				visit = func(path string, entry fs.DirEntry) error {
+					if entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
+						return nil
+					}
+					if generatedDescriptorName(entry.Name()) {
+						local = append(local, generatedDescriptor{path: path, symlink: entry.Type()&os.ModeSymlink != 0})
+					}
+					if !entry.IsDir() {
+						return nil
+					}
+					entries, _, readErr := walk.ReadDir(path)
+					if readErr != nil {
+						return readErr
+					}
+					for _, child := range entries {
+						if err := visit(filepath.Join(path, child.Name()), child); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				err := visit(b.path, b.entry)
+				results[i] = branchResult{descriptors: local, err: err}
+			})
+		}
+		wg.Wait()
+		for _, res := range results {
+			if res.err != nil {
+				return nil, res.err
+			}
+			descriptors = append(descriptors, res.descriptors...)
+		}
+	}
 	walk.Finish()
+	sort.Slice(descriptors, func(i, j int) bool { return descriptors[i].path < descriptors[j].path })
 	return descriptors, nil
 }
 

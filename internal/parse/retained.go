@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/model"
 )
@@ -233,10 +234,11 @@ func analysisSourceDirs(root string) (map[string]string, error) {
 			return err
 		}
 		var sources, others, children []string
+		hasGoFile := false
 		for _, entry := range entries {
 			name := entry.Name()
 			if entry.IsDir() {
-				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || appwalk.SkipDirName(name) {
 					continue
 				}
 				children = append(children, name)
@@ -254,25 +256,35 @@ func analysisSourceDirs(root string) (map[string]string, error) {
 				continue
 			}
 			if analysisSourceExtensions[filepath.Ext(name)] {
+				if filepath.Ext(name) == ".go" {
+					hasGoFile = true
+				}
 				sources = append(sources, name)
 			} else {
 				others = append(others, name)
 			}
 		}
-		if len(sources) > 0 {
+		if hasGoFile {
 			owner = rel
 			collected[owner] = &pending{}
 			owners = append(owners, owner)
 		}
 		if owner != "\x00none" {
 			entry := collected[owner]
-			for _, name := range sources {
-				data, err := os.ReadFile(filepath.Join(dir, name))
-				if err != nil {
-					return err
+			if hasGoFile {
+				for _, name := range sources {
+					data, err := os.ReadFile(filepath.Join(dir, name))
+					if err != nil {
+						return err
+					}
+					sum := sha256.Sum256(data)
+					entry.sources = append(entry.sources, name+"\x00"+hex.EncodeToString(sum[:]))
 				}
-				sum := sha256.Sum256(data)
-				entry.sources = append(entry.sources, name+"\x00"+hex.EncodeToString(sum[:]))
+			} else {
+				beneath := strings.TrimPrefix(strings.TrimPrefix(rel, owner), "/")
+				for _, name := range sources {
+					entry.others = append(entry.others, filepath.ToSlash(filepath.Join(beneath, name)))
+				}
 			}
 			beneath := strings.TrimPrefix(strings.TrimPrefix(rel, owner), "/")
 			for _, name := range others {
