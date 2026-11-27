@@ -15,7 +15,7 @@ func compileSourcePlan(ctx context.Context, root string) (*compiler.Result, erro
 	plan, err := lifecycle.New([]lifecycle.Node{
 		{ID: "contract.compile", Kind: "contract", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Outputs: []lifecycle.Reference{{Name: "contract", Kind: "contract", Ownership: lifecycle.Private}}, Action: func(ctx context.Context) error {
 			var err error
-			result, err = compiler.CompileContext(ctx, root)
+			result, err = compiler.CompileUnvalidatedContext(ctx, root)
 			return err
 		}},
 		{ID: "source.validate", Kind: "source_validation", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Dependencies: []lifecycle.ID{"contract.compile"}, Inputs: []lifecycle.Reference{{Name: "contract", Kind: "contract", Producer: "contract.compile"}}, Action: func(ctx context.Context) error {

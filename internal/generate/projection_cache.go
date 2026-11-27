@@ -3,6 +3,7 @@ package generate
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"sort"
 	"sync"
 
 	"scenery.sh/internal/machine"
@@ -31,7 +32,65 @@ func newProjectionInput(result *Result) projectionInput {
 	return sharedProjectionInput(result)
 }
 
+func canUseFastProjectionInput(result *Result) bool {
+	if result == nil || !result.Valid() || result.Manifest == nil || len(result.Sources) == 0 {
+		return false
+	}
+	if !isCanonicalSHA256Digest(result.Manifest.ContractRevision) || !isCanonicalSHA256Digest(result.WorkspaceRevision) {
+		return false
+	}
+	for _, s := range result.Sources {
+		if s == nil || len(s.Bytes) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func fastProjectionInputDigest(result *Result) ([32]byte, error) {
+	type compactSource struct {
+		ID, Path, Relative string
+		External           bool
+		BytesSHA256        [32]byte
+	}
+	sources := make([]compactSource, len(result.Sources))
+	for i, s := range result.Sources {
+		sources[i] = compactSource{
+			ID: s.ID, Path: s.Path, Relative: s.Relative, External: s.External,
+			BytesSHA256: sha256.Sum256(s.Bytes),
+		}
+	}
+	var renderers []string
+	for _, r := range result.Manifest.Resources {
+		if r.Kind == "scenery.renderer" {
+			digest, _ := r.Spec["implementation_digest"].(string)
+			renderers = append(renderers, r.Address+"\x00"+digest)
+		}
+	}
+	sort.Strings(renderers)
+	input, err := json.Marshal([]any{
+		result.Root,
+		machine.RuntimeProducer(),
+		result.Manifest.ContractRevision,
+		result.Manifest.SpecRevision,
+		result.Manifest.SchemaRevision,
+		result.Manifest.Application.Name,
+		result.WorkspaceRevision,
+		result.FrameworkResources,
+		result.HTTPSurfaceRevisions,
+		result.OpenAPIRevisions,
+		result.ImplementationRevisions,
+		sources,
+		renderers,
+	})
+	return sha256.Sum256(input), err
+}
+
 func computeProjectionInput(result *Result) projectionInput {
+	if canUseFastProjectionInput(result) {
+		digest, err := fastProjectionInputDigest(result)
+		return projectionInput{digest: digest, err: err}
+	}
 	// Include parsed declarations as well as original bytes: callers can supply
 	// synthetic compiler snapshots without reparsing a source file.
 	type sourceInput struct {

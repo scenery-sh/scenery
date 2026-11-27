@@ -45,7 +45,12 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	if canonical, evalErr := filepath.EvalSymlinks(root); evalErr == nil {
 		root = canonical
 	}
-	g, err := loadAgentGraph(ctx, root)
+	var g agentGraph
+	if withHost {
+		g, err = loadAgentGraph(ctx, root)
+	} else {
+		g, err = loadAgentGraphDeclarations(ctx, root)
+	}
 	if err != nil {
 		return err
 	}

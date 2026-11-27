@@ -19,11 +19,17 @@ func GenerateWithContext(ctx context.Context, root, selector string, check bool)
 	if err := ctx.Err(); err != nil {
 		return GenerateResult{}, err
 	}
-	compiled, err := compiler.CompileContext(ctx, root)
+	compiled, err := compiler.CompileUnvalidatedContext(ctx, root)
 	if err != nil {
 		return GenerateResult{Compilation: compiled}, err
 	}
-	return GenerateSnapshotWithContext(ctx, compiled, selector, check)
+	res, err := GenerateSnapshotWithContext(ctx, compiled, selector, check)
+	if err != nil {
+		if conflict := validateGenerationSnapshot(compiled, false); conflict != nil {
+			return res, conflict
+		}
+	}
+	return res, err
 }
 
 // GenerationNodes exposes the same selected producers used by generation.
@@ -81,6 +87,14 @@ func GenerateSnapshotWithContext(ctx context.Context, compiled *compiler.Result,
 
 func (op *generationOperation) run(ctx context.Context, makePlan func(bool) ([]lifecycle.Node, error)) (GenerateResult, error) {
 	compiled, check := op.compilation, op.check
+	if op.goRenderer == nil {
+		if hit, ok := op.tryStampCacheHit(); ok {
+			if err := validateGenerationSnapshot(compiled, false); err != nil {
+				return hit, err
+			}
+			return hit, nil
+		}
+	}
 	var err error
 	allowed := []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache}
 	if !check {
@@ -103,6 +117,9 @@ func (op *generationOperation) run(ctx context.Context, makePlan func(bool) ([]l
 	}
 	// A no-op invocation needs current validation but no writing transaction.
 	if err = run(false); err != nil || check || len(op.result.Changed) == 0 {
+		if err == nil && op.goRenderer == nil && len(op.result.Changed) == 0 {
+			op.recordStampCache()
+		}
 		return op.result, err
 	}
 	err = workspacetx.PublishContext(ctx, compiled.Root, func() ([]workspacetx.File, error) {
@@ -111,6 +128,9 @@ func (op *generationOperation) run(ctx context.Context, makePlan func(bool) ([]l
 		}
 		return op.updates, nil
 	})
+	if err == nil && op.goRenderer == nil {
+		op.recordStampCache()
+	}
 	return op.result, err
 }
 

@@ -114,7 +114,15 @@ func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (unchanged boo
 	if len(sources) != 0 {
 		return false, nil
 	}
-	revision, err := computeWorkspaceRevision(result.Root, result.Sources)
+	var (
+		revision string
+		err      error
+	)
+	if result.declarationsOnly {
+		revision, err = computeDeclarationWorkspaceRevision(result.Root, result.Sources)
+	} else {
+		revision, err = computeWorkspaceRevision(result.Root, result.Sources)
+	}
 	return err == nil && revision == result.WorkspaceRevision, err
 }
 

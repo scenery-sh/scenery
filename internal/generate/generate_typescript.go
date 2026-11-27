@@ -18,11 +18,17 @@ import (
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
-	compiled, err := compiler.CompileContext(context.Background(), root)
+	compiled, err := compiler.CompileUnvalidatedContext(context.Background(), root)
 	if err != nil {
 		return GenerateResult{Compilation: compiled}, err
 	}
-	return GenerateTypeScriptClientsFromResult(compiled, selector, check)
+	res, err := GenerateTypeScriptClientsFromResult(compiled, selector, check)
+	if err != nil {
+		if conflict := validateGenerationSnapshot(compiled, false); conflict != nil {
+			return res, conflict
+		}
+	}
+	return res, err
 }
 
 // GenerateTypeScriptClientsFromResult renders one immutable compiler snapshot.

@@ -44,18 +44,41 @@ func CompileContext(ctx context.Context, root string) (*Result, error) {
 	return compileValidatedResult(ctx, root, workspacetx.NormalRead)
 }
 
-func compileValidatedResult(ctx context.Context, root string, mode workspacetx.ReadMode) (*Result, error) {
+// CompileUnvalidatedContext compiles root after RecoverOrReject without the
+// trailing SnapshotUnchanged check, for callers that validate the snapshot
+// before returning or publishing.
+func CompileUnvalidatedContext(ctx context.Context, root string) (*Result, error) {
+	return compileUnvalidatedResult(ctx, root, workspacetx.NormalRead, false)
+}
+
+// CompileDeclarationsUnvalidatedContext compiles root like
+// CompileUnvalidatedContext but computes WorkspaceRevision from declarations,
+// declared resource inputs, and scenery.lock only (skipping implementation root
+// walks). Use only for callers that never inspect implementation bytes.
+func CompileDeclarationsUnvalidatedContext(ctx context.Context, root string) (*Result, error) {
+	return compileUnvalidatedResult(ctx, root, workspacetx.NormalRead, true)
+}
+
+func compileUnvalidatedResult(ctx context.Context, root string, mode workspacetx.ReadMode, declarationsOnly bool) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := workspacetx.RecoverOrReject(root, mode); err != nil {
 		return nil, err
 	}
-	result, err := compileResult(root)
+	result, err := compileResultWithMode(root, declarationsOnly)
 	if err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func compileValidatedResult(ctx context.Context, root string, mode workspacetx.ReadMode) (*Result, error) {
+	result, err := compileUnvalidatedResult(ctx, root, mode, false)
+	if err != nil {
 		return result, err
 	}
 	unchanged, err := snapshotUnchanged(result, mode)
@@ -69,11 +92,15 @@ func compileValidatedResult(ctx context.Context, root string, mode workspacetx.R
 }
 
 func compileResult(root string) (*Result, error) {
+	return compileResultWithMode(root, false)
+}
+
+func compileResultWithMode(root string, declarationsOnly bool) (*Result, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	result := &Result{Root: absRoot, ContractStatus: "invalid", ImplementationStatus: "not_requested"}
+	result := &Result{Root: absRoot, ContractStatus: "invalid", ImplementationStatus: "not_requested", declarationsOnly: declarationsOnly}
 	// Every return path benefits: diagnostics carry ranges keyed by hashed
 	// source ids, and the readable Path is backfilled from parsed sources so
 	// consumers can locate the offending file without a source-id lookup.
@@ -111,11 +138,19 @@ func compileResult(root string) (*Result, error) {
 
 	// The implementation roots are listed while the modules compile; the
 	// captured revision is validated against current bytes before returning.
-	walk := beginImplementationWalk(absRoot, result.Sources)
+	var walk *implementationWalk
+	if !declarationsOnly {
+		walk = beginImplementationWalk(absRoot, result.Sources)
+	}
 	manifest, viewManifests, diagnostics, packageSources := compileSources(absRoot, result.Sources, lockfile)
 	result.Sources = append(result.Sources, packageSources...)
 	diagnostics = append(diagnostics, validateStaticExpressions(packageSources)...)
-	workspaceRevision, err := computeWorkspaceRevisionWalked(absRoot, result.Sources, walk)
+	var workspaceRevision string
+	if declarationsOnly {
+		workspaceRevision, err = computeDeclarationWorkspaceRevision(absRoot, result.Sources)
+	} else {
+		workspaceRevision, err = computeWorkspaceRevisionWalked(absRoot, result.Sources, walk)
+	}
 	if err != nil {
 		return nil, err
 	}

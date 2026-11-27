@@ -24,6 +24,36 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 	return computeWorkspaceRevisionWalked(root, sources, nil)
 }
 
+func computeDeclarationWorkspaceRevision(root string, sources []*Source) (string, error) {
+	entries := map[string][]byte{}
+	for _, source := range sources {
+		if source.External {
+			continue
+		}
+		entries[source.Relative] = source.Bytes
+	}
+	resourcePaths, err := declaredResourceFileInputs(root, sources)
+	if err != nil {
+		return "", err
+	}
+	for _, input := range resourcePaths {
+		if !input.present {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(input.relative)))
+		if err != nil {
+			return "", err
+		}
+		entries[filepath.ToSlash(input.relative)] = data
+	}
+	if lockData, err := os.ReadFile(filepath.Join(root, "scenery.lock")); err == nil {
+		entries["scenery.lock"] = lockData
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return workspaceRevisionForEntries(entries), nil
+}
+
 func computeWorkspaceRevisionWalked(root string, sources []*Source, walk *implementationWalk) (string, error) {
 	entries := map[string][]byte{}
 	for _, source := range sources {
