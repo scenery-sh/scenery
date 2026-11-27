@@ -53,19 +53,6 @@ func TestReportSnapshotReadObservation(t *testing.T) {
 
 func TestReportSnapshotHumanCoverage(t *testing.T) {
 	t.Parallel()
-	const coverage = "  Transcripts: 0 read, 1 read in part, 0 unreadable; read 512 / captured 1024 bytes; 0 invalid and 0 oversized records skipped, 0 results without a call, 0 calls without a result.\n"
-	const agent = "Agents: 1 tool calls, 0 errors; 1 shell commands ran Scenery (1 invocations): 1 recorded Scenery's own outcome (0 failed); as shell commands 0 failed and 0 recorded no outcome\n  help  1  attributable 1  failed 0  waited 0ms  p50 -\n"
-	for name, output := range map[string]string{
-		"valid":         coverage + agent,
-		"zero-partial":  strings.Replace(coverage, "0 read, 1 read in part", "1 read, 0 read in part", 1) + agent,
-		"wrong-owner":   strings.Replace(coverage, "Transcripts:", "CLI /other:", 1) + agent,
-		"wrong-failed":  strings.Replace(coverage, "0 unreadable", "1 unreadable", 1) + agent,
-		"wrong-outcome": coverage + strings.Replace(agent, "attributable 1", "attributable 0", 1),
-	} {
-		if err := validateHarnessReportHuman(output, "codex-truncate", "/owned", 512, 1024, 512); (err == nil) != (name == "valid") {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
 	const cliSource = "  CLI /owned (complete, archived=false): read 1024 / captured 1024 bytes; retained 2, in window 2, duplicate invocations 0, invalid 0; first to last.\n"
 	const cliOutcome = "CLI commands (2 records, 0 failed, 0 uptime)\n  help 2 failed 0 timed successes n=2 p50 0ms p95 0ms\n"
 	for name, output := range map[string]string{

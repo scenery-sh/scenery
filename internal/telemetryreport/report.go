@@ -1,34 +1,26 @@
 // Package telemetryreport reconstructs how Scenery has been used on this host
-// from what earlier runs left behind: the CLI telemetry file, the event logs of
-// detached development supervisors and, only when requested, the transcripts
-// of coding agents. It reads files and returns aggregates; it never records,
-// sends or rewrites anything.
+// from what earlier runs left behind: the CLI telemetry file and the event logs
+// of detached development supervisors. It reads files and returns aggregates;
+// it never records, sends or rewrites anything.
 package telemetryreport
 
 import (
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
 // Options selects the sources and window of a report. Empty paths skip their
 // source.
 type Options struct {
+	Apps  []string
 	Since time.Time
 	Until time.Time
 	// CLITelemetryPath is the CLI telemetry file (~/.scenery/telemetry.jsonl).
 	CLITelemetryPath string
 	// AgentHome is the Scenery agent home whose supervisor logs are read.
 	AgentHome string
-	// ClaudeProjectsDir and CodexSessionsDir are read only when
-	// AgentTranscripts is set.
-	AgentTranscripts  bool
-	ClaudeProjectsDir string
-	CodexSessionsDir  string
-	// CommandFamilies maps each Scenery command to its subcommands; a word
-	// after "scenery" in an agent's shell command counts as an invocation only
-	// when it names one of these commands.
-	CommandFamilies map[string][]string
 	// ActiveBlocks are supplied only after the CLI verifies each live owner.
 	ActiveBlocks         []BuildBlock
 	LiveStateChecked     bool
@@ -42,7 +34,6 @@ type Report struct {
 	Findings []Finding `json:"findings"`
 	CLI      CLIReport `json:"cli"`
 	Builds   Builds    `json:"builds"`
-	Agents   *Agents   `json:"agents,omitempty"`
 }
 
 type Window struct {
@@ -68,13 +59,9 @@ type Sources struct {
 	// an error, SupervisorLogsFailed those that could not be opened, and
 	// SupervisorInvalid their event lines that did not decode or were too
 	// long, or whose timing evidence is invalid.
-	SupervisorLogsPartial int                `json:"supervisor_logs_partial"`
-	SupervisorLogsFailed  int                `json:"supervisor_logs_failed"`
-	SupervisorInvalid     int                `json:"supervisor_invalid_records"`
-	AgentTranscripts      bool               `json:"agent_transcripts"`
-	ClaudeSessions        int                `json:"claude_sessions"`
-	CodexSessions         int                `json:"codex_sessions"`
-	Transcripts           *TranscriptSources `json:"transcripts,omitempty"`
+	SupervisorLogsPartial int `json:"supervisor_logs_partial"`
+	SupervisorLogsFailed  int `json:"supervisor_logs_failed"`
+	SupervisorInvalid     int `json:"supervisor_invalid_records"`
 }
 
 // Finding is one conclusion worth acting on, derived from the aggregates.
@@ -175,6 +162,18 @@ func (o Options) inWindow(at time.Time) bool {
 	return (o.Since.IsZero() || !at.Before(o.Since)) && (o.Until.IsZero() || !at.After(o.Until))
 }
 
+func (o Options) matchesApp(id, name string) bool {
+	if len(o.Apps) == 0 {
+		return true
+	}
+	for _, want := range o.Apps {
+		if strings.EqualFold(want, id) || (name != "" && strings.EqualFold(want, name)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Build reads the selected sources and derives the report.
 func Build(opts Options) (Report, error) {
 	if opts.Until.IsZero() {
@@ -202,16 +201,6 @@ func Build(opts Options) (Report, error) {
 	report.Sources.SupervisorLogs = builds.logs
 	report.Sources.SupervisorRotated = builds.rotatedLogs
 	report.Sources.SupervisorLogsPartial, report.Sources.SupervisorLogsFailed, report.Sources.SupervisorInvalid = builds.partialLogs, builds.failedLogs, builds.invalidRecords
-	if opts.AgentTranscripts {
-		agents, err := readAgents(opts)
-		if err != nil {
-			return Report{}, err
-		}
-		report.Agents = &agents
-		report.Sources.AgentTranscripts = true
-		report.Sources.ClaudeSessions, report.Sources.CodexSessions = agents.ClaudeSessions, agents.CodexSessions
-		report.Sources.Transcripts = &agents.sources
-	}
 	report.Findings = findings(report)
 	return report, nil
 }

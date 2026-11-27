@@ -150,7 +150,6 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 	const size = 64 << 20
 	rowSize := 512
 	path, row := f.cli, f.cliRow()
-	transcripts := name == "claude-append" || name == "codex-truncate"
 	var prefix, appended []byte
 	if err := f.write(f.cli, nil); err != nil {
 		return nil, err
@@ -162,27 +161,6 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 		path, row = f.log, f.supervisorRow()
 	case "writer-rotate":
 		path, row, rowSize = f.log, f.supervisorRow(), 256
-	case "claude-append", "codex-truncate":
-		kind := strings.Split(name, "-")[0]
-		path, prefix = f.transcript(kind, "before")
-		_, appended = f.transcript(kind, "after")
-		var padded bytes.Buffer
-		for _, line := range bytes.Split(bytes.TrimSpace(prefix), []byte{'\n'}) {
-			fixed, err := harnessFixedReportRow(line, rowSize)
-			if err != nil {
-				return nil, err
-			}
-			padded.Write(fixed)
-		}
-		prefix = padded.Bytes()
-		// Exercise the actual decoder's ordinary non-tool path rather than its
-		// fast byte filter, keeping the owned descriptor observable without
-		// product hooks, fake clocks, sleeps, or unmatched tool calls.
-		marker := "call"
-		if kind == "claude" {
-			marker = "tool_use"
-		}
-		row = []byte(fmt.Sprintf(`{"type":"ignored","marker":%q,"padding":[%s0]}`, marker, strings.Repeat("1,", 180)))
 	}
 	row, err = harnessFixedReportRow(row, rowSize)
 	if err != nil {
@@ -276,7 +254,7 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 		captured["mutation_performed"] = true
 		return captured, harnessReportResume(c.command.Process)
 	}
-	r, proof, err := f.run(ctx, repo, format, transcripts, mutate)
+	r, proof, err := f.run(ctx, repo, format, mutate)
 	if err != nil {
 		return proof, err
 	}
@@ -315,17 +293,6 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 			}
 		} else if source.Status != "complete" || source.Segments != 4 || r.Sources.SupervisorRotated != 1 {
 			return proof, errors.New("captured rotated descriptors lost intact stream")
-		}
-	case "claude-append", "codex-truncate":
-		source := r.Sources.Transcripts
-		if source.SnapshotBytes == nil || *source.SnapshotBytes != wantSize || source.ReadBytes != readBytes || r.Agents == nil || r.Agents.SceneryCommands != 1 || r.Agents.SceneryOutcomeUnknown != 0 || source.InvalidRecords != 0 {
-			return proof, fmt.Errorf("transcript physical/original-command evidence %+v / %+v", source, r.Agents)
-		}
-		if name == "codex-truncate" && (source.Partial != 1 || source.Read != 0) {
-			return proof, errors.New("truncated transcript was reported complete")
-		}
-		if name == "claude-append" && (source.Partial != 0 || source.Read != 1) {
-			return proof, errors.New("intact captured transcript marked partial")
 		}
 	}
 	return proof, nil

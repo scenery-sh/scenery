@@ -398,6 +398,7 @@ pub(crate) struct Host {
     capability_scopes: Scopes,
     control_token: String,
     dev_status: Option<Arc<crate::dev::Status>>,
+    event_target: Option<crate::supervisor::EventTarget>,
     pub stop: CancellationToken,
     auth_schema: tokio::sync::OnceCell<()>,
 }
@@ -449,10 +450,63 @@ impl Host {
             ),
             control_token,
             dev_status,
+            event_target: None,
             stop,
             auth_schema: tokio::sync::OnceCell::new(),
             capability_scopes: Scopes::default(),
         })
+    }
+
+    pub(crate) fn with_event_target(
+        mut self,
+        target: Option<crate::supervisor::EventTarget>,
+    ) -> Self {
+        self.event_target = target;
+        self
+    }
+
+    /// Records a sanitized runtime fault (such as a Postgres deadlock or lease
+    /// error) to the local telemetry journal when running in development mode.
+    pub(crate) async fn record_runtime_fault(
+        &self,
+        component: &str,
+        target: &str,
+        error_class: &str,
+    ) {
+        let Some(event_target) = &self.event_target else {
+            return;
+        };
+        let generation = self.generation().map_or(0, |current| current.number);
+        let at = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default();
+        let event = json!({
+            "at": at,
+            "kind": "runtime_fault",
+            "app": event_target.app,
+            "generation": generation,
+            "runtime_fault": {
+                "component": component,
+                "target": target,
+                "error_class": error_class,
+            }
+        });
+        let _ = crate::dev::journal(&event_target.path, &event).await;
+    }
+
+    pub(crate) fn classify_runtime_error(error: &anyhow::Error) -> &'static str {
+        let message = format!("{error:#}").to_ascii_lowercase();
+        if message.contains("deadlock") {
+            "deadlock"
+        } else if message.contains("timed out") || message.contains("timeout") {
+            "timeout"
+        } else if message.contains("connection closed") || message.contains("connection refused") {
+            "connection_error"
+        } else if message.contains("db error") || message.contains("postgres") {
+            "db_error"
+        } else {
+            "runtime_error"
+        }
     }
 
     pub(crate) fn generation(&self) -> Option<Arc<Generation>> {

@@ -690,7 +690,40 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
         serde_json::from_slice(&final_served.into_body().collect().await?.to_bytes())?;
     assert_eq!(final_served["outcome"], "served");
 
+    // Editing a file outside worker, declaration, and migration inputs (e.g. a
+    // frontend page served by Vite) advances the snapshot digest without bumping
+    // generation or emitting a no-op worker rebuild.
+    let frontend = root.join("apps/nextnext/src/Page.tsx");
+    fs::create_dir_all(frontend.parent().unwrap())?;
+    fs::write(&frontend, "export const Page = () => null;\n")?;
+    let with_frontend = watcher.scanner.scan(&[])?;
+    assert!(
+        !watcher
+            .process_change(&state, &publisher, "c", with_frontend, Instant::now())
+            .await
+    );
+    assert_eq!(publisher.generation(), 8);
+    let after_frontend = watcher.status().reply(None, &publication).await?;
+    let after_frontend: Value =
+        serde_json::from_slice(&after_frontend.into_body().collect().await?.to_bytes())?;
+    assert_eq!(after_frontend["outcome"], "served");
+
     stop.cancel();
     let _ = supervisor_task.await;
     Ok(())
+}
+
+#[test]
+fn trigger_buckets_sanitizes_paths_without_leaking_filenames() {
+    let paths = vec![
+        (PathBuf::from("solar/designs/secret_customer.go"), false),
+        (PathBuf::from("solar/projects/other.go"), false),
+        (PathBuf::from("app.scn"), false),
+        (PathBuf::from("Makefile"), false),
+        (PathBuf::from("apps/nextnext/src/Page.tsx"), true),
+    ];
+    assert_eq!(
+        trigger_buckets(&paths),
+        vec!["apps:.tsx", "root", "root:.scn", "solar:.go"]
+    );
 }

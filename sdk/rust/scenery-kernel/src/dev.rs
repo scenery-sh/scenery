@@ -390,6 +390,24 @@ impl WatcherLoop {
                         .as_ref()
                         .is_some_and(|set| set.contains_key(path))
             });
+        let any_worker_affected = self.config.rebuild.commands.iter().any(|build| {
+            paths
+                .iter()
+                .any(|(path, appeared)| build.affected(&self.config.rebuild, path, *appeared))
+        });
+        let any_migration_affected = self.config.rebuild.has_migrations
+            && paths
+                .iter()
+                .any(|(path, _)| dev_inputs::extension(path) == "sql");
+        if !declarations && !any_worker_affected && !any_migration_affected {
+            // Edits outside worker/declaration/migration inputs (such as frontend
+            // dev files served by Vite) only advance the published snapshot digest
+            // without running a rebuild or logging a no-op worker rebuild event.
+            self.active = inputs;
+            self.publish(digest, None);
+            return false;
+        }
+        let buckets = trigger_buckets(&paths);
         let mut module = String::new();
         let mut times = [0.0, 0.0, 0.0, 0.0];
         let result = self
@@ -468,6 +486,7 @@ impl WatcherLoop {
             "link_ms":times[1], "ready_ms":times[2], "contract_ms":times[3],
             "go_ms":times[1], "js_ms":0.0, "cargo_ms":0.0, "total_ms":elapsed,
             "trigger_kind":if declarations { "contract_or_config" } else { "body_only" },
+            "trigger_buckets":buckets,
         });
         let ok = failure.is_none();
         if failure.is_none() {
@@ -978,6 +997,33 @@ pub(crate) async fn journal(path: &Path, event: &Value) -> Result<()> {
         .open(path)?
         .write_all(&record)?;
     Ok(())
+}
+
+/// Summarizes changed paths into sanitized `<top-dir>:<ext>` buckets (never raw
+/// filenames or full paths) so rebuild telemetry explains what triggered work.
+pub(super) fn trigger_buckets(paths: &[Change]) -> Vec<String> {
+    let mut buckets = BTreeSet::new();
+    for (path, _) in paths {
+        let mut components = path.components();
+        let first = components
+            .next()
+            .and_then(|c| c.as_os_str().to_str())
+            .unwrap_or("");
+        let has_subdir = components.next().is_some();
+        let root = if has_subdir && !first.is_empty() {
+            first
+        } else {
+            "root"
+        };
+        let ext = dev_inputs::extension(path);
+        let bucket = if ext.is_empty() {
+            root.to_owned()
+        } else {
+            format!("{root}:.{ext}")
+        };
+        buckets.insert(bucket);
+    }
+    buckets.into_iter().take(8).collect()
 }
 
 pub(crate) fn shutdown(stop: CancellationToken) -> Reply {

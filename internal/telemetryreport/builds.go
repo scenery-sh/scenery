@@ -381,6 +381,9 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			}
 		}
 		if acc == nil && data.App.Root != "" {
+			if len(opts.Apps) > 0 && !opts.matchesApp(data.App.Name, data.App.Name) {
+				return
+			}
 			root = data.App.Root
 			acc = worktree(root, data.App.Name)
 		}

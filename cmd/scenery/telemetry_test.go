@@ -175,6 +175,31 @@ func TestNativeTelemetryUsesResolvedIdentityAndExplicitPurpose(t *testing.T) {
 			t.Fatalf("purpose %q = %q", invalid, got)
 		}
 	}
+	t.Setenv("CLAUDECODE", "1")
+	if got := telemetryCaller(); got != "claude" {
+		t.Fatalf("caller = %q, want claude", got)
+	}
+	t.Setenv("CLAUDECODE", "")
+	t.Setenv("CODEX_THREAD_ID", "thread-1")
+	if got := telemetryCaller(); got != "codex" {
+		t.Fatalf("caller = %q, want codex", got)
+	}
+	for _, tc := range []struct {
+		code string
+		err  error
+		want string
+	}{
+		{"SCN8001", usageErrorf(`unknown command "status"; use scenery help`), "command:status"},
+		{"SCN8001", usageErrorf(`unknown flag "--tail"`), "flag:--tail"},
+		{"SCN8001", usageErrorf(`unsupported output "json"; use human or jsonl`), "output:json"},
+		{"SCN8001", usageErrorf(`unexpected positional argument "foo"`), "positional"},
+		{"SCN8001", usageErrorf(`unknown command "/secret/path"`), ""},
+		{"SCN8003", usageErrorf(`unknown command "status"`), ""},
+	} {
+		if got := telemetryRejectedToken(tc.code, tc.err); got != tc.want {
+			t.Fatalf("telemetryRejectedToken(%q, %v) = %q, want %q", tc.code, tc.err, got, tc.want)
+		}
+	}
 }
 
 func TestRecordCLITelemetryAppendsPrivateJSONL(t *testing.T) {

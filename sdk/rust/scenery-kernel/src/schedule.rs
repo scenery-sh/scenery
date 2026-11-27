@@ -65,8 +65,14 @@ pub(crate) async fn run(host: Arc<Host>, stop: CancellationToken) {
                             () = stop.cancelled() => break,
                             result = tokio::time::timeout(Duration::from_secs(10), pruned) => match result {
                                 Ok(Ok(_)) => {}
-                                Ok(Err(error)) => eprintln!("schedule retention: {error:#}"),
-                                Err(_) => eprintln!("schedule retention timed out"),
+                                Ok(Err(error)) => {
+                                    eprintln!("schedule retention: {error:#}");
+                                    host.record_runtime_fault("schedule_retention", "", Host::classify_runtime_error(&error)).await;
+                                }
+                                Err(_) => {
+                                    eprintln!("schedule retention timed out");
+                                    host.record_runtime_fault("schedule_retention", "", "timeout").await;
+                                }
                             }
                         }
                     }
@@ -193,6 +199,7 @@ async fn tick(
                                 // Without the claim no replica may assume the
                                 // slot is free; it is skipped, never run twice.
                                 eprintln!("schedule {} could not claim its slot: {error:#}", schedule.address);
+                                host.record_runtime_fault("schedule_claim", &schedule.address, Host::classify_runtime_error(&error)).await;
                                 None
                             }
                         }

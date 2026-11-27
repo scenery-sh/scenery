@@ -13,12 +13,14 @@ type App struct {
 
 // Event is a development lifecycle observation in the local telemetry stream.
 type Event struct {
-	At          time.Time    `json:"at"`
-	Kind        string       `json:"kind"`
-	App         *App         `json:"app,omitempty"`
-	Generation  uint64       `json:"generation"`
-	Rebuild     *Rebuild     `json:"rebuild,omitempty"`
-	WorkerFault *WorkerFault `json:"worker_fault,omitempty"`
+	At           time.Time     `json:"at"`
+	Kind         string        `json:"kind"`
+	App          *App          `json:"app,omitempty"`
+	Generation   uint64        `json:"generation,omitempty"`
+	Rebuild      *Rebuild      `json:"rebuild,omitempty"`
+	WorkerFault  *WorkerFault  `json:"worker_fault,omitempty"`
+	ProxyFault   *ProxyFault   `json:"proxy_fault,omitempty"`
+	RuntimeFault *RuntimeFault `json:"runtime_fault,omitempty"`
 }
 
 type Rebuild struct {
@@ -30,6 +32,7 @@ type Rebuild struct {
 	RebuiltModules []string `json:"rebuilt_modules"`
 	SkippedModules []string `json:"skipped_modules"`
 	TriggerKind    string   `json:"trigger_kind"`
+	TriggerBuckets []string `json:"trigger_buckets,omitempty"`
 	OK             bool     `json:"ok"`
 	ErrorCode      string   `json:"error_code,omitempty"`
 }
@@ -41,9 +44,34 @@ type WorkerFault struct {
 	Signal   string `json:"signal,omitempty"`
 }
 
+type ProxyFault struct {
+	Backend    string `json:"backend"`
+	Status     int    `json:"status"`
+	ErrorClass string `json:"error_class"`
+}
+
+type RuntimeFault struct {
+	Component  string `json:"component"`
+	Target     string `json:"target,omitempty"`
+	ErrorClass string `json:"error_class"`
+}
+
 func (e Event) Valid() bool {
-	return !e.At.IsZero() && e.Generation != 0 && ((e.Kind == "rebuild" && e.Rebuild != nil && e.WorkerFault == nil) ||
-		(e.Kind == "worker_fault" && e.WorkerFault != nil && e.Rebuild == nil))
+	if e.At.IsZero() {
+		return false
+	}
+	switch e.Kind {
+	case "rebuild":
+		return e.Generation != 0 && e.Rebuild != nil && e.WorkerFault == nil && e.ProxyFault == nil && e.RuntimeFault == nil
+	case "worker_fault":
+		return e.Generation != 0 && e.WorkerFault != nil && e.Rebuild == nil && e.ProxyFault == nil && e.RuntimeFault == nil
+	case "proxy_fault":
+		return e.ProxyFault != nil && e.ProxyFault.Backend != "" && e.ProxyFault.ErrorClass != "" && e.Rebuild == nil && e.WorkerFault == nil && e.RuntimeFault == nil
+	case "runtime_fault":
+		return e.RuntimeFault != nil && e.RuntimeFault.Component != "" && e.RuntimeFault.ErrorClass != "" && e.Rebuild == nil && e.WorkerFault == nil && e.ProxyFault == nil
+	default:
+		return false
+	}
 }
 
 // CommandKey normalizes saved command labels. A parent-only historical record

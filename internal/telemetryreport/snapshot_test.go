@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -181,39 +180,5 @@ func TestReportSnapshotDistinguishesEmptyAndUnknown(t *testing.T) {
 		if !strings.Contains(string(encoded), want) || !strings.Contains(string(encoded), `"read_bytes":0`) {
 			t.Fatalf("zero/unknown serialization=%s", encoded)
 		}
-	}
-	for _, path := range []string{empty, filepath.Join(root, "missing.jsonl"), root} {
-		tally := readTranscript(Options{}, path, readClaudeTranscript)
-		if path == empty {
-			if tally.sources.Read != 1 || tally.sources.SnapshotBytes == nil || *tally.sources.SnapshotBytes != 0 {
-				t.Fatalf("known empty transcript=%+v", tally.sources)
-			}
-		} else if tally.sources.SnapshotBytes != nil || tally.sources.ReadBytes != 0 || tally.sources.Failed+tally.sources.Partial != 1 {
-			t.Fatalf("unknown transcript=%+v", tally.sources)
-		}
-	}
-}
-
-func TestTranscriptByteCoverageUsesCheckedTotals(t *testing.T) {
-	t.Parallel()
-	two, three := int64(2), int64(3)
-	source := TranscriptSources{SnapshotBytes: &two, ReadBytes: 2}
-	source.add(TranscriptSources{SnapshotBytes: &three, ReadBytes: 1, Partial: 1})
-	if source.SnapshotBytes == nil || *source.SnapshotBytes != 5 || source.ReadBytes != 3 || source.Partial != 1 || source.byteCountOverflow {
-		t.Fatalf("known totals=%+v", source)
-	}
-	source.add(TranscriptSources{Failed: 1})
-	source.add(TranscriptSources{SnapshotBytes: &three, ReadBytes: 3})
-	if source.SnapshotBytes != nil || source.ReadBytes != 6 || source.Failed != 1 || source.byteCountOverflow {
-		t.Fatalf("unknown selected extent=%+v", source)
-	}
-	largest, one := int64(math.MaxInt64), int64(1)
-	source = TranscriptSources{SnapshotBytes: &largest, ReadBytes: math.MaxInt64}
-	source.add(TranscriptSources{SnapshotBytes: &one, ReadBytes: 1})
-	if !source.byteCountOverflow || source.SnapshotBytes != nil || source.ReadBytes < 0 {
-		t.Fatalf("wrapped byte total=%+v", source)
-	}
-	if _, valid := addReadBytes(1, -1); valid {
-		t.Fatal("accepted negative byte contribution")
 	}
 }

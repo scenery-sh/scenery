@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,12 +15,12 @@ import (
 )
 
 // Exercise ordinary malformed supervisor input and a real bare native command
-// through disposable transcript fixtures and the actual opt-in report CLI.
+// through the report CLI.
 func proveHarnessReportEvidence(parent context.Context, repo string) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	cases := map[string]any{}
-	for _, name := range []string{"malformed-error", "null-error", "null-data", "bare-claude", "bare-codex"} {
+	for _, name := range []string{"malformed-error", "null-error", "null-data", "bare-native"} {
 		for _, format := range []string{"json", "human"} {
 			proof, err := proveHarnessReportEvidenceCase(ctx, repo, name, format)
 			cases[name+"/"+format] = proof
@@ -30,7 +29,7 @@ func proveHarnessReportEvidence(parent context.Context, repo string) (map[string
 			}
 		}
 	}
-	return map[string]any{"cases": cases, "limits": "owned actual native/report processes and synthetic retained supervisor/transcript evidence; no real agent UI or production incidence claim"}, nil
+	return map[string]any{"cases": cases, "limits": "owned actual native/report processes and synthetic retained supervisor evidence; no production incidence claim"}, nil
 }
 
 func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format string) (proof map[string]any, resultErr error) {
@@ -51,10 +50,8 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 	}()
 	var original []byte
 	var native map[string]any
-	var elapsed int64
 	path := f.log
-	transcripts := strings.HasPrefix(name, "bare-")
-	if !transcripts {
+	if name != "bare-native" {
 		var input bytes.Buffer
 		var malformed any = map[string]any{"operation_id": "failed", "error": 17}
 		switch name {
@@ -74,22 +71,21 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 			}
 		}
 		original = input.Bytes()
+		if err := f.write(path, original); err != nil {
+			return nil, err
+		}
 	} else {
 		binary := harnessLocalSceneryBinaryPath(repo)
-		// Quote the only shell word, the absolute prepared executable; no args.
 		shell := "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "'"
 		command := exec.CommandContext(ctx, "/bin/sh", "-c", shell)
 		command.Dir, command.WaitDelay = f.root, 2*time.Second
-		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+f.root, "SCENERY_AGENT_HOME="+f.home)
+		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+f.root, "SCENERY_AGENT_HOME="+f.home, "CLAUDECODE=1")
 		var stderr bytes.Buffer
 		command.Stderr = &stderr
-		started := time.Now().UTC()
 		output, err := command.Output()
-		finished := time.Now().UTC()
 		if err != nil {
 			return nil, fmt.Errorf("owned bare native command: %w: %s", err, stderr.String())
 		}
-		elapsed = finished.Sub(started).Milliseconds()
 		data, err := os.ReadFile(f.cli)
 		if err != nil {
 			return nil, err
@@ -101,53 +97,28 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 		if record.Command != "help" || record.ExitCode != 0 || record.InvocationID == "" || record.Producer == nil {
 			return nil, fmt.Errorf("bare native help telemetry differs: %v", err)
 		}
-		native = map[string]any{"shell_pid": command.Process.Pid, "exit_code": 0, "stdout": string(output), "stderr": stderr.String(), "telemetry": record, "started_at": started, "finished_at": finished}
-		var rows []any
-		if name == "bare-claude" {
-			path = filepath.Join(f.root, ".claude", "projects", "owned", "session.jsonl")
-			rows = []any{
-				map[string]any{"type": "assistant", "timestamp": started, "message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "id": "bare", "name": "Bash", "input": map[string]any{"command": shell}}}}},
-				map[string]any{"type": "user", "timestamp": finished, "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "bare", "is_error": false, "content": string(output)}}}},
-			}
-		} else {
-			path = filepath.Join(f.root, ".codex", "sessions", "owned", "session.jsonl")
-			arguments, err := json.Marshal(map[string]string{"cmd": shell})
-			if err != nil {
-				return nil, err
-			}
-			rows = []any{
-				map[string]any{"type": "response_item", "timestamp": started, "payload": map[string]any{"type": "function_call", "name": "exec_command", "call_id": "bare", "arguments": string(arguments)}},
-				map[string]any{"type": "response_item", "timestamp": finished, "payload": map[string]any{"type": "function_call_output", "call_id": "bare", "output": "Process exited with code 0\nOutput:\n" + string(output)}},
-			}
-		}
-		var input bytes.Buffer
-		for _, row := range rows {
-			if err := json.NewEncoder(&input).Encode(row); err != nil {
-				return nil, err
-			}
-		}
-		original = input.Bytes()
+		path, original = f.cli, data
+		native = map[string]any{"shell_pid": command.Process.Pid, "exit_code": 0, "stdout": string(output), "stderr": stderr.String(), "telemetry": record}
 	}
-	if err := f.write(path, original); err != nil {
-		return nil, err
-	}
-	r, proof, err := f.run(ctx, repo, format, transcripts, nil)
+	r, proof, err := f.run(ctx, repo, format, nil)
 	if proof != nil {
 		proof["native"] = native
 	}
 	if err != nil {
 		return proof, err
 	}
-	retained, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(retained, original) {
-		return proof, errors.New("report changed retained evidence input")
+	if name != "bare-native" {
+		retained, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(retained, original) {
+			return proof, errors.New("report changed retained evidence input")
+		}
 	}
 	proof["input_unchanged"], proof["input_bytes"] = true, len(original)
 	if format == "human" {
-		return proof, validateHarnessReportEvidenceHuman(proof["stdout"].(string), name, path, int64(len(original)), elapsed)
+		return proof, validateHarnessReportEvidenceHuman(proof["stdout"].(string), name, path, int64(len(original)))
 	}
-	proof["sources"], proof["builds"], proof["agents"] = r.Sources, r.Builds, r.Agents
-	if !transcripts {
+	proof["sources"], proof["builds"], proof["cli"] = r.Sources, r.Builds, r.CLI
+	if name != "bare-native" {
 		if len(r.Sources.Supervisor) != 1 || r.Sources.SupervisorInvalid != 1 || r.Sources.SupervisorLogsPartial != 0 || r.Sources.SupervisorLogsFailed != 0 {
 			return proof, errors.New("malformed-error global coverage differs")
 		}
@@ -156,13 +127,8 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 			return proof, errors.New("malformed-error source or known failure join differs")
 		}
 	} else {
-		a := r.Agents
-		if a == nil || a.ClaudeSessions+a.CodexSessions != 1 || a.SceneryCommands != 1 || a.SceneryInvocations != 1 || a.SceneryAttributable != 1 || a.SceneryOutcomeUnknown != 0 || a.SceneryFailed != 0 || len(a.Commands) != 1 {
-			return proof, errors.New("bare agent session/outcome differs")
-		}
-		c := a.Commands[0]
-		if c.Command != "help" || c.Count != 1 || c.Attributable != 1 || c.FailureCount != 0 || (name == "bare-claude" && (a.ClaudeSessions != 1 || c.WallTimeMS != elapsed || c.P50MS == nil || *c.P50MS != elapsed)) || (name == "bare-codex" && (a.CodexSessions != 1 || c.WallTimeMS != 0 || c.P50MS != nil)) {
-			return proof, errors.New("bare help identity or timing differs")
+		if r.CLI.Records != 1 || len(r.CLI.Commands) != 1 || r.CLI.Commands[0].Command != "help" || len(r.CLI.Callers) != 1 || r.CLI.Callers[0].Name != "claude" || r.CLI.Callers[0].Count != 1 {
+			return proof, fmt.Errorf("bare native CLI attribution differs: %+v", r.CLI)
 		}
 	}
 	return proof, nil

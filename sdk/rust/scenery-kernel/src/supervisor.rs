@@ -432,6 +432,7 @@ impl Publisher {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct EventTarget {
     pub path: PathBuf,
     pub app: serde_json::Value,

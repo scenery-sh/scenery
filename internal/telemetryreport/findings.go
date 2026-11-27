@@ -66,32 +66,42 @@ func findings(report Report) []Finding {
 	if len(failing) > 0 {
 		add(severityWarning, "cli.failing_commands", "Commands failing at least a quarter of the time: %s. Native diagnostic codes are grouped when recorded; older records carry exit codes only.", strings.Join(failing, "; "))
 	}
-	if agents := report.Agents; agents != nil && agents.SceneryCommands > 0 {
-		invalid := 0
-		for _, class := range agents.FailureClasses {
-			if class.Name == "invalid invocation" {
-				invalid = class.Count
+	if len(report.CLI.RejectedTokens) > 0 {
+		totalRejected := 0
+		var tokens []string
+		for index, token := range report.CLI.RejectedTokens {
+			totalRejected += token.Count
+			if index < 5 {
+				tokens = append(tokens, fmt.Sprintf("%s ×%d", token.Name, token.Count))
 			}
 		}
-		if invalid > 0 {
-			var inputs []string
-			for index, input := range agents.RejectedInputs {
-				if index == 5 {
-					break
-				}
-				inputs = append(inputs, fmt.Sprintf("%s ×%d", input.Name, input.Count))
-			}
-			add(severityWarning, "agents.invalid_invocations", "Agents ran %d shell commands Scenery refused as malformed (of %d that ran Scenery); most rejected: %s.", invalid, agents.SceneryCommands, emptyAs(strings.Join(inputs, ", "), "not recorded"))
+		if totalRejected >= 3 {
+			add(severityWarning, "cli.rejected_tokens", "Scenery rejected %d malformed CLI invocations (SCN8001); top rejected tokens: %s.", totalRejected, strings.Join(tokens, ", "))
 		}
-		// Only an attributable shell command's outcome is Scenery's own.
-		if agents.SceneryAttributable >= 20 && percent(agents.SceneryAttributableFailed, agents.SceneryAttributable) >= 10 {
-			add(severityWarning, "agents.scenery_failures", "%d%% of agent Scenery commands whose outcome was their own failed (%d of %d).",
-				percent(agents.SceneryAttributableFailed, agents.SceneryAttributable), agents.SceneryAttributableFailed, agents.SceneryAttributable)
+	}
+	if len(report.CLI.ProxyFaults) > 0 {
+		total := 0
+		for _, fault := range report.CLI.ProxyFaults {
+			total += fault.Count
 		}
-		if agents.SceneryAttributable*2 < agents.SceneryCommands {
-			add(severityInfo, "agents.unattributable", "Only %d of %d agent shell commands that ran Scenery recorded Scenery's own outcome; the others piped or chained it with other commands, whose status the shell reported instead, or recorded no outcome (%d), so transcripts cannot tell their Scenery failures or time.",
-				agents.SceneryAttributable, agents.SceneryCommands, agents.SceneryOutcomeUnknown)
+		add(severityWarning, "events.proxy_faults", "Local proxy reported %d backend failures; leading fault: %s.", total, leadingCause(report.CLI.ProxyFaults))
+	}
+	if len(report.CLI.RuntimeFaults) > 0 {
+		total := 0
+		for _, fault := range report.CLI.RuntimeFaults {
+			total += fault.Count
 		}
+		add(severityWarning, "events.runtime_faults", "Application host recorded %d runtime faults; leading fault: %s.", total, leadingCause(report.CLI.RuntimeFaults))
+	}
+	if len(report.CLI.WorkerFaults) > 0 {
+		total := 0
+		for _, fault := range report.CLI.WorkerFaults {
+			total += fault.Count
+		}
+		add(severityWarning, "events.worker_faults", "Supervised workers recorded %d crashes/exits; leading worker: %s.", total, leadingCause(report.CLI.WorkerFaults))
+	}
+	if report.CLI.NoOpRebuilds >= 10 {
+		add(severityInfo, "events.noop_rebuilds", "%d rebuild events completed with 0 rebuilt modules; check watcher scope or trigger buckets for unnecessary rebuild triggers.", report.CLI.NoOpRebuilds)
 	}
 	sources := report.Sources
 	for _, file := range sources.CLI {
@@ -99,17 +109,19 @@ func findings(report Report) []Finding {
 			add(severityWarning, "sources.cli_incomplete", "CLI source %s is %s; retained aggregates include only its readable records.", file.Path, file.Status)
 		}
 	}
+	var markedPurposes, unknownPurposes int
 	for _, purpose := range report.CLI.Purposes {
-		if purpose.Name == "unknown" && purpose.Count > 0 {
-			add(severityInfo, "cli.purpose_unknown", "%d CLI records have unknown execution purpose. App/build identity cannot classify them as verification; use the independent app, purpose and producer cohorts.", purpose.Count)
+		if purpose.Name == "unknown" {
+			unknownPurposes += purpose.Count
+		} else {
+			markedPurposes += purpose.Count
 		}
+	}
+	if unknownPurposes > 0 && markedPurposes > 0 {
+		add(severityInfo, "cli.purpose_unknown", "%d CLI records have unknown execution purpose alongside %d attributed records; use the independent app, purpose and producer cohorts.", unknownPurposes, markedPurposes)
 	}
 	incomplete := sources.SupervisorLogsFailed + sources.SupervisorLogsPartial
 	skipped := sources.SupervisorInvalid
-	if transcripts := sources.Transcripts; transcripts != nil {
-		incomplete += transcripts.Failed + transcripts.Partial
-		skipped += transcripts.InvalidRecords + transcripts.OversizedRecords
-	}
 	if incomplete > 0 {
 		add(severityWarning, "sources.incomplete", "%d source files could not be read or were read only in part (see sources); failures they hold are missing from this report.", incomplete)
 	}
