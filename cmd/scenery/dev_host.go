@@ -177,6 +177,26 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	if s.currentPID() == "" {
 		s.setMetadata(metadata, apiEncoding)
 	}
+	// Stage assistant overlays concurrently with database setup and Go worker
+	// compilation; staging only writes candidate-private trees and never mutates
+	// active descriptors until PrepareFromStage activates it.
+	var (
+		preStage     *assistantStage
+		preStageDone chan struct{}
+	)
+	if s.assistants != nil && len(assistantDefinitionsFromResult(contract, s.root)) > 0 {
+		preStageDone = make(chan struct{})
+		go func() {
+			defer close(preStageDone)
+			preStage, _ = s.assistants.stage(ctx, contract)
+		}()
+		defer func() {
+			<-preStageDone
+			if preStage != nil {
+				s.assistants.releaseStage(preStage)
+			}
+		}()
+	}
 	var environment *devRuntimeEnvironment
 	if err := s.console.Phase("Resolving database and storage capabilities", func() error {
 		environment, err = s.prepareRuntimeEnvironment(ctx, contract)
@@ -255,7 +275,12 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	}
 	options := workerHostOptions{Root: s.root, Environment: s.env.Name, SessionID: s.currentSessionID(), Victoria: s.victoriaEndpoints()}
 	if s.assistants != nil && len(bundle.Host.Assistants) > 0 {
-		if err := s.assistants.Prepare(ctx, dev.compiled); err != nil {
+		var staged *assistantStage
+		if preStageDone != nil {
+			<-preStageDone
+			staged, preStage = preStage, nil
+		}
+		if err := s.assistants.PrepareFromStage(ctx, dev.compiled, staged); err != nil {
 			return nil, metadata, apiEncoding, err
 		}
 		s.refreshAssistantRuntimeConfig()

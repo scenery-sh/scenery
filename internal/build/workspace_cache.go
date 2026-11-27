@@ -198,6 +198,65 @@ func loadBuildState(root string) (buildState, error) {
 	return state, nil
 }
 
+// LoadPrimedWorkspace reloads the persisted build state of a previous build so
+// a new supervisor process can validate and reuse the private workspace via
+// PrepareCachedWorkspaceHeldContext instead of re-projecting and re-checking
+// unchanged declarations and implementations from scratch.
+func LoadPrimedWorkspace(appRoot string, cfg app.Config, contract *compiler.Result) (*Result, bool, error) {
+	if contract == nil || !contract.Valid() || contract.Manifest == nil || cfg.Name == "" {
+		return nil, false, nil
+	}
+	dir, err := workspaceDir(appRoot, cfg.Name)
+	if err != nil {
+		return nil, false, err
+	}
+	state, err := loadBuildState(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	if state.Version != buildStateVersion || len(state.GeneratedFiles) == 0 || len(state.GeneratedStamps) == 0 {
+		return nil, false, nil
+	}
+	prepFP, err := PreparationFingerprint(cfg, contract)
+	if err != nil || state.PreparationFingerprint == "" || state.PreparationFingerprint != prepFP {
+		return nil, false, err
+	}
+	genFP, err := currentGeneratorFingerprint()
+	if err != nil || state.GeneratorFingerprint == "" || state.GeneratorFingerprint != genFP {
+		return nil, false, err
+	}
+	result := &Result{
+		AppRoot:                    appRoot,
+		AppName:                    cfg.Name,
+		AppID:                      cfg.ID,
+		Dir:                        dir,
+		Binary:                     filepath.Join(dir, workspaceBinaryName(appRoot, state.BuildFingerprint)),
+		DependencyFingerprint:      state.DependencyFingerprint,
+		SourceFingerprint:          state.SourceFingerprint,
+		SourceMetadataFingerprint:  state.SourceMetadataFingerprint,
+		FrameworkFingerprint:       state.FrameworkFingerprint,
+		GeneratorFingerprint:       state.GeneratorFingerprint,
+		PreparationFingerprint:     state.PreparationFingerprint,
+		BuildFingerprint:           state.BuildFingerprint,
+		GraphFingerprint:           state.GraphFingerprint,
+		Metadata:                   append([]byte(nil), state.Metadata...),
+		APIEncoding:                append([]byte(nil), state.APIEncoding...),
+		SourceFiles:                sourceFilesFromStamps(state.SourceStamps),
+		SourceStamps:               maps.Clone(state.SourceStamps),
+		GeneratedFiles:             append([]string(nil), state.GeneratedFiles...),
+		GeneratedStamps:            maps.Clone(state.GeneratedStamps),
+		PublicGeneratedStamps:      maps.Clone(state.PublicGeneratedStamps),
+		CachedTypeScriptStamps:     maps.Clone(state.CachedTypeScriptStamps),
+		ManagedGeneratedPaths:      append([]string(nil), state.ManagedGeneratedPaths...),
+		GoBuildFlags:               append([]string(nil), state.GoBuildFlags...),
+		OwnedGoModuleSources:       cloneOwnedGoModuleSources(state.OwnedGoModuleSources),
+		DevelopmentProcessBinaries: append([]string(nil), state.DevelopmentProcessBinaries...),
+		Contract:                   contract,
+		verifiedImplementation:     state.VerifiedImplementation,
+	}
+	return result, true, nil
+}
+
 // PrepareCachedWorkspaceHeldContext refreshes a declaration-equivalent private
 // workspace for a caller that compiles the prepared workspace next: a prepared result
 // keeps the workspace lock under which this preparation established the

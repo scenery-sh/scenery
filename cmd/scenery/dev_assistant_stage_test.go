@@ -250,3 +250,39 @@ func TestAssistantStageKeepsPreparedRuntimeAcrossUnrelatedContractChanges(t *tes
 		t.Fatal("an unrelated contract change prepared a new assistant runtime")
 	}
 }
+
+func TestAssistantPrepareFromStageReusesMatchingAndFallsBackOnMismatch(t *testing.T) {
+	s, result, _ := assistantStageFixture(t)
+	candidate := nextAssistantStageResult(result)
+	installs := 0
+	s.config.InstallDeps = func(context.Context, string, string, string) error {
+		installs++
+		return nil
+	}
+	preStage, err := s.stage(context.Background(), candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installs != 1 {
+		t.Fatalf("stage installs = %d, want 1", installs)
+	}
+	// Matching preStage activates without re-running staging/installs.
+	if err := s.PrepareFromStage(context.Background(), candidate, preStage); err != nil {
+		t.Fatalf("PrepareFromStage(matching) error = %v", err)
+	}
+	if installs != 1 {
+		t.Fatalf("PrepareFromStage re-staged matching candidate: installs = %d", installs)
+	}
+	// Mismatched preStage is released and Prepare runs cleanly for the newer result.
+	staleStage, err := s.stage(context.Background(), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleOverlay := staleStage.prepared["app/assistant/support"].ownedRoot
+	if err := s.PrepareFromStage(context.Background(), candidate, staleStage); err != nil {
+		t.Fatalf("PrepareFromStage(mismatch) error = %v", err)
+	}
+	if _, err := os.Stat(staleOverlay); !os.IsNotExist(err) {
+		t.Fatalf("mismatched preStage overlay was not released: %v", err)
+	}
+}

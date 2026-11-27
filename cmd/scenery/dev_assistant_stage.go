@@ -181,6 +181,38 @@ func (s *assistantSupervisor) activateStage(ctx context.Context, stage *assistan
 	return nil
 }
 
+// PrepareFromStage activates a candidate stage prepared ahead of time (for
+// example while Go workers were compiling) when its definitions still match
+// result, falling back to full Prepare otherwise.
+func (s *assistantSupervisor) PrepareFromStage(ctx context.Context, result *compiler.Result, preStage *assistantStage) error {
+	if s == nil {
+		return nil
+	}
+	definitions := assistantDefinitionsFromResult(result, s.config.Root)
+	if !assistantStageMatchesDefinitions(preStage, definitions) {
+		s.releaseStage(preStage)
+		return s.Prepare(ctx, result)
+	}
+	previous := s.captureStage()
+	defer s.releaseStage(previous)
+	defer s.releaseStage(preStage)
+	preStage.contract = result
+	return s.activateStage(ctx, preStage)
+}
+
+func assistantStageMatchesDefinitions(stage *assistantStage, definitions []assistantDefinition) bool {
+	if stage == nil || len(stage.prepared) != len(definitions) {
+		return false
+	}
+	for _, definition := range definitions {
+		prepared, ok := stage.prepared[definition.Address]
+		if !ok || prepared.definition.Identity != definition.Identity {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *assistantSupervisor) releaseStage(stage *assistantStage) {
 	if stage == nil {
 		return
