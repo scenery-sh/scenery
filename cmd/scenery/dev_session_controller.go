@@ -222,9 +222,9 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	var proxyFaultMu sync.Mutex
 	proxyFaultLast := map[string]time.Time{}
 	appIdentity := &devtelemetry.App{ID: c.cfg.AppID(), Name: firstNonEmpty(c.cfg.Name, c.cfg.AppID())}
-	onProxyFault := func(backend string, status int, errClass string) {
+	onProxyFault := func(backend string, status int, errClass, phase string) {
 		now := time.Now().UTC()
-		key := backend + "\x00" + errClass
+		key := backend + "\x00" + errClass + "\x00" + phase
 		proxyFaultMu.Lock()
 		last := proxyFaultLast[key]
 		if !last.IsZero() && now.Sub(last) < 5*time.Second {
@@ -234,11 +234,15 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		proxyFaultLast[key] = now
 		proxyFaultMu.Unlock()
 		if c.console != nil {
-			c.console.Event("proxy.fault", map[string]any{
+			fields := map[string]any{
 				"backend":     backend,
 				"status":      status,
 				"error_class": errClass,
-			})
+			}
+			if phase != "" {
+				fields["phase"] = phase
+			}
+			c.console.Event("proxy.fault", fields)
 		}
 		appendTelemetryRecord(devtelemetry.Event{
 			At:   now,
@@ -248,6 +252,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 				Backend:    backend,
 				Status:     status,
 				ErrorClass: errClass,
+				Phase:      phase,
 			},
 		})
 	}

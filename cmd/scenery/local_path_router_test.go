@@ -317,3 +317,93 @@ func TestIsLocalBackendUnavailableMatchesReusedDeadConn(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalPathRouterSessionBackendStartingReturns503Fast(t *testing.T) {
+	t.Parallel()
+	session := localagent.Session{
+		Status: "starting",
+		Backends: map[string]localagent.Backend{
+			localagent.RouteAPI: {Network: "unix", Addr: t.TempDir() + "/missing-api.sock"},
+		},
+		RouteManifest: localagent.RouteManifest{
+			Routes: map[string]localagent.RouteRecord{
+				"api": {Name: "api", Kind: "api", Path: "/api/", StripPrefix: "/api", Backend: localagent.RouteAPI},
+			},
+		},
+	}
+	var gotBackend, gotErrClass, gotPhase string
+	var gotStatus int
+	waitCalls := 0
+	policy := localDialRetryPolicy{
+		Budget: time.Second, Interval: 10 * time.Millisecond,
+		wait: func(context.Context, time.Duration) bool {
+			waitCalls++
+			return true
+		},
+	}
+	rec := httptest.NewRecorder()
+	handled := localPathRouterProxySessionBackend(rec, httptest.NewRequest(http.MethodGet, "http://localhost:4920/api/ping", nil), session, "/api/ping", 4920, "http://localhost:4920", policy, io.Discard, func(backend string, status int, errClass, phase string) {
+		gotBackend, gotStatus, gotErrClass, gotPhase = backend, status, errClass, phase
+	})
+	if !handled {
+		t.Fatal("expected api route to be handled")
+	}
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "2" || waitCalls != 0 {
+		t.Fatalf("starting response = %d retry-after=%q waits=%d", rec.Code, rec.Header().Get("Retry-After"), waitCalls)
+	}
+	if gotBackend != localagent.RouteAPI || gotStatus != http.StatusServiceUnavailable || gotErrClass == "" || gotPhase != "starting" {
+		t.Fatalf("fault = backend=%q status=%d class=%q phase=%q", gotBackend, gotStatus, gotErrClass, gotPhase)
+	}
+}
+
+func TestLocalPathRouterSessionBackendRunningRetriesAndReportsPhase(t *testing.T) {
+	t.Parallel()
+	// Transient failure on a running session retries and succeeds without emitting a fault.
+	var attempts int32
+	backend := countingCloseOnceBackend(t, &attempts)
+	target, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := localagent.Session{
+		Status: "running",
+		Backends: map[string]localagent.Backend{
+			localagent.RouteAPI: {Network: "tcp", Addr: target.Host},
+		},
+		RouteManifest: localagent.RouteManifest{
+			Routes: map[string]localagent.RouteRecord{
+				"api": {Name: "api", Kind: "api", Path: "/api/", StripPrefix: "/api", Backend: localagent.RouteAPI},
+			},
+		},
+	}
+	clock := time.Unix(0, 0)
+	policy := localDialRetryPolicy{
+		Budget: 50 * time.Millisecond, Interval: time.Millisecond,
+		now: func() time.Time { return clock },
+		wait: func(ctx context.Context, interval time.Duration) bool {
+			clock = clock.Add(interval)
+			return ctx.Err() == nil
+		},
+	}
+	faults := 0
+	rec := httptest.NewRecorder()
+	localPathRouterProxySessionBackend(rec, httptest.NewRequest(http.MethodGet, "http://localhost:4920/api/ping", nil), session, "/api/ping", 4920, "http://localhost:4920", policy, io.Discard, func(string, int, string, string) {
+		faults++
+	})
+	if rec.Code != http.StatusOK || atomic.LoadInt32(&attempts) != 2 || faults != 0 {
+		t.Fatalf("running retry = code=%d attempts=%d faults=%d", rec.Code, atomic.LoadInt32(&attempts), faults)
+	}
+
+	// Persistent failure on a running session returns 502 and reports phase="running".
+	session.Backends[localagent.RouteAPI] = localagent.Backend{Network: "unix", Addr: t.TempDir() + "/dead-api.sock"}
+	var gotStatus int
+	var gotPhase string
+	clock = time.Unix(0, 0)
+	rec = httptest.NewRecorder()
+	localPathRouterProxySessionBackend(rec, httptest.NewRequest(http.MethodGet, "http://localhost:4920/api/ping", nil), session, "/api/ping", 4920, "http://localhost:4920", policy, io.Discard, func(_ string, status int, _ string, phase string) {
+		gotStatus, gotPhase = status, phase
+	})
+	if rec.Code != http.StatusBadGateway || gotStatus != http.StatusBadGateway || gotPhase != "running" {
+		t.Fatalf("persistent running failure = code=%d status=%d phase=%q", rec.Code, gotStatus, gotPhase)
+	}
+}

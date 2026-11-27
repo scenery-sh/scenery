@@ -52,8 +52,11 @@ type CLIReport struct {
 	Commands    []CommandTiming `json:"commands"`
 	Apps        []AppTiming     `json:"apps"`
 	Bursts      []FailureBurst  `json:"failure_bursts"`
-	invalid     int
-	files       []CLIFileCoverage
+	// runtimeProxyFaults counts proxy faults observed during steady-state
+	// serving (phase empty or "running") so findings distinguish startup noise.
+	runtimeProxyFaults int
+	invalid            int
+	files              []CLIFileCoverage
 }
 
 // DailySummary aggregates CLI volume, failures and startup latency for one UTC day.
@@ -240,6 +243,11 @@ func readCLI(opts Options) (CLIReport, error) {
 					case "proxy_fault":
 						if event.ProxyFault != nil {
 							label := fmt.Sprintf("%s %s (%d)", event.ProxyFault.Backend, event.ProxyFault.ErrorClass, event.ProxyFault.Status)
+							if event.ProxyFault.Phase != "" && event.ProxyFault.Phase != "running" {
+								label = fmt.Sprintf("%s %s (%d, %s)", event.ProxyFault.Backend, event.ProxyFault.ErrorClass, event.ProxyFault.Status, event.ProxyFault.Phase)
+							} else {
+								report.runtimeProxyFaults++
+							}
 							proxyFaults[label]++
 						}
 					case "runtime_fault":

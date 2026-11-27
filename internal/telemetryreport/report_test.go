@@ -184,6 +184,34 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	}
 }
 
+func TestReportStartupOnlyProxyFaultsAreInfo(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	cliPath := filepath.Join(t.TempDir(), "telemetry.jsonl")
+	writeLines(t, cliPath,
+		map[string]any{"at": base, "kind": "proxy_fault", "app": map[string]any{"id": "shop", "name": "Shop"}, "proxy_fault": map[string]any{"backend": "api", "status": 503, "error_class": "dial_error", "phase": "starting"}},
+	)
+	report, err := Build(Options{Since: base.Add(-time.Hour), Until: base.Add(time.Hour), CLITelemetryPath: cliPath, AgentHome: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(report.CLI.ProxyFaults, Count{Name: "api dial_error (503, starting)", Count: 1}) {
+		t.Fatalf("proxy_faults = %+v", report.CLI.ProxyFaults)
+	}
+	found := false
+	for _, f := range report.Findings {
+		if f.Code == "events.proxy_faults" {
+			found = true
+			if f.Severity != severityInfo {
+				t.Fatalf("startup-only proxy_fault severity = %q, want %q (%s)", f.Severity, severityInfo, f.Message)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing events.proxy_faults finding: %+v", report.Findings)
+	}
+}
+
 func TestReportWithoutSourcesIsEmpty(t *testing.T) {
 	t.Parallel()
 

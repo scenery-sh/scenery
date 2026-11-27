@@ -53,7 +53,8 @@
       "properties": {
         "backend": {"type": "string", "minLength": 1},
         "status": {"type": "integer", "minimum": 400, "maximum": 599},
-        "error_class": {"type": "string", "minLength": 1}
+        "error_class": {"type": "string", "minLength": 1},
+        "phase": {"type": "string", "minLength": 1}
       }
     },
     "runtime_fault": {
