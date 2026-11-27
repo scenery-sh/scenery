@@ -17,7 +17,7 @@ func validateHarnessReportHuman(output, name, path string, read, size int64, row
 		source = fmt.Sprintf("  CLI %s (complete, archived=%t): read %d / captured %d bytes; retained %d, in window %d, duplicate invocations 0, invalid 0; ", path, name == "archived-cli-append", read, size, n, n)
 		prefix = true // first/last wall timestamps are fixture-specific
 		outcome = fmt.Sprintf("help %d failed 0 timed successes n=%d p50 0ms p95 0ms", n, n)
-		if !strings.Contains(output, fmt.Sprintf("\nCLI commands (%d records, 0 failed)\n", n)) {
+		if !strings.Contains(output, fmt.Sprintf("\nCLI commands (%d records, 0 failed, 0 uptime)\n", n)) {
 			return errors.New("human original CLI command totals differ")
 		}
 	case "supervisor-truncate", "writer-rotate":
