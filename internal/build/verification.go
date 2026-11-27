@@ -71,11 +71,14 @@ func preparedChecker(result *Result) (func(context.Context) (*compiler.Result, e
 // implementation check consumes: the workspace's source, generated and module
 // files with the build flags, the dependency and framework identities, the
 // generator, the contract, the resolved target and the Go toolchain's own
-// environment. It is empty while any of those is unknown, which disables
-// reuse.
+// environment. It is empty while any required identity is unknown, which
+// disables reuse. An empty FrameworkFingerprint is valid and means the
+// workspace uses a pinned scenery.sh module rather than a local replacement;
+// its module version is already bound by BuildFingerprint and
+// DependencyFingerprint.
 func implementationVerificationKey(result *Result) string {
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil ||
-		result.BuildFingerprint == "" || result.DependencyFingerprint == "" || result.FrameworkFingerprint == "" || result.NeedsTidy {
+		result.BuildFingerprint == "" || result.DependencyFingerprint == "" || result.GeneratorFingerprint == "" || result.NeedsTidy {
 		return ""
 	}
 	tool, resolved := gotarget.ToolIdentity(result.GoEnvironment)

@@ -151,7 +151,7 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		}
 	}
 	var bundle workerBundle
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, true)
 	if err != nil {
 		return bundle, err
 	}
@@ -195,7 +195,7 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 	return bundle, nil
 }
 
-func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
+func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string, generateContracts bool) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
 	plan, err := projectWorkerServices(result.Manifest)
 	if err != nil {
 		return workerBundle{}, nil, nil, err
@@ -204,8 +204,10 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
-	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
-		return workerBundle{}, nil, nil, err
+	if generateContracts {
+		if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
+			return workerBundle{}, nil, nil, err
+		}
 	}
 	var services []rustbuild.Service
 	for _, service := range plan {

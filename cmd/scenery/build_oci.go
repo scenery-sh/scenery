@@ -205,7 +205,7 @@ func buildOCICommand(ctx context.Context, out io.Writer, compiled *compiler.Resu
 // services compiled by Bun for the platform, and Rust and Python services
 // left to the image's builder stage.
 func buildOCIWorkerBundle(ctx context.Context, result *compiler.Result, goTarget string, platform ociPlatform) (workerBundle, []ociRustWorker, []rustbuild.Service, []ociPythonWorker, []pythonbuild.Service, error) {
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "artifact")
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "artifact", true)
 	if err != nil {
 		return workerBundle{}, nil, nil, nil, nil, err
 	}
