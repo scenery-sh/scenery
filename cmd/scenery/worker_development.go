@@ -44,7 +44,7 @@ type workerRustDevelopment struct {
 	pythonModules []string
 }
 
-func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, cfg app.Config, compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
+func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, cfg app.Config, compiled *compiler.Result, snapshot *build.SourceSnapshot) (*workerDevelopment, workerBundle, error) {
 	dev := &workerDevelopment{watch: watch, cfg: cfg}
 	result := compiled
 	if result == nil {
@@ -99,7 +99,7 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, cfg ap
 		}
 		bundle.Programs = append(bundle.Programs, program)
 	}
-	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
+	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{}, snapshot)
 	if err != nil {
 		return nil, workerBundle{}, err
 	}

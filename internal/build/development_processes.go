@@ -445,9 +445,17 @@ func DiscoverDevelopmentWorkerInputs(ctx context.Context, result *Result) error 
 // DevelopmentWorkerCommand projects the retained import closure and the
 // normal linker command for one native development worker.
 func DevelopmentWorkerCommand(result *Result, service, revision string) ([]string, []string, error) {
-	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
-	if err != nil {
-		return nil, nil, err
+	var plan generateapi.RuntimeIntegrationPlan
+	if result.runtimePlan != nil {
+		plan = *result.runtimePlan
+	} else {
+		var err error
+		plan, err = generateHooks.RuntimeIntegrationPlan(result.Contract)
+		if err != nil {
+			return nil, nil, err
+		}
+		planCopy := plan
+		result.runtimePlan = &planCopy
 	}
 	graph := result.BuildInput.processes
 	for _, entry := range plan.Services {

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 
 	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devprocess"
@@ -20,20 +21,10 @@ import (
 // HostToolchain is the Rust toolchain the Host is built with.
 const HostToolchain = "1.99.1"
 
-// Host builds the framework-owned worker Host only on cache miss.
-func Host(ctx context.Context) (string, error) {
-	cache, err := devcache.Root()
-	if err != nil {
-		return "", err
-	}
-	cache, err = filepath.Abs(cache)
-	if err != nil {
-		return "", err
-	}
-	cache = filepath.Join(cache, "worker-host")
+var hostSourceDigest = sync.OnceValues(func() (string, error) {
 	hash := sha256.New()
 	_, _ = fmt.Fprintln(hash, HostToolchain, runtime.GOOS, runtime.GOARCH)
-	err = fs.WalkDir(sdksource.Host, ".", func(path string, entry fs.DirEntry, err error) error {
+	err := fs.WalkDir(sdksource.Host, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
 		}
@@ -47,7 +38,25 @@ func Host(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root := filepath.Join(cache, fmt.Sprintf("%x", hash.Sum(nil)))
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+})
+
+// Host builds the framework-owned worker Host only on cache miss.
+func Host(ctx context.Context) (string, error) {
+	cache, err := devcache.Root()
+	if err != nil {
+		return "", err
+	}
+	cache, err = filepath.Abs(cache)
+	if err != nil {
+		return "", err
+	}
+	cache = filepath.Join(cache, "worker-host")
+	digest, err := hostSourceDigest()
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(cache, digest)
 	executable := filepath.Join(root, "scenery-kernel")
 	if info, err := os.Stat(executable); err == nil && info.Mode().IsRegular() && info.Mode()&0o100 != 0 {
 		return executable, nil

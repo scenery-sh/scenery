@@ -234,7 +234,7 @@ func buildOCIWorkerBundle(ctx context.Context, result *compiler.Result, goTarget
 		return workerBundle{}, nil, nil, nil, nil, err
 	}
 	bundle.goPlatform = &platform.Go
-	if _, err := bundle.addGoWorkers(ctx, result, "artifact", goTarget, nil, nil); err != nil {
+	if _, err := bundle.addGoWorkers(ctx, result, "artifact", goTarget, nil, nil, nil); err != nil {
 		return workerBundle{}, nil, nil, nil, nil, err
 	}
 	if err := bundle.projectConfig(result); err != nil {

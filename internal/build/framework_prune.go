@@ -41,15 +41,22 @@ type FrameworkPruneEntry struct {
 // but cannot be read fails closed: nothing is removed. A framework state root
 // another process is preparing is kept and reported as locked.
 func PruneFrameworkState(appRoot string) ([]FrameworkPruneEntry, error) {
-	return pruneFrameworkState(appRoot, false)
+	return pruneFrameworkState(appRoot, false, false)
+}
+
+// PruneFrameworkStateQuiet removes unused framework state like
+// PruneFrameworkState but skips measuring kept directory sizes for callers
+// that discard the prune report.
+func PruneFrameworkStateQuiet(appRoot string) ([]FrameworkPruneEntry, error) {
+	return pruneFrameworkState(appRoot, false, true)
 }
 
 // PreviewFrameworkState observes the exact prune selection without mutation.
 func PreviewFrameworkState(appRoot string) ([]FrameworkPruneEntry, error) {
-	return pruneFrameworkState(appRoot, true)
+	return pruneFrameworkState(appRoot, true, false)
 }
 
-func pruneFrameworkState(appRoot string, preview bool) ([]FrameworkPruneEntry, error) {
+func pruneFrameworkState(appRoot string, preview, quiet bool) ([]FrameworkPruneEntry, error) {
 	canonical, err := filepath.EvalSymlinks(appRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return []FrameworkPruneEntry{}, nil
@@ -111,7 +118,11 @@ func pruneFrameworkState(appRoot string, preview bool) ([]FrameworkPruneEntry, e
 		return nil
 	}
 	keep := func(path, kind, reason string) {
-		report = append(report, FrameworkPruneEntry{Path: path, Kind: kind, Bytes: directoryBytes(path), Reason: reason})
+		var size int64
+		if !quiet {
+			size = directoryBytes(path)
+		}
+		report = append(report, FrameworkPruneEntry{Path: path, Kind: kind, Bytes: size, Reason: reason})
 	}
 	sourceEntries, err := readFrameworkStateDir(filepath.Join(stateRoot, "source"))
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/machine"
 )
 
@@ -54,6 +55,7 @@ type Result struct {
 	// established the workspace's membership and bytes; the next process build
 	// consumes it instead of locking and verifying them again.
 	workspaceHold func()
+	runtimePlan   *generateapi.RuntimeIntegrationPlan
 }
 
 // ReleaseWorkspace releases a workspace lock that a held preparation kept and

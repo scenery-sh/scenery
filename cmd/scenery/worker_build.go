@@ -186,7 +186,7 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		return bundle, err
 	}
 	bundle.addRustWorkers(result, selection, artifacts)
-	if _, err := bundle.addGoWorkers(ctx, result, role, goTarget, nil, nil); err != nil {
+	if _, err := bundle.addGoWorkers(ctx, result, role, goTarget, nil, nil, nil); err != nil {
 		return workerBundle{}, err
 	}
 	if err := bundle.projectConfig(result); err != nil {
@@ -257,7 +257,7 @@ func (bundle *workerBundle) addRustWorkers(result *compiler.Result, selection ma
 // addGoWorkers links the Go services from the named go_target, or from the
 // target with the given role when goTarget is empty. A retained preparation
 // keeps the target it was prepared for.
-func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result, role, goTarget string, preparation *build.Result, retained []string) (*build.Result, error) {
+func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result, role, goTarget string, preparation *build.Result, retained []string, snapshot *build.SourceSnapshot) (*build.Result, error) {
 	goProcesses := make(map[string]string)
 	resources := cp.ResourcesByAddress(compiled.Manifest)
 	for _, service := range bundle.Host.Workers {
@@ -282,7 +282,7 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		copy := *preparation
 		copy.Contract = compiled
 		preparation = &copy
-		reused, err = build.PrepareCachedWorkspaceHeldContext(ctx, root, cfg, preparation, nil)
+		reused, err = build.PrepareCachedWorkspaceHeldContext(ctx, root, cfg, preparation, snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +291,7 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		if bundle.goPlatform != nil {
 			preparation, err = build.PrepareForPlatformContext(ctx, root, cfg, compiled, goTarget, role, *bundle.goPlatform)
 		} else {
-			preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+			preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, snapshot, compiled, goTarget, role)
 		}
 		if err != nil {
 			return nil, err

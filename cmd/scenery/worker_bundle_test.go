@@ -78,7 +78,7 @@ func TestWorkerBundleLinksGoServicesFromTheSelectedTarget(t *testing.T) {
 	bundle := workerBundle{Host: workerHostPlan{Workers: []workerplan.WorkerServicePlan{{Address: "jobs/service/jobs", Process: "worker-jobs"}}}}
 	// A production bundle asks for the artifact target; the named target wins.
 	for _, test := range []struct{ role, target string }{{"artifact", ""}, {"artifact", "linux"}} {
-		_, err := bundle.addGoWorkers(context.Background(), compiled, test.role, test.target, nil, nil)
+		_, err := bundle.addGoWorkers(context.Background(), compiled, test.role, test.target, nil, nil, nil)
 		selection, ok := errors.AsType[*compiler.GoTargetSelectionError](err)
 		if !ok || selection.DefaultRole != test.role || selection.Name != test.target {
 			t.Fatalf("role %q target %q: %v", test.role, test.target, err)
@@ -86,7 +86,7 @@ func TestWorkerBundleLinksGoServicesFromTheSelectedTarget(t *testing.T) {
 	}
 	// An application without Go services needs no go_target at all.
 	compiled.Manifest.Resources[1].Spec["runtime"] = "rust"
-	if preparation, err := bundle.addGoWorkers(context.Background(), compiled, "artifact", "", nil, nil); preparation != nil || err != nil {
+	if preparation, err := bundle.addGoWorkers(context.Background(), compiled, "artifact", "", nil, nil, nil); preparation != nil || err != nil {
 		t.Fatalf("no Go service: %v, %v", preparation, err)
 	}
 }

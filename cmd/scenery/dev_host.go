@@ -103,7 +103,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "running"}, "info", "build started", map[string]any{"initial": initial})
 	s.console.Event("process.compile-start", map[string]any{"initial": initial})
 	// The running host keeps serving until a complete candidate replaces it.
-	generation, metadata, apiEncoding, err := s.startHost(ctx, initial, captured.contract, s.stopHost)
+	generation, metadata, apiEncoding, err := s.startHost(ctx, initial, &captured, s.stopHost)
 	if err != nil {
 		s.cfg, s.env = previousConfig, previousEnvironment
 		s.setAppIdentity(previousConfig)
@@ -147,7 +147,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 // application and starts its development host, calling replace to stop its
 // predecessor only once the candidate is complete. It returns once the host
 // has published its first generation and accepts connections.
-func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled *compiler.Result, replace func()) (_ *devHostGeneration, metadata, apiEncoding []byte, returnErr error) {
+func (s *devSupervisor) startHost(ctx context.Context, initial bool, captured *fileSnapshot, replace func()) (_ *devHostGeneration, metadata, apiEncoding []byte, returnErr error) {
 	var err error
 	if err := s.console.Phase("Verifying framework source and producer", func() error {
 		ctx, err = build.VerifyFrameworkSessionForBuild(ctx, s.root, runningFrameworkVersion())
@@ -155,9 +155,15 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled
 	}); err != nil {
 		return nil, nil, nil, err
 	}
+	var precompiled *compiler.Result
+	if captured != nil {
+		precompiled = captured.contract
+	}
 	var contract *compiler.Result
 	if err := s.console.Phase("Building scenery application graph", func() error {
-		if precompiled != nil {
+		if initial && precompiled != nil && filepath.Clean(precompiled.Root) == filepath.Clean(s.root) {
+			contract = precompiled
+		} else if precompiled != nil {
 			contract, err = reuseStartupCompilerResult(s.root, precompiled)
 		} else {
 			contract, err = compiler.CompileContext(ctx, s.root)
@@ -218,19 +224,6 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled
 			dbErr = err
 			return
 		}
-		if initial {
-			postgresStart, err := s.beginRetainedPostgresStart(ctx, contract)
-			if err != nil {
-				dbErr = err
-				return
-			}
-			err = postgresStart.wait()
-			postgresStart.release()
-			if err != nil {
-				dbErr = err
-				return
-			}
-		}
 		setup, run, err := s.nextDevDatabaseSetup(initial, s.readDevDatabaseSetupInputs(contract))
 		if err != nil {
 			dbErr = err
@@ -265,10 +258,17 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled
 	)
 	if err := s.console.Phase("Compiling application workers", func() error {
 		scope := &workerInputScope{root: s.root}
+		if captured != nil {
+			scope.cached = captured.files
+		}
 		if scope.generated, err = compiler.ManagedGeneratedRoots(contract); err != nil {
 			return err
 		}
-		if dev, bundle, err = startWorkerDevelopment(ctx, scope, s.cfg, contract); err != nil {
+		var sourceSnapshot *build.SourceSnapshot
+		if captured != nil {
+			sourceSnapshot = buildSourceSnapshotFromWatch(captured, contract)
+		}
+		if dev, bundle, err = startWorkerDevelopment(ctx, scope, s.cfg, contract, sourceSnapshot); err != nil {
 			return err
 		}
 		if generation.config, err = s.resolveGenerationConfig(ctx, dev.compiled.Manifest); err != nil {
@@ -577,6 +577,41 @@ func (s *devSupervisor) hostStartRequest(ctx context.Context, executable string,
 			source := devdash.DevSource{ID: name, Kind: "app", Name: name, Role: "host", PID: strconv.Itoa(pid), Stream: stream, Status: "running"}
 			s.eventSink().Output(ctx, source, data)
 		},
+	}
+}
+
+func buildSourceSnapshotFromWatch(captured *fileSnapshot, contract *compiler.Result) *build.SourceSnapshot {
+	if captured == nil || len(captured.files) == 0 {
+		return nil
+	}
+	toFiles := func(src map[string]fileStamp, impl map[string]bool) map[string]build.SourceSnapshotFile {
+		if len(src) == 0 {
+			return nil
+		}
+		out := make(map[string]build.SourceSnapshotFile, len(src))
+		for rel, stamp := range src {
+			out[rel] = build.SourceSnapshotFile{
+				Size:           stamp.size,
+				ModTimeNano:    stamp.modTime.UnixNano(),
+				Perm:           stamp.mode,
+				Hash:           stamp.hash,
+				Embedded:       stamp.embed,
+				Implementation: impl[rel],
+				Data:           stamp.data,
+			}
+		}
+		return out
+	}
+	return &build.SourceSnapshot{
+		Files:                  toFiles(captured.files, nil),
+		CompilerFiles:          toFiles(captured.compilerFiles, captured.compilerImpl),
+		CompilerAbsent:         captured.compilerAbsent,
+		ContractFiles:          toFiles(captured.contractFiles, nil),
+		ContractCompilerFiles:  toFiles(captured.contractCompiler, nil),
+		ContractCompilerAbsent: captured.contractCompilerAbsent,
+		CompilerCaptureValid:   captured.compilerValid,
+		Contract:               contract,
+		Generated:              captured.generated,
 	}
 }
 

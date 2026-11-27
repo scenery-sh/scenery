@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -132,7 +133,10 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 			}
 			var err error
 			snapshot, err = scanInitialWatchedFiles(root, func(root string) (*compiler.Result, error) {
-				return reuseStartupCompilerResult(root, startupContract)
+				if startupContract != nil && filepath.Clean(startupContract.Root) == filepath.Clean(root) {
+					return startupContract, nil
+				}
+				return compiler.Compile(root)
 			})
 			return err
 		}
@@ -182,7 +186,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 	if err := build.WriteRuntimeFramework(root, runningFrameworkVersion(), sceneryCommit); err != nil {
 		return nil, err
 	}
-	_, _ = build.PruneFrameworkState(root)
+	_, _ = build.PruneFrameworkStateQuiet(root)
 	controlPaths := paths.ControlPaths()
 	if err := localagent.EnsureDirs(controlPaths); err != nil {
 		return nil, err

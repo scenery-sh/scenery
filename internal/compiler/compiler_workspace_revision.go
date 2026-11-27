@@ -11,8 +11,11 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"scenery.sh/internal/scn"
 )
@@ -149,16 +152,42 @@ func declaredWorkspaceEntriesWalked(root string, sources []*Source, walk *implem
 	if err != nil {
 		return nil, err
 	}
-	entries := make(map[string][]byte, len(paths))
+	present := make([]string, 0, len(paths))
 	for _, input := range paths {
-		if !input.present {
-			continue
+		if input.present {
+			present = append(present, input.relative)
 		}
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(input.relative)))
-		if err != nil {
-			return nil, err
+	}
+	entries := make(map[string][]byte, len(present))
+	if len(present) == 0 {
+		return entries, nil
+	}
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	results := make([]readResult, len(present))
+	workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(present))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(present) {
+					return
+				}
+				data, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(present[i])))
+				results[i] = readResult{data: data, err: readErr}
+			}
+		})
+	}
+	wg.Wait()
+	for i, res := range results {
+		if res.err != nil {
+			return nil, res.err
 		}
-		entries[input.relative] = data
+		entries[present[i]] = res.data
 	}
 	return entries, nil
 }
