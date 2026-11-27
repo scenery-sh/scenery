@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -38,7 +38,7 @@ pub(crate) fn run_from_args(mut args: impl Iterator<Item = std::ffi::OsString>) 
     ensure!(args.next().is_none(), "unexpected test host arguments");
 
     let file = File::open(&plan_path)?;
-    let launch: TestLaunch = serde_json::from_reader(file.take(36 << 20))?;
+    let launch: TestLaunch = serde_json::from_reader(BufReader::new(file.take(36 << 20)))?;
     let _ = std::fs::remove_file(&plan_path);
     launch.bundle.verify()?;
     process::raise_descriptor_limit();

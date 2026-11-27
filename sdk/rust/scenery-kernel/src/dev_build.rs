@@ -699,7 +699,7 @@ fn verify_imports(
     metafile: &Path,
     generated: &[PathBuf],
 ) -> Result<BTreeSet<PathBuf>> {
-    let graph: Value = serde_json::from_reader(File::open(metafile)?)?;
+    let graph: Value = serde_json::from_reader(BufReader::new(File::open(metafile)?))?;
     let inputs = graph["inputs"]
         .as_object()
         .filter(|inputs| !inputs.is_empty())
