@@ -69,12 +69,9 @@ type harnessReportChild struct {
 
 // Each human/JSON invocation gets its own fixture. The CLI's normal completion
 // telemetry is deliberately allowed to append after the report is produced.
-func (f *harnessReportFixture) run(ctx context.Context, repo, format string, transcripts bool, mutate func(*harnessReportChild) (map[string]any, error)) (telemetryreport.Report, map[string]any, error) {
+func (f *harnessReportFixture) run(ctx context.Context, repo, format string, mutate func(*harnessReportChild) (map[string]any, error)) (telemetryreport.Report, map[string]any, error) {
 	var report telemetryreport.Report
 	args := []string{"telemetry", "report", "--since", "24h", "-o", format}
-	if transcripts {
-		args = append(args, "--agent-transcripts")
-	}
 	c := &harnessReportChild{command: exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repo), args...), done: make(chan struct{})}
 	c.command.Dir, c.command.WaitDelay = f.root, 2*time.Second
 	c.command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+f.root, "SCENERY_AGENT_HOME="+f.home)
@@ -140,7 +137,7 @@ func proveHarnessReportSnapshots(parent context.Context, repo string) (map[strin
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	proofs := map[string]any{}
-	for _, name := range []string{"empty", "unknown", "final-no-newline", "duplicate", "writer-split", "transcripts"} {
+	for _, name := range []string{"empty", "unknown", "final-no-newline", "duplicate", "writer-split"} {
 		f, err := newHarnessReportFixture()
 		if err != nil {
 			return nil, err
@@ -157,7 +154,7 @@ func proveHarnessReportSnapshots(parent context.Context, repo string) (map[strin
 		proof["cleanup"] = "actual child exited; private fixture removed and absence verified"
 		proofs[name] = proof
 	}
-	for _, name := range []string{"active-cli-append", "archived-cli-append", "supervisor-truncate", "claude-append", "codex-truncate", "writer-rotate"} {
+	for _, name := range []string{"active-cli-append", "archived-cli-append", "supervisor-truncate", "writer-rotate"} {
 		for _, format := range []string{"json", "human"} {
 			proof, err := proveHarnessReportMutation(ctx, repo, name, format)
 			if err != nil {
@@ -223,15 +220,8 @@ func proveHarnessReportControl(ctx context.Context, repo string, f *harnessRepor
 			return nil, fmt.Errorf("genuine split write %d: %w", n, err)
 		}
 		wantLog, wantSegments = int64(len(input)), 2
-	case "transcripts":
-		for _, kind := range []string{"claude", "codex"} {
-			path, input := f.transcript(kind, "owned")
-			if err := f.write(path, input); err != nil {
-				return nil, err
-			}
-		}
 	}
-	r, proof, err := f.run(ctx, repo, "json", name == "transcripts", nil)
+	r, proof, err := f.run(ctx, repo, "json", nil)
 	if err != nil {
 		return proof, err
 	}
@@ -246,13 +236,7 @@ func proveHarnessReportControl(ctx context.Context, repo string, f *harnessRepor
 	} else if !harnessReportExtent(c.SnapshotBytes, c.ReadBytes, wantCLI) || c.Status != "complete" {
 		return proof, fmt.Errorf("CLI extent %+v", c)
 	}
-	if name == "transcripts" {
-		_, a := f.transcript("claude", "owned")
-		_, b := f.transcript("codex", "owned")
-		if !harnessReportExtent(r.Sources.Transcripts.SnapshotBytes, r.Sources.Transcripts.ReadBytes, int64(len(a)+len(b))) || r.Sources.Transcripts.Read != 2 || r.Agents.SceneryCommands != 2 || r.Agents.SceneryOutcomeUnknown != 0 {
-			return proof, fmt.Errorf("transcript source/command evidence %+v / %+v", r.Sources.Transcripts, r.Agents)
-		}
-	} else if name != "unknown" {
+	if name != "unknown" {
 		if len(r.Sources.Supervisor) != 1 {
 			return proof, errors.New("supervisor logical source missing")
 		}
@@ -272,27 +256,4 @@ func proveHarnessReportControl(ctx context.Context, repo string, f *harnessRepor
 		}
 	}
 	return proof, nil
-}
-
-func (f *harnessReportFixture) transcript(kind, id string) (string, []byte) {
-	at := f.at.Format(time.RFC3339Nano)
-	var records []any
-	path := filepath.Join(f.root, ".claude", "projects", "owned", "session.jsonl")
-	if kind == "claude" {
-		records = []any{
-			map[string]any{"type": "assistant", "timestamp": at, "message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": "scenery help"}}}}},
-			map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": false, "content": "ok"}}}},
-		}
-	} else {
-		path = filepath.Join(f.root, ".codex", "sessions", "owned", "session.jsonl")
-		records = []any{
-			map[string]any{"type": "response_item", "timestamp": at, "payload": map[string]any{"type": "function_call", "name": "exec_command", "call_id": id, "arguments": `{"cmd":"scenery help"}`}},
-			map[string]any{"type": "response_item", "timestamp": at, "payload": map[string]any{"type": "function_call_output", "call_id": id, "output": "Process exited with code 0\nOutput:\nok"}},
-		}
-	}
-	var input bytes.Buffer
-	for _, record := range records {
-		_ = json.NewEncoder(&input).Encode(record)
-	}
-	return path, input.Bytes()
 }

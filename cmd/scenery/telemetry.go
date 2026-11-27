@@ -24,6 +24,8 @@ type cliTelemetryRecord struct {
 	Producer       *machine.Producer `json:"producer,omitempty"`
 	ErrorCategory  string            `json:"error_category,omitempty"`
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
+	RejectedToken  string            `json:"rejected_token,omitempty"`
+	Caller         string            `json:"caller,omitempty"`
 	Purpose        string            `json:"purpose,omitempty"`
 	Dirty          *bool             `json:"dirty,omitempty"`
 	At             time.Time         `json:"at"`
@@ -50,6 +52,7 @@ type cliTelemetryInvocation struct {
 	invocationID    string
 	diagnosticCode  string
 	errorCategory   string
+	rejectedToken   string
 	started         time.Time
 	args            []string
 	now             func() time.Time
@@ -115,6 +118,8 @@ func (i *cliTelemetryInvocation) recordData(measurement string, exitCode int) cl
 		Producer:       &producer,
 		DiagnosticCode: i.diagnosticCode,
 		ErrorCategory:  i.errorCategory,
+		RejectedToken:  i.rejectedToken,
+		Caller:         telemetryCaller(),
 		Purpose:        telemetryExecutionPurpose(),
 		Dirty:          &dirty,
 		At:             i.started.UTC(),
@@ -127,6 +132,86 @@ func (i *cliTelemetryInvocation) recordData(measurement string, exitCode int) cl
 		Measurement:    measurement,
 		App:            telemetryInvocationApp(i.args),
 	}
+}
+
+// telemetryCaller classifies the direct caller process without reading
+// third-party transcripts.
+func telemetryCaller() string {
+	switch {
+	case envpolicy.Get("CLAUDECODE") != "":
+		return "claude"
+	case envpolicy.Get("CODEX_THREAD_ID") != "" || envpolicy.Get("CODEX_SANDBOX") != "":
+		return "codex"
+	case envpolicy.Get("CI") != "":
+		return "ci"
+	}
+	if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+		return "human"
+	}
+	return "automated"
+}
+
+// telemetryRejectedToken extracts a sanitized CLI vocabulary token (command,
+// flag, output format, or positional marker) from an SCN8001 usage error.
+// It never records flag values, paths, or free-form arguments.
+func telemetryRejectedToken(diagnosticCode string, err error) string {
+	if diagnosticCode != "SCN8001" || err == nil {
+		return ""
+	}
+	msg := humanCLIErrorMessage(err)
+	if token, ok := extractQuotedAfter(msg, "unknown command "); ok {
+		if clean := sanitizeTelemetryToken(token); clean != "" {
+			return "command:" + clean
+		}
+	}
+	if token, ok := extractQuotedAfter(msg, "unknown flag "); ok {
+		if clean := sanitizeTelemetryToken(token); clean != "" {
+			return "flag:" + clean
+		}
+	}
+	if rest, ok := strings.CutPrefix(msg, "flag provided but not defined: "); ok {
+		word, _, _ := strings.Cut(strings.TrimSpace(rest), " ")
+		if clean := sanitizeTelemetryToken(word); clean != "" {
+			return "flag:" + clean
+		}
+	}
+	if token, ok := extractQuotedAfter(msg, "unsupported output "); ok {
+		if clean := sanitizeTelemetryToken(token); clean != "" {
+			return "output:" + clean
+		}
+	}
+	if strings.Contains(msg, "unexpected positional") {
+		return "positional"
+	}
+	return ""
+}
+
+func extractQuotedAfter(msg, prefix string) (string, bool) {
+	rest, ok := strings.CutPrefix(msg, prefix)
+	if !ok || !strings.HasPrefix(rest, `"`) {
+		return "", false
+	}
+	rest = rest[1:]
+	end := strings.IndexByte(rest, '"')
+	if end <= 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func sanitizeTelemetryToken(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 48 {
+		return ""
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'
+		if !ok {
+			return ""
+		}
+	}
+	return raw
 }
 
 // Purpose is explicit process attribution, independent of app/build identity.
@@ -276,6 +361,27 @@ func cliTelemetryPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(paths.Home, "telemetry.jsonl"), nil
+}
+
+// telemetryReportCommandFamilies derives public roots and their immediate
+// subcommands from the help catalog so CLI telemetry classifies known commands.
+func telemetryReportCommandFamilies() map[string][]string {
+	// help and version answer without a command entry of their own.
+	families := map[string][]string{"help": nil, "version": nil}
+	for _, command := range helpCommands {
+		words := strings.Fields(command.Command)
+		if len(words) == 0 {
+			continue
+		}
+		family := words[0]
+		subcommands := families[family]
+		if len(words) > 1 {
+			families[family] = append(subcommands, words[1])
+			continue
+		}
+		families[family] = append(subcommands, command.Subcommands...)
+	}
+	return families
 }
 
 // telemetryInvocationApp resolves only stable configured identity. App roots

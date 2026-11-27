@@ -59,6 +59,7 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	}
 	if err != nil {
 		telemetry.errorCategory = cliTelemetryErrorCategory(err)
+		telemetry.rejectedToken = telemetryRejectedToken(telemetry.diagnosticCode, err)
 	}
 	err = renderMachineError(stdout, args, err)
 	exitCode := cliExitCode(err)

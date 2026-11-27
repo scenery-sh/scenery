@@ -21,7 +21,7 @@
       "const": "scenery.telemetry"
     },
     "schema_revision": {
-      "const": "sha256:0eb4f93d93cc4c104cc525d2192be376eddbd336160b93a6532daa15c28988f0"
+      "const": "sha256:5d51974a16c8e87d2baf682902e8ac75f6e239f49631ab2817d6311650579137"
     },
     "query": {
       "type": "object",
@@ -201,6 +201,8 @@
           "type": "string",
           "pattern": "^SCN[0-9]{4}$"
         },
+        "rejected_token": {"type": "string", "minLength": 1},
+        "caller": {"enum": ["human", "claude", "codex", "ci", "automated"]},
         "purpose": {"enum": ["unknown", "development", "verification", "release"]},
         "dirty": {"type": "boolean"},
         "at": {"type": "string", "format": "date-time"},

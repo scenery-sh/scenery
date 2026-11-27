@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,9 +17,9 @@ const (
 )
 
 type telemetryReportOptions struct {
-	Since            time.Time
-	AgentTranscripts bool
-	JSON             bool
+	Apps  []string
+	Since time.Time
+	JSON  bool
 }
 
 type telemetryReportResponse struct {
@@ -49,7 +47,9 @@ func runTelemetryReportCommand(stdout io.Writer, args []string) error {
 		build.LiveStateUnavailable++
 	}
 	for _, entry := range entries {
-		if entry.Status == "unavailable" || entry.Status == "incompatible-or-invalid" {
+		// Only count live owners that could not be inspected; stopped or legacy
+		// incompatible worktree metadata without a live lock holds no active blocks.
+		if entry.Status == "unavailable" {
 			build.LiveStateUnavailable++
 		}
 		for _, block := range entry.BuildBlocks {
@@ -71,39 +71,12 @@ func runTelemetryReportCommand(stdout io.Writer, args []string) error {
 }
 
 func telemetryReportBuildOptions(opts telemetryReportOptions, telemetryPath, agentHome string) telemetryreport.Options {
-	build := telemetryreport.Options{
-		Since: opts.Since, CLITelemetryPath: telemetryPath, AgentHome: agentHome,
-		AgentTranscripts: opts.AgentTranscripts, CommandFamilies: telemetryReportCommandFamilies(),
+	return telemetryreport.Options{
+		Apps:             append([]string(nil), opts.Apps...),
+		Since:            opts.Since,
+		CLITelemetryPath: telemetryPath,
+		AgentHome:        agentHome,
 	}
-	if opts.AgentTranscripts {
-		if home, err := os.UserHomeDir(); err == nil {
-			build.ClaudeProjectsDir = filepath.Join(home, ".claude", "projects")
-			build.CodexSessionsDir = filepath.Join(home, ".codex", "sessions")
-		}
-	}
-	return build
-}
-
-// telemetryReportCommandFamilies derives public roots and their immediate
-// subcommands from the help catalog. Native capture uses this finite vocabulary;
-// transcript reports use it to distinguish known commands from unknown attempts.
-func telemetryReportCommandFamilies() map[string][]string {
-	// help and version answer without a command entry of their own.
-	families := map[string][]string{"help": nil, "version": nil}
-	for _, command := range helpCommands {
-		words := strings.Fields(command.Command)
-		if len(words) == 0 {
-			continue
-		}
-		family := words[0]
-		subcommands := families[family]
-		if len(words) > 1 {
-			families[family] = append(subcommands, words[1])
-			continue
-		}
-		families[family] = append(subcommands, command.Subcommands...)
-	}
-	return families
 }
 
 func parseTelemetryReportArgs(args []string, now time.Time) (telemetryReportOptions, error) {
@@ -112,7 +85,14 @@ func parseTelemetryReportArgs(args []string, now time.Time) (telemetryReportOpti
 	registerJSONOutput(flags, &opts.JSON)
 	since := fmt.Sprintf("%dh", defaultTelemetryReportDays*24)
 	flags.StringVar(&since, "since", since, "")
-	flags.BoolVar(&opts.AgentTranscripts, "agent-transcripts", false, "")
+	flags.Func("app", "", func(value string) error {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return usageErrorf("--app must not be empty")
+		}
+		opts.Apps = append(opts.Apps, value)
+		return nil
+	})
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return telemetryReportOptions{}, err
@@ -125,6 +105,7 @@ func parseTelemetryReportArgs(args []string, now time.Time) (telemetryReportOpti
 		return telemetryReportOptions{}, err
 	}
 	opts.Since = now.Add(-window)
+	opts.Apps = sortedUniqueStrings(opts.Apps)
 	return opts, nil
 }
 
@@ -159,13 +140,7 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		return fmt.Sprint(*value)
 	}
 	line("Scenery telemetry report, %s to %s", firstNonEmpty(report.Window.Since, "the first record"), report.Window.Until)
-	sources := fmt.Sprintf("Sources: %d CLI records, %d supervisor logs", report.Sources.CLIRecords, report.Sources.SupervisorLogs)
-	if report.Sources.AgentTranscripts {
-		sources += fmt.Sprintf(", %d Claude Code and %d Codex sessions that ran Scenery", report.Sources.ClaudeSessions, report.Sources.CodexSessions)
-	} else {
-		sources += "; agent transcripts not read (--agent-transcripts)"
-	}
-	line("%s.", sources)
+	line("Sources: %d CLI records, %d supervisor logs.", report.Sources.CLIRecords, report.Sources.SupervisorLogs)
 	for _, source := range report.Sources.CLI {
 		line("  CLI %s (%s, archived=%t): read %d / captured %s bytes; retained %d, in window %d, duplicate invocations %d, invalid %d; %s to %s.", source.Path, source.Status, source.Archived, source.ReadBytes, extent(source.SnapshotBytes), source.Records, source.InWindow, source.Duplicates, source.Invalid, firstNonEmpty(source.First, "unknown"), firstNonEmpty(source.Last, "unknown"))
 	}
@@ -175,10 +150,6 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	line("  Identified overlaps are counted once (active file wins); legacy rows without invocation identity are retained separately.")
 	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 || report.Sources.SupervisorInvalid > 0 {
 		line("  %d supervisor logs unreadable or read in part; %d event records with invalid evidence (known outcomes retained).", incomplete, report.Sources.SupervisorInvalid)
-	}
-	if transcripts := report.Sources.Transcripts; transcripts != nil {
-		line("  Transcripts: %d read, %d read in part, %d unreadable; read %d / captured %s bytes; %d invalid and %d oversized records skipped, %d results without a call, %d calls without a result.",
-			transcripts.Read, transcripts.Partial, transcripts.Failed, transcripts.ReadBytes, extent(transcripts.SnapshotBytes), transcripts.InvalidRecords, transcripts.OversizedRecords, transcripts.UnmatchedResults, transcripts.UnansweredCalls)
 	}
 	line("")
 	line("Findings")
@@ -259,6 +230,21 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	for _, diagnostic := range cli.Diagnostics {
 		line("  %s: %d", diagnostic.Name, diagnostic.Count)
 	}
+	for _, rejected := range cli.RejectedTokens {
+		line("  rejected %s: %d", rejected.Name, rejected.Count)
+	}
+	for _, fault := range cli.ProxyFaults {
+		line("  proxy fault %s: %d", fault.Name, fault.Count)
+	}
+	for _, fault := range cli.RuntimeFaults {
+		line("  runtime fault %s: %d", fault.Name, fault.Count)
+	}
+	for _, fault := range cli.WorkerFaults {
+		line("  worker fault %s: %d", fault.Name, fault.Count)
+	}
+	if cli.NoOpRebuilds > 0 {
+		line("  no-op rebuild events (0 modules rebuilt): %d", cli.NoOpRebuilds)
+	}
 	rows = [][]string{timing("scenery up startup", cli.Startup)}
 	for index, command := range cli.Commands {
 		if index == 12 {
@@ -267,12 +253,44 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		rows = append(rows, timing(command.Command, command.Timing))
 	}
 	table(rows)
-	line("CLI apps and purposes")
+	if len(cli.Daily) > 0 {
+		line("Daily CLI trend (UTC)")
+		rows = nil
+		for _, day := range cli.Daily {
+			rows = append(rows, []string{
+				day.Date,
+				fmt.Sprint(day.Count),
+				fmt.Sprintf("failed %d", day.FailureCount),
+				fmt.Sprintf("up %d (failed %d, p50 %s)", day.StartupCount, day.StartupFailureCount, ms(day.StartupP50MS)),
+			})
+		}
+		table(rows)
+	}
+	if len(cli.ProducerTrends) > 0 {
+		line("Producer trends")
+		rows = nil
+		for index, trend := range cli.ProducerTrends {
+			if index == 10 {
+				break
+			}
+			rows = append(rows, []string{
+				trend.Producer,
+				fmt.Sprint(trend.Count),
+				fmt.Sprintf("failed %d", trend.FailureCount),
+				fmt.Sprintf("up %d (failed %d, p50 %s)", trend.StartupCount, trend.StartupFailureCount, ms(trend.StartupP50MS)),
+			})
+		}
+		table(rows)
+	}
+	line("CLI apps, callers and purposes")
 	rows = nil
 	for _, app := range cli.Apps {
 		rows = append(rows, timing(app.ID+" ("+app.Name+")", app.Timing))
 	}
 	table(rows)
+	for _, caller := range cli.Callers {
+		line("  caller %s: %d", caller.Name, caller.Count)
+	}
 	for _, purpose := range cli.Purposes {
 		line("  purpose %s: %d", purpose.Name, purpose.Count)
 	}
@@ -283,29 +301,6 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		rows = append(rows, timing(name, cohort.Timing))
 	}
 	table(rows)
-	if agents := report.Agents; agents != nil {
-		line("")
-		line("Agents: %d tool calls, %d errors; %d shell commands ran Scenery (%d invocations): %d recorded Scenery's own outcome (%d failed); as shell commands %d failed and %d recorded no outcome",
-			agents.ToolCalls, agents.ToolErrors, agents.SceneryCommands, agents.SceneryInvocations, agents.SceneryAttributable, agents.SceneryAttributableFailed, agents.SceneryFailed, agents.SceneryOutcomeUnknown)
-		rows = nil
-		for index, command := range agents.Commands {
-			if index == 10 {
-				break
-			}
-			wall := command.WallTimeMS
-			rows = append(rows, []string{command.Command, fmt.Sprint(command.Count), fmt.Sprintf("attributable %d", command.Attributable), fmt.Sprintf("failed %d", command.FailureCount), "waited " + ms(&wall), "p50 " + ms(command.P50MS)})
-		}
-		table(rows)
-		for _, class := range agents.FailureClasses {
-			line("  %5d× failed: %s", class.Count, class.Name)
-		}
-		for index, input := range agents.RejectedInputs {
-			if index == 5 {
-				break
-			}
-			line("  %5d× rejected %s", input.Count, input.Name)
-		}
-	}
 	_, err := io.WriteString(stdout, out.String())
 	return err
 }

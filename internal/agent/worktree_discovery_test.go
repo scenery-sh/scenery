@@ -72,4 +72,22 @@ func TestDiscoverWorktreesPreservesCanonicalInvalidEntries(t *testing.T) {
 			t.Fatalf("discovery allocated owner lock: %v", err)
 		}
 	}
+	// A lock-only worktree directory without worktree.json or owner.json (left
+	// by a probe) must not be flagged as incompatible-or-invalid.
+	lockOnly := filepath.Join(home, "worktrees", strings.Repeat("e", 64))
+	if err := os.MkdirAll(lockOnly, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lockOnly, "owner.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	found, err := DiscoverWorktrees(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range found {
+		if item.Key == strings.Repeat("e", 64) {
+			t.Fatalf("lock-only directory was reported as worktree: %+v", item)
+		}
+	}
 }

@@ -91,6 +91,7 @@ impl Engine {
                         _ = tick.tick() => {
                             if let Err(error) = host.engine.purge(&retention_services).await {
                                 eprintln!("durable retention: {error:#}");
+                                host.record_runtime_fault("durable_retention", "", Host::classify_runtime_error(&error)).await;
                             }
                         }
                     }
@@ -818,6 +819,12 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
                 "durable engine {}: {error:#}",
                 plan.registration.external_name
             );
+            host.record_runtime_fault(
+                "durable_engine",
+                &plan.registration.external_name,
+                Host::classify_runtime_error(&error),
+            )
+            .await;
             tokio::select! {
                 biased;
                 () = stop.cancelled() => break,

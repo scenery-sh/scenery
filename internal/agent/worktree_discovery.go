@@ -36,6 +36,15 @@ func DiscoverWorktrees(home string) ([]WorktreeDiscovery, error) {
 			continue
 		}
 		path := filepath.Join(root, entry.Name(), "worktree.json")
+		if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+			ownerPath := filepath.Join(root, entry.Name(), "owner.json")
+			if _, ownerErr := os.Lstat(ownerPath); errors.Is(ownerErr, os.ErrNotExist) {
+				// Lock-only directories left by probes without a retained worktree
+				// record or live owner descriptor are not corrupt worktrees.
+				result = result[:len(result)-1]
+				continue
+			}
+		}
 		if err := checkPrivateWorktreeFile(path); err != nil {
 			continue
 		}

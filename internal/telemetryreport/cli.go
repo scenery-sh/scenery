@@ -30,6 +30,14 @@ type CLIReport struct {
 	UptimeRecords         int                  `json:"uptime_records"`
 	ErrorCategories       []Count              `json:"error_categories"`
 	Purposes              []Count              `json:"purposes"`
+	Callers               []Count              `json:"callers"`
+	RejectedTokens        []Count              `json:"rejected_tokens"`
+	ProxyFaults           []Count              `json:"proxy_faults"`
+	RuntimeFaults         []Count              `json:"runtime_faults"`
+	WorkerFaults          []Count              `json:"worker_faults"`
+	NoOpRebuilds          int                  `json:"noop_rebuilds"`
+	Daily                 []DailySummary       `json:"daily"`
+	ProducerTrends        []ProducerTrend      `json:"producer_trends"`
 	Cohorts               []CLICohort          `json:"cohorts"`
 	Producers             []Count              `json:"producers"`
 	Diagnostics           []Count              `json:"diagnostics"`
@@ -46,6 +54,29 @@ type CLIReport struct {
 	Bursts      []FailureBurst  `json:"failure_bursts"`
 	invalid     int
 	files       []CLIFileCoverage
+}
+
+// DailySummary aggregates CLI volume, failures and startup latency for one UTC day.
+type DailySummary struct {
+	Date                string `json:"date"`
+	Count               int    `json:"count"`
+	FailureCount        int    `json:"failure_count"`
+	StartupCount        int    `json:"startup_count"`
+	StartupFailureCount int    `json:"startup_failure_count"`
+	StartupP50MS        *int64 `json:"startup_p50_ms"`
+}
+
+// ProducerTrend aggregates CLI volume, failures and startup latency per producer
+// commit or version, ordered by most recent activity first.
+type ProducerTrend struct {
+	Producer            string `json:"producer"`
+	FirstAt             string `json:"first_at"`
+	LastAt              string `json:"last_at"`
+	Count               int    `json:"count"`
+	FailureCount        int    `json:"failure_count"`
+	StartupCount        int    `json:"startup_count"`
+	StartupFailureCount int    `json:"startup_failure_count"`
+	StartupP50MS        *int64 `json:"startup_p50_ms"`
 }
 
 // CLICohort keeps app, execution purpose and producer independent. Unknown
@@ -105,6 +136,8 @@ type cliRecord struct {
 	InvocationID   string            `json:"invocation_id"`
 	Producer       *machine.Producer `json:"producer"`
 	DiagnosticCode string            `json:"diagnostic_code"`
+	RejectedToken  string            `json:"rejected_token"`
+	Caller         string            `json:"caller"`
 	Purpose        string            `json:"purpose"`
 	Dirty          *bool             `json:"dirty"`
 	At             time.Time         `json:"at"`
@@ -120,7 +153,12 @@ type cliRecord struct {
 }
 
 func readCLI(opts Options) (CLIReport, error) {
-	report := CLIReport{Events: []devtelemetry.Event{}, ErrorCategories: []Count{}, Purposes: []Count{}, Cohorts: []CLICohort{}, Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}, files: []CLIFileCoverage{}}
+	report := CLIReport{
+		Events: []devtelemetry.Event{}, ErrorCategories: []Count{}, Purposes: []Count{},
+		Callers: []Count{}, RejectedTokens: []Count{}, ProxyFaults: []Count{}, RuntimeFaults: []Count{}, WorkerFaults: []Count{},
+		Daily: []DailySummary{}, ProducerTrends: []ProducerTrend{},
+		Cohorts: []CLICohort{}, Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}, files: []CLIFileCoverage{},
+	}
 	if opts.CLITelemetryPath == "" {
 		return report, nil
 	}
@@ -133,12 +171,20 @@ func readCLI(opts Options) (CLIReport, error) {
 	paths := append([]string{opts.CLITelemetryPath}, archives...)
 	identified := map[string]bool{}
 	cohorts := map[CLICohort]*timingAccumulator{}
-	purposes := map[string]int{}
+	purposes, callers, rejectedTokens := map[string]int{}, map[string]int{}, map[string]int{}
+	proxyFaults, runtimeFaults, workerFaults := map[string]int{}, map[string]int{}, map[string]int{}
 	producers, diagnostics, categories := map[string]int{}, map[string]int{}, map[string]int{}
 	commands := map[string]*timingAccumulator{}
 	apps := map[string]*timingAccumulator{}
 	appNames := map[string]string{}
 	startup := &timingAccumulator{}
+	type trendAccum struct {
+		count, failures int
+		first, last     time.Time
+		startup         timingAccumulator
+	}
+	daily := map[string]*trendAccum{}
+	producerTrends := map[string]*trendAccum{}
 	type hourKey struct {
 		command, hour string
 		exit          int
@@ -179,8 +225,35 @@ func readCLI(opts Options) (CLIReport, error) {
 			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() || record.DurationMS < 0 {
 				var event devtelemetry.Event
 				if json.Unmarshal(line, &event) == nil && event.Valid() {
-					if opts.inWindow(event.At) {
-						report.Events = devtelemetry.AppendRecentEvent(report.Events, event, 100)
+					if !opts.inWindow(event.At) {
+						return
+					}
+					if len(opts.Apps) > 0 && (event.App == nil || !opts.matchesApp(event.App.ID, event.App.Name)) {
+						return
+					}
+					report.Events = devtelemetry.AppendRecentEvent(report.Events, event, 100)
+					switch event.Kind {
+					case "rebuild":
+						if event.Rebuild != nil && event.Rebuild.OK && len(event.Rebuild.RebuiltModules) == 0 {
+							report.NoOpRebuilds++
+						}
+					case "proxy_fault":
+						if event.ProxyFault != nil {
+							label := fmt.Sprintf("%s %s (%d)", event.ProxyFault.Backend, event.ProxyFault.ErrorClass, event.ProxyFault.Status)
+							proxyFaults[label]++
+						}
+					case "runtime_fault":
+						if event.RuntimeFault != nil {
+							label := fmt.Sprintf("%s %s", event.RuntimeFault.Component, event.RuntimeFault.ErrorClass)
+							if event.RuntimeFault.Target != "" {
+								label = fmt.Sprintf("%s %s (%s)", event.RuntimeFault.Component, event.RuntimeFault.ErrorClass, event.RuntimeFault.Target)
+							}
+							runtimeFaults[label]++
+						}
+					case "worker_fault":
+						if event.WorkerFault != nil {
+							workerFaults[fmt.Sprintf("%s (%s)", event.WorkerFault.Module, event.WorkerFault.Runtime)]++
+						}
 					}
 					return
 				}
@@ -195,6 +268,9 @@ func readCLI(opts Options) (CLIReport, error) {
 				last = record.At
 			}
 			if !opts.inWindow(record.At) {
+				return
+			}
+			if len(opts.Apps) > 0 && (record.App == nil || !opts.matchesApp(record.App.ID, record.App.Name)) {
 				return
 			}
 			coverage.InWindow++
@@ -249,6 +325,34 @@ func readCLI(opts Options) (CLIReport, error) {
 				producer = "unknown"
 			}
 			producers[producer]++
+			recordTrend := func(groups map[string]*trendAccum, key string) {
+				acc := groups[key]
+				if acc == nil {
+					acc = &trendAccum{first: record.At, last: record.At}
+					groups[key] = acc
+				}
+				acc.count++
+				if !ok {
+					acc.failures++
+				}
+				if record.At.Before(acc.first) {
+					acc.first = record.At
+				}
+				if record.At.After(acc.last) {
+					acc.last = record.At
+				}
+				if record.Measurement == "startup" {
+					sample(&acc.startup)
+				}
+			}
+			recordTrend(daily, record.At.UTC().Format("2006-01-02"))
+			recordTrend(producerTrends, producer)
+			if record.Caller != "" {
+				callers[record.Caller]++
+			}
+			if record.RejectedToken != "" {
+				rejectedTokens[record.RejectedToken]++
+			}
 			purpose := record.Purpose
 			if purpose != "development" && purpose != "verification" && purpose != "release" {
 				purpose = "unknown"
@@ -305,6 +409,42 @@ func readCLI(opts Options) (CLIReport, error) {
 	}
 	report.ErrorCategories = sortedCounts(categories, 0)
 	report.Purposes = sortedCounts(purposes, 0)
+	report.Callers = sortedCounts(callers, 0)
+	report.RejectedTokens = sortedCounts(rejectedTokens, 0)
+	report.ProxyFaults = sortedCounts(proxyFaults, 0)
+	report.RuntimeFaults = sortedCounts(runtimeFaults, 0)
+	report.WorkerFaults = sortedCounts(workerFaults, 0)
+	for date, acc := range daily {
+		st := acc.startup.timing()
+		report.Daily = append(report.Daily, DailySummary{
+			Date:                date,
+			Count:               acc.count,
+			FailureCount:        acc.failures,
+			StartupCount:        st.Count,
+			StartupFailureCount: st.FailureCount,
+			StartupP50MS:        st.P50MS,
+		})
+	}
+	sort.Slice(report.Daily, func(i, j int) bool { return report.Daily[i].Date < report.Daily[j].Date })
+	for producer, acc := range producerTrends {
+		st := acc.startup.timing()
+		report.ProducerTrends = append(report.ProducerTrends, ProducerTrend{
+			Producer:            producer,
+			FirstAt:             acc.first.UTC().Format(time.RFC3339),
+			LastAt:              acc.last.UTC().Format(time.RFC3339),
+			Count:               acc.count,
+			FailureCount:        acc.failures,
+			StartupCount:        st.Count,
+			StartupFailureCount: st.FailureCount,
+			StartupP50MS:        st.P50MS,
+		})
+	}
+	sort.Slice(report.ProducerTrends, func(i, j int) bool {
+		if report.ProducerTrends[i].LastAt != report.ProducerTrends[j].LastAt {
+			return report.ProducerTrends[i].LastAt > report.ProducerTrends[j].LastAt
+		}
+		return report.ProducerTrends[i].Count > report.ProducerTrends[j].Count
+	})
 	for cohort, acc := range cohorts {
 		cohort.Timing = acc.timing()
 		report.Cohorts = append(report.Cohorts, cohort)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -189,6 +190,12 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		cancel()
 		return nil, fmt.Errorf("assistant provider credential: %w", envErr)
 	}
+	assistantOutput, assistantErrOutput := io.Writer(os.Stdout), io.Writer(os.Stderr)
+	if console != nil && console.json {
+		// Structured JSONL supervisors already capture helper output via OnEvent;
+		// mirroring raw stdout/stderr into the supervisor log corrupts JSONL records.
+		assistantOutput, assistantErrOutput = io.Discard, io.Discard
+	}
 	s.assistants = newAssistantSupervisor(supervisorCtx, assistantSupervisorConfig{
 		Root:          root,
 		StateRoot:     assistantStateRoot,
@@ -211,8 +218,8 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		OnStatus: func(statuses []AssistantStatusRecord) {
 			s.persistAssistantStatusSnapshot(statuses)
 		},
-		Output:    os.Stdout,
-		ErrOutput: os.Stderr,
+		Output:    assistantOutput,
+		ErrOutput: assistantErrOutput,
 	})
 	s.assistantTokenKeyPath = assistantTokenKeyPath
 	s.events = newDevEventSink(s)

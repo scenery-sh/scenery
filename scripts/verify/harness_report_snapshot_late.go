@@ -69,7 +69,7 @@ func proveHarnessReportLateObservation(ctx context.Context, repo string) (proof 
 			}
 		}
 	}
-	r, proof, err := f.run(ctx, repo, "json", false, mutate)
+	r, proof, err := f.run(ctx, repo, "json", mutate)
 	if err != nil {
 		return proof, err
 	}

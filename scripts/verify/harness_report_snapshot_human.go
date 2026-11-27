@@ -28,16 +28,6 @@ func validateHarnessReportHuman(output, name, path string, read, size int64, row
 		n := read / int64(rowSize)
 		source = fmt.Sprintf("  Supervisor %s (%s): read %d / captured %d bytes across %d segments; retained %d, in window %d, invalid 0.", path, status, read, size, segments, n, n)
 		outcome = fmt.Sprintf("rebuilds %d failed 0 timed successes n=%d p50 0ms p95 0ms", n, n)
-	case "claude-append", "codex-truncate":
-		complete, partial, p50 := 1, 0, "0ms"
-		if name == "codex-truncate" {
-			complete, partial, p50 = 0, 1, "-"
-		}
-		source = fmt.Sprintf("  Transcripts: %d read, %d read in part, 0 unreadable; read %d / captured %d bytes; 0 invalid and 0 oversized records skipped, 0 results without a call, 0 calls without a result.", complete, partial, read, size)
-		outcome = "help 1 attributable 1 failed 0 waited 0ms p50 " + p50
-		if !strings.Contains(output, "Agents: 1 tool calls, 0 errors; 1 shell commands ran Scenery (1 invocations): 1 recorded Scenery's own outcome (0 failed); as shell commands 0 failed and 0 recorded no outcome\n") {
-			return errors.New("human original transcript command/outcome evidence differs")
-		}
 	default:
 		return errors.New("unknown human snapshot fixture")
 	}

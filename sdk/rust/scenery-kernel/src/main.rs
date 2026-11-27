@@ -237,6 +237,7 @@ async fn run(mut input: Input) -> Result<()> {
                 app: config.app.clone(),
             })
     });
+    let host_events = events.clone();
     let control = Control::bind(
         directory,
         input.bundle.contract_revision.clone(),
@@ -303,17 +304,20 @@ async fn run(mut input: Input) -> Result<()> {
         Some(export) => export,
         None => otlp::Export::from_env(&|name: &str| std::env::var_os(name))?,
     };
-    let host = Arc::new(Host::new(
-        input.bundle,
-        input.snapshot,
-        export,
-        control.token().into(),
-        watcher
-            .as_ref()
-            .map_or(host::Mode::Production, |w| host::Mode::Development(w.status())),
-        (stop.clone(), assistants),
-        publication.clone(),
-    )?);
+    let host = Arc::new(
+        Host::new(
+            input.bundle,
+            input.snapshot,
+            export,
+            control.token().into(),
+            watcher
+                .as_ref()
+                .map_or(host::Mode::Production, |w| host::Mode::Development(w.status())),
+            (stop.clone(), assistants),
+            publication.clone(),
+        )?
+        .with_event_target(host_events),
+    );
     host.engine.prepare(&host).await?;
     let control_listener = UnixListener::bind(directory.join("control.sock"))?;
     let capability_listener = UnixListener::bind(directory.join("capabilities.sock"))?;

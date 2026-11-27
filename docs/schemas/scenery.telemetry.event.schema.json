@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scenery.sh/schemas/scenery.telemetry.event.schema.json",
   "type": "object",
-  "required": ["at", "kind", "generation"],
+  "required": ["at", "kind"],
   "additionalProperties": false,
   "properties": {
     "at": {"type": "string", "format": "date-time"},
-    "kind": {"enum": ["rebuild", "worker_fault"]},
-    "generation": {"type": "integer", "minimum": 1},
+    "kind": {"enum": ["rebuild", "worker_fault", "proxy_fault", "runtime_fault"]},
+    "generation": {"type": "integer", "minimum": 0},
     "app": {
       "type": "object",
       "required": ["id", "name"],
@@ -30,6 +30,7 @@
         "rebuilt_modules": {"type": "array", "items": {"type": "string"}},
         "skipped_modules": {"type": "array", "items": {"type": "string"}},
         "trigger_kind": {"enum": ["body_only", "contract_or_config"]},
+        "trigger_buckets": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "ok": {"type": "boolean"},
         "error_code": {"type": "string"}
       }
@@ -44,10 +45,32 @@
         "exit_code": {"type": "integer"},
         "signal": {"type": "string"}
       }
+    },
+    "proxy_fault": {
+      "type": "object",
+      "required": ["backend", "status", "error_class"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {"type": "string", "minLength": 1},
+        "status": {"type": "integer", "minimum": 400, "maximum": 599},
+        "error_class": {"type": "string", "minLength": 1}
+      }
+    },
+    "runtime_fault": {
+      "type": "object",
+      "required": ["component", "error_class"],
+      "additionalProperties": false,
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "target": {"type": "string"},
+        "error_class": {"type": "string", "minLength": 1}
+      }
     }
   },
   "oneOf": [
-    {"properties": {"kind": {"const": "rebuild"}}, "required": ["rebuild"], "not": {"required": ["worker_fault"]}},
-    {"properties": {"kind": {"const": "worker_fault"}}, "required": ["worker_fault"], "not": {"required": ["rebuild"]}}
+    {"properties": {"kind": {"const": "rebuild"}, "generation": {"minimum": 1}}, "required": ["generation", "rebuild"], "not": {"anyOf": [{"required": ["worker_fault"]}, {"required": ["proxy_fault"]}, {"required": ["runtime_fault"]}]}},
+    {"properties": {"kind": {"const": "worker_fault"}, "generation": {"minimum": 1}}, "required": ["generation", "worker_fault"], "not": {"anyOf": [{"required": ["rebuild"]}, {"required": ["proxy_fault"]}, {"required": ["runtime_fault"]}]}},
+    {"properties": {"kind": {"const": "proxy_fault"}}, "required": ["proxy_fault"], "not": {"anyOf": [{"required": ["rebuild"]}, {"required": ["worker_fault"]}, {"required": ["runtime_fault"]}]}},
+    {"properties": {"kind": {"const": "runtime_fault"}}, "required": ["runtime_fault"], "not": {"anyOf": [{"required": ["rebuild"]}, {"required": ["worker_fault"]}, {"required": ["proxy_fault"]}]}}
   ]
 }

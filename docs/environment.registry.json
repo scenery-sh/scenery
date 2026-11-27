@@ -23,6 +23,63 @@
       "docs": []
     },
     {
+      "name": "CLAUDECODE",
+      "match": "exact",
+      "scope": "internal",
+      "direction": "internal",
+      "category": "telemetry",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "tests"
+      ],
+      "owner": "scenery telemetry",
+      "rationale": "Identifies Claude Code caller sessions directly in CLI telemetry without reading third-party transcripts.",
+      "preferred_surface": "Automatic caller attribution for local CLI telemetry",
+      "replacement": "",
+      "sunset": "",
+      "docs": []
+    },
+    {
+      "name": "CODEX_THREAD_ID",
+      "match": "exact",
+      "scope": "internal",
+      "direction": "internal",
+      "category": "telemetry",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "tests"
+      ],
+      "owner": "scenery telemetry",
+      "rationale": "Identifies Codex caller sessions directly in CLI telemetry without reading third-party transcripts.",
+      "preferred_surface": "Automatic caller attribution for local CLI telemetry",
+      "replacement": "",
+      "sunset": "",
+      "docs": []
+    },
+    {
+      "name": "CODEX_SANDBOX",
+      "match": "exact",
+      "scope": "internal",
+      "direction": "internal",
+      "category": "telemetry",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "tests"
+      ],
+      "owner": "scenery telemetry",
+      "rationale": "Identifies Codex sandbox caller sessions directly in CLI telemetry without reading third-party transcripts.",
+      "preferred_surface": "Automatic caller attribution for local CLI telemetry",
+      "replacement": "",
+      "sunset": "",
+      "docs": []
+    },
+    {
       "name": "CI",
       "match": "exact",
       "scope": "internal",

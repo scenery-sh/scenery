@@ -3,14 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
 )
@@ -212,9 +215,46 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	if err != nil {
 		return prepared, err
 	}
+	routerErrorWriter := io.Writer(os.Stderr)
+	if c.console != nil && c.console.json {
+		routerErrorWriter = io.Discard
+	}
+	var proxyFaultMu sync.Mutex
+	proxyFaultLast := map[string]time.Time{}
+	appIdentity := &devtelemetry.App{ID: c.cfg.AppID(), Name: firstNonEmpty(c.cfg.Name, c.cfg.AppID())}
+	onProxyFault := func(backend string, status int, errClass string) {
+		now := time.Now().UTC()
+		key := backend + "\x00" + errClass
+		proxyFaultMu.Lock()
+		last := proxyFaultLast[key]
+		if !last.IsZero() && now.Sub(last) < 5*time.Second {
+			proxyFaultMu.Unlock()
+			return
+		}
+		proxyFaultLast[key] = now
+		proxyFaultMu.Unlock()
+		if c.console != nil {
+			c.console.Event("proxy.fault", map[string]any{
+				"backend":     backend,
+				"status":      status,
+				"error_class": errClass,
+			})
+		}
+		appendTelemetryRecord(devtelemetry.Event{
+			At:   now,
+			Kind: "proxy_fault",
+			App:  appIdentity,
+			ProxyFault: &devtelemetry.ProxyFault{
+				Backend:    backend,
+				Status:     status,
+				ErrorClass: errClass,
+			},
+		})
+	}
 	routerCleanup, err := startLocalPathRouter(ctx, localPathRouterOptions{
 		Session: session, PortLease: lease, EdgeToken: token, UpstreamAddr: health.RouterAddr,
 		DashboardBackend: health.DashboardBackend, Agent: client, Listener: owner.browser,
+		ErrorWriter: routerErrorWriter, OnProxyFault: onProxyFault,
 	})
 	if err != nil {
 		_, _ = client.Delete(ctx, session.SessionID, false)
@@ -224,7 +264,11 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	domainURL, edgeCleanup, domainWarning := publishWorktreeDomain(ctx, machinePaths, session, c.env.Domain, owner.browser.Addr().String(), c.listen.ClaimAliases)
 	cleanup = append(cleanup, edgeCleanup)
 	if domainWarning != "" {
-		fmt.Fprintln(os.Stderr, "scenery: "+domainWarning)
+		if c.console != nil && c.console.json {
+			c.console.Event("router.warning", map[string]any{"message": domainWarning})
+		} else {
+			fmt.Fprintln(os.Stderr, "scenery: "+domainWarning)
+		}
 	}
 	if domainURL != "" {
 		req.RouteManifest.DomainHost, req.RouteManifest.DomainURL = c.env.Domain, domainURL
