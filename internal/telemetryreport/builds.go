@@ -146,6 +146,12 @@ type buildStepData struct {
 	Reason                   string          `json:"reason"`
 }
 
+// isInitialBuildStep identifies cold-start / handoff initial builds across both
+// current ("initial") and historical ("initial_build") supervisor labels.
+func isInitialBuildStep(step buildStepData) bool {
+	return step.Reason == "initial" || step.Reason == "initial_build" || step.EditClass == "initial"
+}
+
 type buildErrorData struct {
 	OperationID string          `json:"operation_id"`
 	Error       json.RawMessage `json:"error"`
@@ -557,11 +563,11 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				awaiting = -1
 				return
 			}
-			switch step.Reason {
-			case "initial_build":
+			isInitial := isInitialBuildStep(step)
+			if isInitial {
 				timing.record(initial, step.OK)
 				timing.record(&acc.initial, step.OK)
-			default:
+			} else {
 				timing.record(rebuilds, step.OK)
 				timing.record(&acc.rebuilds, step.OK)
 				if step.OK {
@@ -573,7 +579,7 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 					}
 				}
 			}
-			outcomes = append(outcomes, outcome{at: step.StartedAt, ok: step.OK, initial: step.Reason == "initial_build"})
+			outcomes = append(outcomes, outcome{at: step.StartedAt, ok: step.OK, initial: isInitial})
 			byOperation[step.OperationID] = len(outcomes) - 1
 			awaiting = -1
 			if !step.OK {

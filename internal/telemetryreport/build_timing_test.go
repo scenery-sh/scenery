@@ -231,3 +231,24 @@ func TestSupervisorStandaloneAssistantStepsCountCacheWorkWithoutInvalid(t *testi
 		t.Fatalf("malformed standalone steps not flagged invalid: %+v", badReport.Sources)
 	}
 }
+
+func TestSupervisorInitialBuildReasonClassifiedAsInitial(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	report := supervisorTimingFixture(t,
+		supervisorEventLine("build.step", at, map[string]any{
+			"operation_id": "init-1", "name": "build.request", "started_at": at,
+			"duration_ms": 21500, "ok": true, "reason": "initial", "edit_class": "initial",
+		}),
+		supervisorEventLine("build.step", at.Add(time.Minute), map[string]any{
+			"operation_id": "rb-1", "name": "build.request", "started_at": at.Add(time.Minute),
+			"duration_ms": 900, "ok": true, "reason": "restart", "edit_class": "restart",
+		}),
+	)
+	if report.Builds.Initial.Count != 1 || ms(report.Builds.Initial.P50MS) != 21500 {
+		t.Fatalf("initial builds = %+v", report.Builds.Initial)
+	}
+	if report.Builds.Rebuilds.Count != 1 || ms(report.Builds.Rebuilds.P50MS) != 900 {
+		t.Fatalf("rebuilds = %+v", report.Builds.Rebuilds)
+	}
+}

@@ -52,7 +52,7 @@ type localPathRouterOptions struct {
 	ErrorWriter io.Writer
 	// OnProxyFault is called when a proxied local backend request fails so callers
 	// can emit structured events and telemetry.
-	OnProxyFault func(backend string, status int, errClass string)
+	OnProxyFault func(backend string, status int, errClass, phase string)
 }
 
 // localDialRetryPolicy bounds the bridged dial-retry window for one router.
@@ -143,7 +143,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 			req.Header.Set("X-Scenery-Base-URL", baseURL)
 			req.Header.Set("X-Scenery-Edge-Token", token)
 		}
-		configureQuietLocalProxyWith(proxy, "agent router "+upstreamAddr, "router", errorWriter, opts.OnProxyFault)
+		configureQuietLocalProxyWith(proxy, "agent router "+upstreamAddr, "router", "running", errorWriter, opts.OnProxyFault)
 		return proxy
 	}
 	// A supervised agent restart briefly refuses router dials; the bounded
@@ -159,7 +159,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		dashboardBackends := newDashboardBackendSource(agentClient, opts.DashboardBackend)
 		dashboardProxyFor := func(backend localagent.Backend) *httputil.ReverseProxy {
 			dashboardProxy := reverseProxyForLocalBackend(backend)
-			configureQuietLocalProxyWith(dashboardProxy, "dashboard backend "+backend.Addr, "dashboard", errorWriter, opts.OnProxyFault)
+			configureQuietLocalProxyWith(dashboardProxy, "dashboard backend "+backend.Addr, "dashboard", "running", errorWriter, opts.OnProxyFault)
 			dashboardRewrite := dashboardProxy.Rewrite
 			dashboardProxy.Rewrite = func(request *httputil.ProxyRequest) {
 				originalHost := request.In.Host
@@ -193,7 +193,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 			if requestPath == localagent.PathModeRuntimePrefix && isUpgradeRequest(req) {
 				if tunnelErr := tunnelLocalBackendUpgrade(w, req, dashboardBackend, devdash.WebSocketPath); tunnelErr != nil {
 					if opts.OnProxyFault != nil {
-						opts.OnProxyFault("dashboard", http.StatusBadGateway, classifyLocalProxyError(tunnelErr))
+						opts.OnProxyFault("dashboard", http.StatusBadGateway, classifyLocalProxyError(tunnelErr), "running")
 					}
 					http.Error(w, "scenery: runtime backend unavailable", http.StatusBadGateway)
 				}
@@ -203,7 +203,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				dashboardHandler.ServeHTTP(w, req)
 				return
 			}
-			if localPathRouterProxySessionBackend(w, req, currentSession, requestPath, lease.Port, baseURL, errorWriter, opts.OnProxyFault) {
+			if localPathRouterProxySessionBackend(w, req, currentSession, requestPath, lease.Port, baseURL, opts.DialRetry, errorWriter, opts.OnProxyFault) {
 				return
 			}
 			upstreamHandler.ServeHTTP(w, req)
@@ -302,10 +302,19 @@ var localProxyFailureLog = newComponentFailureLog("scenery-local-router", 30*tim
 // (a log line per request plus an empty 502) with rate-limited logging and a
 // terse response body.
 func configureQuietLocalProxy(proxy *httputil.ReverseProxy, label string) {
-	configureQuietLocalProxyWith(proxy, label, label, os.Stderr, nil)
+	configureQuietLocalProxyWith(proxy, label, label, "running", os.Stderr, nil)
 }
 
-func configureQuietLocalProxyWith(proxy *httputil.ReverseProxy, label, backend string, errOut io.Writer, onFault func(backend string, status int, errClass string)) {
+func localSessionStartingPhase(status string) (string, bool) {
+	switch strings.TrimSpace(status) {
+	case "starting", "reloading", "handoff":
+		return strings.TrimSpace(status), true
+	default:
+		return "running", false
+	}
+}
+
+func configureQuietLocalProxyWith(proxy *httputil.ReverseProxy, label, backend, phase string, errOut io.Writer, onFault func(backend string, status int, errClass, phase string)) {
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		if req.Context().Err() != nil {
 			// The client went away; nothing useful can be written or logged.
@@ -314,13 +323,19 @@ func configureQuietLocalProxyWith(proxy *httputil.ReverseProxy, label, backend s
 		if errOut != nil {
 			localProxyFailureLog.report(errOut, label, "proxy request failed", err)
 		}
-		if onFault != nil {
-			onFault(backend, http.StatusBadGateway, classifyLocalProxyError(err))
-		}
-		if isLocalBackendUnavailable(err) {
+		status := http.StatusBadGateway
+		message := "scenery: " + label + " is unavailable"
+		if startingPhase, starting := localSessionStartingPhase(phase); starting && isLocalBackendUnavailable(err) {
+			status = http.StatusServiceUnavailable
+			message = "scenery: " + label + " is " + startingPhase
+			w.Header().Set("Retry-After", "2")
+		} else if isLocalBackendUnavailable(err) {
 			w.Header().Set("Retry-After", "1")
 		}
-		http.Error(w, "scenery: "+label+" is unavailable", http.StatusBadGateway)
+		if onFault != nil {
+			onFault(backend, status, classifyLocalProxyError(err), phase)
+		}
+		http.Error(w, message, status)
 	}
 }
 
@@ -492,7 +507,7 @@ func tunnelLocalBackendUpgrade(w http.ResponseWriter, req *http.Request, backend
 	return nil
 }
 
-func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request, session localagent.Session, requestPath string, port int, baseURL string, errOut io.Writer, onFault func(backend string, status int, errClass string)) bool {
+func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request, session localagent.Session, requestPath string, port int, baseURL string, dialRetry localDialRetryPolicy, errOut io.Writer, onFault func(backend string, status int, errClass, phase string)) bool {
 	record, ok := localPathRouterRouteForSession(session.RouteManifest, requestPath)
 	if !ok || record.Name == "root" || record.Backend == "" || record.Backend == localagent.RouteDashboard {
 		return false
@@ -501,47 +516,58 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	if !ok || strings.TrimSpace(backend.Addr) == "" {
 		return false
 	}
-	proxy := reverseProxyForLocalBackend(backend)
-	configureQuietLocalProxyWith(proxy, fmt.Sprintf("backend %s (%s)", record.Backend, backend.Addr), record.Backend, errOut, onFault)
-	rewrite := proxy.Rewrite
-	if strings.TrimSpace(record.Kind) == "frontend" {
-		proxy.ModifyResponse = func(resp *http.Response) error {
-			contentType := strings.ToLower(resp.Header.Get("Content-Type"))
-			if strings.Contains(contentType, "text/html") {
-				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
-					return localPathRouterRewriteHTMLRootRefs(body, record.StripPrefix)
-				})
-			}
-			if localPathRouterJavaScriptContentType(contentType) {
-				resp.Header.Set("Cache-Control", "no-store")
-				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
-					return localPathRouterRewriteJSRootRefs(body, record.StripPrefix)
-				})
-			}
-			return nil
-		}
-	}
-	proxy.Rewrite = func(request *httputil.ProxyRequest) {
-		originalHost := request.In.Host
-		originalPath := cleanLocalPath(request.In.URL.Path)
-		rewrite(request)
-		out := request.Out
-		out.Host = originalHost
-		out.Header.Set("X-Forwarded-Host", originalHost)
-		out.Header.Set("X-Forwarded-Proto", "http")
-		out.Header.Set("X-Forwarded-Port", strconv.Itoa(port))
-		out.Header.Set("X-Forwarded-Prefix", strings.TrimSpace(record.StripPrefix))
-		out.Header.Set("X-Scenery-Route-Prefix", strings.TrimSpace(record.StripPrefix))
-		out.Header.Set("X-Scenery-Base-URL", baseURL)
-		out.Header.Set("X-Scenery-Public-URL", strings.TrimSpace(record.URL))
-		if record.StripPrefix != "" && localPathRouterShouldStripPrefix(record) {
-			out.URL.Path = strings.TrimPrefix(originalPath, record.StripPrefix)
-			if out.URL.Path == "" {
-				out.URL.Path = "/"
+	phase, starting := localSessionStartingPhase(session.Status)
+	buildProxy := func(localagent.Backend) *httputil.ReverseProxy {
+		proxy := reverseProxyForLocalBackend(backend)
+		configureQuietLocalProxyWith(proxy, fmt.Sprintf("backend %s (%s)", record.Backend, backend.Addr), record.Backend, phase, errOut, onFault)
+		rewrite := proxy.Rewrite
+		if strings.TrimSpace(record.Kind) == "frontend" {
+			proxy.ModifyResponse = func(resp *http.Response) error {
+				contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+				if strings.Contains(contentType, "text/html") {
+					return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
+						return localPathRouterRewriteHTMLRootRefs(body, record.StripPrefix)
+					})
+				}
+				if localPathRouterJavaScriptContentType(contentType) {
+					resp.Header.Set("Cache-Control", "no-store")
+					return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
+						return localPathRouterRewriteJSRootRefs(body, record.StripPrefix)
+					})
+				}
+				return nil
 			}
 		}
+		proxy.Rewrite = func(request *httputil.ProxyRequest) {
+			originalHost := request.In.Host
+			originalPath := cleanLocalPath(request.In.URL.Path)
+			rewrite(request)
+			out := request.Out
+			out.Host = originalHost
+			out.Header.Set("X-Forwarded-Host", originalHost)
+			out.Header.Set("X-Forwarded-Proto", "http")
+			out.Header.Set("X-Forwarded-Port", strconv.Itoa(port))
+			out.Header.Set("X-Forwarded-Prefix", strings.TrimSpace(record.StripPrefix))
+			out.Header.Set("X-Scenery-Route-Prefix", strings.TrimSpace(record.StripPrefix))
+			out.Header.Set("X-Scenery-Base-URL", baseURL)
+			out.Header.Set("X-Scenery-Public-URL", strings.TrimSpace(record.URL))
+			if record.StripPrefix != "" && localPathRouterShouldStripPrefix(record) {
+				out.URL.Path = strings.TrimPrefix(originalPath, record.StripPrefix)
+				if out.URL.Path == "" {
+					out.URL.Path = "/"
+				}
+			}
+		}
+		return proxy
 	}
-	proxy.ServeHTTP(w, req)
+	// While a session is still compiling/starting, fail fast with 503 instead
+	// of stalling every poll on a 3s dial retry; once running, bridge brief
+	// generation restarts transparently via the bounded dial-retry policy.
+	if starting {
+		buildProxy(backend).ServeHTTP(w, req)
+		return true
+	}
+	newLocalDialRetryHandler(buildProxy, nil, dialRetry).ServeHTTP(w, req)
 	return true
 }
 

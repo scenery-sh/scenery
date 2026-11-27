@@ -48,6 +48,7 @@ type ProxyFault struct {
 	Backend    string `json:"backend"`
 	Status     int    `json:"status"`
 	ErrorClass string `json:"error_class"`
+	Phase      string `json:"phase,omitempty"`
 }
 
 type RuntimeFault struct {

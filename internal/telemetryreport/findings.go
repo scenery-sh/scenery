@@ -84,7 +84,11 @@ func findings(report Report) []Finding {
 		for _, fault := range report.CLI.ProxyFaults {
 			total += fault.Count
 		}
-		add(severityWarning, "events.proxy_faults", "Local proxy reported %d backend failures; leading fault: %s.", total, leadingCause(report.CLI.ProxyFaults))
+		if report.CLI.runtimeProxyFaults > 0 {
+			add(severityWarning, "events.proxy_faults", "Local proxy reported %d backend failures (%d while running); leading fault: %s.", total, report.CLI.runtimeProxyFaults, leadingCause(report.CLI.ProxyFaults))
+		} else {
+			add(severityInfo, "events.proxy_faults", "Local proxy reported %d startup/handoff backend responses before readiness; leading event: %s.", total, leadingCause(report.CLI.ProxyFaults))
+		}
 	}
 	if len(report.CLI.RuntimeFaults) > 0 {
 		total := 0
