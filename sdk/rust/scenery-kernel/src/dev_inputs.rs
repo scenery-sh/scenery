@@ -63,6 +63,25 @@ pub(crate) fn under(path: &Path, root: &Path) -> bool {
     root == Path::new(".") || path.starts_with(root)
 }
 
+pub(crate) fn scope_includes_dir(relative: &Path, roots: &[PathBuf]) -> bool {
+    if roots.is_empty() || relative.as_os_str().is_empty() || relative == Path::new(".") {
+        return true;
+    }
+    roots
+        .iter()
+        .any(|root| relative.starts_with(root) || root.starts_with(relative))
+}
+
+pub(crate) fn scope_includes_file(relative: &Path, roots: &[PathBuf]) -> bool {
+    if roots.is_empty() {
+        return true;
+    }
+    if relative.parent().is_none_or(|p| p.as_os_str().is_empty()) {
+        return true;
+    }
+    roots.iter().any(|root| relative.starts_with(root))
+}
+
 fn is_local_relative(path: &Path) -> bool {
     !path.as_os_str().is_empty()
         && path
@@ -105,6 +124,7 @@ const RACY_WINDOW: Duration = Duration::from_secs(2);
 pub(crate) struct Scanner {
     root: PathBuf,
     cache: Mutex<HashMap<PathBuf, Cached>>,
+    roots: RwLock<Vec<PathBuf>>,
     explicit: RwLock<BTreeSet<PathBuf>>,
     hashed: AtomicUsize,
     racy_window: Duration,
@@ -115,6 +135,7 @@ impl Scanner {
         Self {
             root,
             cache: Mutex::default(),
+            roots: RwLock::default(),
             explicit: RwLock::default(),
             hashed: AtomicUsize::new(0),
             racy_window: RACY_WINDOW,
@@ -123,6 +144,19 @@ impl Scanner {
 
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(crate) fn set_roots(&self, roots: Vec<PathBuf>) {
+        *self.roots.write().expect("scope roots") = roots;
+    }
+
+    pub(crate) fn roots(&self) -> Vec<PathBuf> {
+        self.roots.read().expect("scope roots").clone()
+    }
+
+    pub(crate) fn in_scope(&self, path: &Path) -> bool {
+        let roots = self.roots.read().expect("scope roots");
+        scope_includes_file(path, &roots) || scope_includes_dir(path, &roots)
     }
 
     pub(crate) fn set_explicit(&self, paths: BTreeSet<PathBuf>) {
@@ -208,7 +242,18 @@ impl Scanner {
         generated: &[PathBuf],
         explicit: &BTreeSet<PathBuf>,
     ) -> Result<Inputs> {
-        let (first, _) = self.scan_pair(generated, explicit, None)?;
+        let roots = self.roots();
+        self.scan_with_roots(generated, &roots, explicit)
+    }
+
+    /// Blocks on file system work: scans inputs scoped to `roots` plus `explicit`.
+    pub(crate) fn scan_with_roots(
+        &self,
+        generated: &[PathBuf],
+        roots: &[PathBuf],
+        explicit: &BTreeSet<PathBuf>,
+    ) -> Result<Inputs> {
+        let (first, _) = self.scan_pair(generated, roots, explicit, None)?;
         Ok(first)
     }
 
@@ -220,13 +265,26 @@ impl Scanner {
         first: &BTreeSet<PathBuf>,
         second: &BTreeSet<PathBuf>,
     ) -> Result<(Inputs, Inputs)> {
-        let (first_inputs, second_inputs) = self.scan_pair(generated, first, Some(second))?;
+        let roots = self.roots();
+        self.scan_transition_with_roots(generated, &roots, first, second)
+    }
+
+    pub(crate) fn scan_transition_with_roots(
+        &self,
+        generated: &[PathBuf],
+        roots: &[PathBuf],
+        first: &BTreeSet<PathBuf>,
+        second: &BTreeSet<PathBuf>,
+    ) -> Result<(Inputs, Inputs)> {
+        let (first_inputs, second_inputs) =
+            self.scan_pair(generated, roots, first, Some(second))?;
         Ok((first_inputs, second_inputs.unwrap_or_default()))
     }
 
     fn scan_pair(
         &self,
         generated: &[PathBuf],
+        roots: &[PathBuf],
         first: &BTreeSet<PathBuf>,
         second: Option<&BTreeSet<PathBuf>>,
     ) -> Result<(Inputs, Option<Inputs>)> {
@@ -234,6 +292,7 @@ impl Scanner {
         let mut walk = Walk {
             scanner: self,
             generated,
+            roots,
             previous: &cache,
             next: HashMap::with_capacity(cache.len()),
             inputs: Inputs::new(),
@@ -279,6 +338,7 @@ impl Scanner {
 struct Walk<'a> {
     scanner: &'a Scanner,
     generated: &'a [PathBuf],
+    roots: &'a [PathBuf],
     previous: &'a HashMap<PathBuf, Cached>,
     next: HashMap<PathBuf, Cached>,
     inputs: Inputs,
@@ -313,6 +373,9 @@ impl Walk<'_> {
             return Ok(());
         }
         if info.is_dir() {
+            if !top && !scope_includes_dir(relative, self.roots) {
+                return Ok(());
+            }
             let ignoring = gitignore::ancestor(&self.rules, &parts, ignoring);
             let outer = self.rules.len();
             if let Ok(text) = fs::read(path.join(".gitignore")) {
@@ -329,6 +392,8 @@ impl Walk<'_> {
                 result?;
             }
             self.rules.truncate(outer);
+        } else if !scope_includes_file(relative, self.roots) {
+            return Ok(());
         } else if info.is_file() {
             self.record_file(relative, &path, &info)?;
         } else {
@@ -761,6 +826,51 @@ mod tests {
                 PathBuf::from("svc/dist/vendor.ts"),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn scoped_roots_include_root_files_and_skip_unrelated_directories() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        for (rel, body) in [
+            ("app.scn", "app test"),
+            ("go.mod", "module example.test/app\n"),
+            ("solar/service.go", "package solar"),
+            ("solar/sub/helper.go", "package sub"),
+            ("apps/api/handler.go", "package api"),
+            ("apps/README.md", "outside nested root"),
+            ("apps/web/src/index.tsx", "export {}"),
+            ("docs/guide.md", "# docs"),
+            ("research/large.bin", "big"),
+        ] {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(path, body)?;
+        }
+        let scanner = Scanner::new(root.path().into());
+        scanner.set_roots(vec![PathBuf::from("apps/api"), PathBuf::from("solar")]);
+        let scanned = scanner.scan(&[])?;
+        let keys: Vec<_> = scanned.keys().cloned().collect();
+        assert_eq!(
+            keys,
+            [
+                PathBuf::from("app.scn"),
+                PathBuf::from("apps/api/handler.go"),
+                PathBuf::from("go.mod"),
+                PathBuf::from("solar/service.go"),
+                PathBuf::from("solar/sub/helper.go"),
+            ]
+        );
+        assert_eq!(
+            scanner.hashed(),
+            5,
+            "skipped directories must never be hashed"
+        );
+        assert!(scanner.in_scope(Path::new("app.scn")));
+        assert!(scanner.in_scope(Path::new("solar/service.go")));
+        assert!(scanner.in_scope(Path::new("apps/api/handler.go")));
+        assert!(!scanner.in_scope(Path::new("apps/web/src/index.tsx")));
+        assert!(!scanner.in_scope(Path::new("docs/guide.md")));
         Ok(())
     }
 }

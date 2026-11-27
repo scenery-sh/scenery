@@ -16,6 +16,8 @@ use crate::process::{Program, file_digest};
 pub(crate) struct Plan {
     #[serde(default)]
     pub generated: Vec<PathBuf>,
+    #[serde(default)]
+    pub roots: Vec<PathBuf>,
     pub declarations: Option<std::collections::BTreeMap<PathBuf, bool>>,
     pub commands: Vec<Build>,
     pub programs: Vec<Program>,

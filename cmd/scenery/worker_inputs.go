@@ -30,6 +30,64 @@ type workerInputs map[string]workerInput
 type workerInputScope struct {
 	root      string
 	generated []string
+	roots     []string
+}
+
+func normalizeWorkerScopeRoots(paths []string) []string {
+	var clean []string
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		rel := filepath.Clean(filepath.FromSlash(p))
+		if rel == "." || !filepath.IsLocal(rel) {
+			continue
+		}
+		clean = append(clean, filepath.ToSlash(rel))
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	slices.Sort(clean)
+	clean = slices.Compact(clean)
+	// Collapse nested roots when a parent root already covers them.
+	out := clean[:0]
+	for _, candidate := range clean {
+		if len(out) > 0 && strings.HasPrefix(candidate, out[len(out)-1]+"/") {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func scopeIncludesDir(rel string, roots []string) bool {
+	if len(roots) == 0 || rel == "." || rel == "" {
+		return true
+	}
+	slash := filepath.ToSlash(rel)
+	for _, root := range roots {
+		if slash == root || strings.HasPrefix(slash, root+"/") || strings.HasPrefix(root, slash+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func scopeIncludesFile(rel string, roots []string) bool {
+	if len(roots) == 0 {
+		return true
+	}
+	slash := filepath.ToSlash(rel)
+	if !strings.Contains(slash, "/") {
+		return true
+	}
+	for _, root := range roots {
+		if strings.HasPrefix(slash, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (watch *workerInputScope) skip(path string) bool {
@@ -118,7 +176,13 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 			return nil
 		}
 		if entry.IsDir() {
+			if !scopeIncludesDir(rel, watch.roots) {
+				return filepath.SkipDir
+			}
 			ignore.LoadDir(rel)
+			return nil
+		}
+		if !scopeIncludesFile(rel, watch.roots) {
 			return nil
 		}
 		if !entry.Type().IsRegular() {

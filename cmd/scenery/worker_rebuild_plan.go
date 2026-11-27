@@ -34,6 +34,7 @@ type workerBuildCommand struct {
 
 type workerRebuildPlan struct {
 	Generated       []string                 `json:"generated,omitempty"`
+	Roots           []string                 `json:"roots,omitempty"`
 	Declarations    map[string]bool          `json:"declarations"`
 	Commands        []workerBuildCommand     `json:"commands"`
 	Programs        []workerLaunchProgram    `json:"programs"`
@@ -49,7 +50,7 @@ type workerRebuildPlan struct {
 
 func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, error) {
 	plan := workerRebuildPlan{
-		Generated: dev.watch.generated, Declarations: dev.declarations, SourceDigest: workerSourceDigest(dev.applied),
+		Generated: dev.watch.generated, Roots: dev.watch.roots, Declarations: dev.declarations, SourceDigest: workerSourceDigest(dev.applied),
 		JSDependencies: dev.jsDependencies(),
 		Commands:       []workerBuildCommand{}, Programs: []workerLaunchProgram{},
 	}
@@ -171,14 +172,7 @@ func refreshWorkerRebuildPlan(args []string) error {
 		return err
 	}
 	scope := &workerInputScope{root: root, generated: generated}
-	inputs, err := scope.capture()
-	if err != nil {
-		return err
-	}
-	if err := scope.addExplicit(inputs, explicit.JSDependencies); err != nil {
-		return err
-	}
-	dev := &workerDevelopment{watch: scope, applied: inputs, cfg: cfg}
+	dev := &workerDevelopment{watch: scope, cfg: cfg}
 	bundle, err := dev.prepare(ctx, compiled)
 	if err != nil {
 		return err
@@ -225,6 +219,17 @@ func refreshWorkerRebuildPlan(args []string) error {
 	if err := bundle.resolveDevelopmentConfig(ctx, dev.compiled, cfg, args[2]); err != nil {
 		return err
 	}
+	if len(dev.rust.services) == 0 {
+		scope.roots = dev.inputScopeRoots()
+	}
+	inputs, err := scope.capture()
+	if err != nil {
+		return err
+	}
+	if err := scope.addExplicit(inputs, explicit.JSDependencies); err != nil {
+		return err
+	}
+	dev.applied = inputs
 	plan, err := dev.project(bundle)
 	if err != nil {
 		return err

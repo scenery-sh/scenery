@@ -101,3 +101,39 @@ func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *tes
 		t.Fatalf("inputs = %q, want %q", got, want)
 	}
 }
+
+func TestWorkerInputScopeRootsFiltersUnrelatedDirectories(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"app.scn":                  "app test",
+		"go.mod":                   "module example.test/app\n",
+		"solar/service.go":         "package solar",
+		"solar/sub/helper.go":      "package sub",
+		"apps/api/handler.go":      "package api",
+		"apps/README.md":           "outside nested root",
+		"apps/web/src/index.tsx":   "export {}",
+		"docs/guide.md":            "# docs",
+		"research/large.bin":       "big",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roots := normalizeWorkerScopeRoots([]string{".", "solar/sub", "solar", "apps/api", "apps/api"})
+	if wantRoots := []string{"apps/api", "solar"}; !slices.Equal(roots, wantRoots) {
+		t.Fatalf("roots = %q, want %q", roots, wantRoots)
+	}
+	scope := &workerInputScope{root: root, roots: roots}
+	inputs, err := scope.capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"app.scn", "apps/api/handler.go", "go.mod", "solar/service.go", "solar/sub/helper.go"}
+	if got := slices.Sorted(maps.Keys(inputs)); !slices.Equal(got, want) {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+}

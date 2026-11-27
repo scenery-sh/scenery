@@ -203,6 +203,7 @@ impl WatcherLoop {
     pub(crate) fn start(mut config: Development) -> Result<Self> {
         let (update, _) = watch::channel(Snapshot::default());
         let scanner = Arc::new(Scanner::new(config.root.clone()));
+        scanner.set_roots(config.rebuild.roots.clone());
         let status = Arc::new(Status {
             scanner: scanner.clone(),
             ignore: RwLock::new(config.rebuild.generated.clone()),
@@ -222,8 +223,9 @@ impl WatcherLoop {
                     event.paths.iter().any(|path| {
                         path.strip_prefix(event_status.scanner.root())
                             .is_ok_and(|path| {
-                                !dev_inputs::ignored(path, &ignored)
-                                    || event_status.scanner.is_explicit(path)
+                                event_status.scanner.is_explicit(path)
+                                    || (!dev_inputs::ignored(path, &ignored)
+                                        && event_status.scanner.in_scope(path))
                             })
                     })
                 }
@@ -542,18 +544,32 @@ impl WatcherLoop {
         inputs: &Inputs,
     ) -> Result<()> {
         let mut plan = self.load_refresh_plan(directory, revision).await?;
-        plan.discover_go_embeds(&self.config.root, inputs)?;
+        let effective = if plan.roots != self.config.rebuild.roots {
+            let scanner = self.scanner.clone();
+            let generated = plan.generated.clone();
+            let roots = plan.roots.clone();
+            let explicit = plan.explicit_js_dependencies();
+            tokio::task::spawn_blocking(move || {
+                scanner.scan_with_roots(&generated, &roots, &explicit)
+            })
+            .await??
+        } else {
+            inputs.clone()
+        };
+        plan.discover_go_embeds(&self.config.root, &effective)?;
         ensure!(
             plan.host_config == self.config.rebuild.host_config,
             "application configuration changed; restart the application to load its new configuration"
         );
         ensure!(
-            dev_inputs::digest(inputs) == plan.source_digest,
+            dev_inputs::digest(&effective) == plan.source_digest,
             "application changed while restoring build mirrors"
         );
-        self.go_materialized = inputs.clone();
-        self.rust_materialized = inputs.clone();
+        self.go_materialized = effective.clone();
+        self.rust_materialized = effective.clone();
+        self.active = effective;
         *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
+        self.scanner.set_roots(plan.roots.clone());
         self.scanner.set_explicit(plan.explicit_js_dependencies());
         self.config.rebuild = plan;
         self.declarations_dirty = false;
@@ -638,24 +654,39 @@ impl WatcherLoop {
         times: &mut [f64; 4],
     ) -> Result<Option<(u64, BTreeSet<String>, Inputs)>> {
         let begin = Instant::now();
+        let mut rescanned_inputs: Option<Inputs> = None;
         let plan = if declarations {
             let mut plan = self.load_refresh_plan(directory, revision).await?;
-            plan.discover_go_embeds(&self.config.root, inputs)?;
+            let effective = if plan.roots != self.config.rebuild.roots {
+                let scanner = self.scanner.clone();
+                let generated = plan.generated.clone();
+                let roots = plan.roots.clone();
+                let explicit = self.scanner.explicit_paths();
+                let scanned = tokio::task::spawn_blocking(move || {
+                    scanner.scan_with_roots(&generated, &roots, &explicit)
+                })
+                .await??;
+                rescanned_inputs.insert(scanned) as &Inputs
+            } else {
+                inputs
+            };
+            plan.discover_go_embeds(&self.config.root, effective)?;
             ensure!(
                 plan.host_config == self.config.rebuild.host_config,
                 "application configuration changed; restart the application to load its new configuration"
             );
-            if dev_inputs::digest(inputs) != plan.source_digest {
+            if dev_inputs::digest(effective) != plan.source_digest {
                 return Ok(None);
             }
             // The CLI rebuilt both mirrors from these inputs.
-            self.go_materialized = inputs.clone();
-            self.rust_materialized = inputs.clone();
+            self.go_materialized = effective.clone();
+            self.rust_materialized = effective.clone();
             times[3] = ms(begin.elapsed());
             Some(plan)
         } else {
             None
         };
+        let inputs = rescanned_inputs.as_ref().unwrap_or(inputs);
         let selected = plan.as_ref().unwrap_or(&self.config.rebuild);
         let root = &self.config.root;
         let workspace = if let Some(workspace) = &selected.go_workspace {
@@ -835,6 +866,7 @@ impl WatcherLoop {
         let ready = Instant::now();
         let scanner = self.scanner.clone();
         let generated = selected.generated.clone();
+        let roots = selected.roots.clone();
         let generation = publisher
             .replace(
                 LaunchPlan {
@@ -847,15 +879,20 @@ impl WatcherLoop {
                     let (current, updated) =
                         tokio::task::spawn_blocking(move || -> Result<(Inputs, Option<Inputs>)> {
                             if explicit_differs {
-                                let (current, updated) = scanner.scan_transition(
+                                let (current, updated) = scanner.scan_transition_with_roots(
                                     &generated,
+                                    &roots,
                                     &check_explicit,
                                     &next_explicit_for_scan,
                                 )?;
                                 Ok((current, Some(updated)))
                             } else {
                                 Ok((
-                                    scanner.scan_with_explicit(&generated, &check_explicit)?,
+                                    scanner.scan_with_roots(
+                                        &generated,
+                                        &roots,
+                                        &check_explicit,
+                                    )?,
                                     None,
                                 ))
                             }
@@ -889,6 +926,7 @@ impl WatcherLoop {
         };
         if let Some(plan) = plan {
             *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
+            self.scanner.set_roots(plan.roots.clone());
             self.config.rebuild = plan;
             self.declarations_dirty = false;
         }
