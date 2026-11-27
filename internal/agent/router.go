@@ -183,13 +183,13 @@ func (s *Server) proxyBackend(w http.ResponseWriter, req *http.Request, backend 
 
 // transportForBackend returns a shared RoundTripper for the backend. Unix-socket
 // backends get one cached transport per socket path (see UnixTransportCache);
-// TCP backends share the default transport.
+// TCP backends share the bounded local TCP transport.
 func (s *Server) transportForBackend(backend Backend) http.RoundTripper {
 	if backend.Network != "unix" {
 		if s.tcpTransport != nil {
 			return s.tcpTransport
 		}
-		return http.DefaultTransport
+		return defaultLocalTCPTransport
 	}
 	return s.unixTransports.For(backend.Addr)
 }

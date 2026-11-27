@@ -302,6 +302,11 @@ func frameworkGoEnvironment() []string {
 	for index, value := range values {
 		if strings.HasPrefix(value, "GOPROXY=") {
 			values[index] = "GOPROXY=" + proxy
+		} else if dir, ok := strings.CutPrefix(value, "TMPDIR="); ok && runtime.GOOS != "windows" && dir != "" {
+			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+				// A detached supervisor can outlive an ephemeral caller TMPDIR.
+				values[index] = "TMPDIR=/tmp"
+			}
 		}
 	}
 	return values

@@ -117,7 +117,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		}
 	}
 	upstreamProxyFor := func(localagent.Backend) *httputil.ReverseProxy {
-		proxy := &httputil.ReverseProxy{}
+		proxy := &httputil.ReverseProxy{Transport: localTCPTransport}
 		proxy.Rewrite = func(request *httputil.ProxyRequest) {
 			originalHost := request.In.Host
 			request.SetURL(upstream)
@@ -589,15 +589,21 @@ func localPathRouterRouteForSession(manifest localagent.RouteManifest, requestPa
 // localUnixTransports reuses one transport per unix socket path across the
 // router's per-request proxies. This process is scoped to one `scenery up`
 // session, so its handful of socket paths never need eviction.
-var localUnixTransports localagent.UnixTransportCache
+var (
+	localUnixTransports localagent.UnixTransportCache
+	localTCPTransport   = localagent.NewLocalTCPTransport()
+)
 
 func reverseProxyForLocalBackend(backend localagent.Backend) *httputil.ReverseProxy {
 	target := &url.URL{Scheme: "http", Host: backend.Addr}
-	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
-		request.SetURL(target)
-		request.Out.Host = request.In.Host
-		request.SetXForwarded()
-	}}
+	proxy := &httputil.ReverseProxy{
+		Transport: localTCPTransport,
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.Out.Host = request.In.Host
+			request.SetXForwarded()
+		},
+	}
 	if strings.TrimSpace(backend.Network) == "unix" {
 		target.Host = "unix"
 		proxy.Transport = localUnixTransports.For(backend.Addr)

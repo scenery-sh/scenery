@@ -31,10 +31,21 @@ func TestTransportForBackendReusesUnixTransport(t *testing.T) {
 	}
 }
 
-func TestTransportForBackendUsesSharedDefaultForTCP(t *testing.T) {
+func TestTransportForBackendUsesSharedBoundedTCPTransport(t *testing.T) {
 	s := &Server{}
-	transport := s.transportForBackend(Backend{Network: "tcp", Addr: "127.0.0.1:4000"})
-	if transport != http.DefaultTransport {
-		t.Fatal("tcp backend should reuse http.DefaultTransport")
+	first := s.transportForBackend(Backend{Network: "tcp", Addr: "127.0.0.1:4000"})
+	second := s.transportForBackend(Backend{Network: "tcp", Addr: "127.0.0.1:4001"})
+	if first != second || first != defaultLocalTCPTransport {
+		t.Fatal("tcp backend should reuse the shared local TCP transport")
+	}
+	tr, ok := first.(*http.Transport)
+	if !ok {
+		t.Fatalf("tcp transport type = %T, want *http.Transport", first)
+	}
+	if tr.MaxConnsPerHost <= 0 || tr.MaxConnsPerHost >= 128 {
+		t.Fatalf("MaxConnsPerHost = %d, want bounded below OS somaxconn=128", tr.MaxConnsPerHost)
+	}
+	if tr.MaxIdleConnsPerHost < 32 {
+		t.Fatalf("MaxIdleConnsPerHost = %d, want >= 32 for Vite module bursts", tr.MaxIdleConnsPerHost)
 	}
 }
