@@ -533,3 +533,33 @@ func TestTraceSummaryAttributesCarryTheServingGeneration(t *testing.T) {
 		t.Fatalf("attributes = %#v", found)
 	}
 }
+
+func TestObservabilityEnvironmentPropagatesToWorkers(t *testing.T) {
+	t.Parallel()
+
+	s := &devSupervisor{
+		victoriaDesiredEnv: []string{
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:51001/insert/opentelemetry/v1/traces",
+			"SCENERY_VICTORIA_TRACES_URL=http://127.0.0.1:51001",
+			"SCENERY_VICTORIA_TRACES_ENDPOINT=http://127.0.0.1:51001/insert/opentelemetry/v1/traces",
+			"SCENERY_VICTORIA_LOGS_URL=http://127.0.0.1:51002",
+			"SCENERY_VICTORIA_METRICS_URL=http://127.0.0.1:51003",
+			"SCENERY_DEV_OBSERVABILITY_BACKEND=victoria",
+		},
+	}
+	obsEnv := s.observabilityEnvironment()
+	goEnv := strings.Join(workerProcessEnv(obsEnv, "go"), "\n")
+	for _, want := range []string{
+		"SCENERY_VICTORIA_TRACES_URL=http://127.0.0.1:51001",
+		"SCENERY_VICTORIA_LOGS_URL=http://127.0.0.1:51002",
+		"SCENERY_VICTORIA_METRICS_URL=http://127.0.0.1:51003",
+		"SCENERY_DEV_OBSERVABILITY_BACKEND=victoria",
+	} {
+		if !strings.Contains(goEnv, want) {
+			t.Fatalf("workerProcessEnv(go) missing %s:\n%s", want, goEnv)
+		}
+	}
+	if strings.Contains(goEnv, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=") {
+		t.Fatalf("workerProcessEnv(go) should not leak OTEL_EXPORTER_OTLP_*:\n%s", goEnv)
+	}
+}

@@ -353,14 +353,22 @@ fn trace(record: &Value, events: &[Value]) -> Message {
             ("app_id", "scenery.application_id"),
             ("session_id", "scenery.session_id"),
             ("app_root_hash", "scenery.app_root_hash"),
+            ("branch", "scenery.branch"),
+            ("worktree", "scenery.worktree"),
             ("type", "scenery.trace.type"),
             ("is_root", "scenery.is_root"),
             ("is_error", "scenery.is_error"),
             ("service_name", "scenery.service"),
             ("endpoint_name", "scenery.endpoint"),
             ("build_input_digest", "scenery.build_input_digest"),
+            ("http_method", "http.request.method"),
+            ("http_path", "url.path"),
+            ("http_status_code", "http.response.status_code"),
         ],
     );
+    if let Some(generation) = record["generation"].as_u64().filter(|&value| value > 0) {
+        span.attribute(9, "scenery.generation", &json!(generation.to_string()));
+    }
     correlation(&mut span, 9, record);
     for event in events {
         let mut payload = Message::default();
@@ -402,6 +410,8 @@ fn log(record: &Value) -> Message {
             ("app_id", "scenery.application_id"),
             ("session_id", "scenery.session_id"),
             ("app_root_hash", "scenery.app_root_hash"),
+            ("branch", "scenery.branch"),
+            ("worktree", "scenery.worktree"),
         ],
     );
     correlation(&mut log, 6, record);
@@ -433,6 +443,8 @@ fn metric(
             ("app_id", "scenery_app"),
             ("session_id", "scenery_session_id"),
             ("app_root_hash", "scenery_app_root_hash"),
+            ("branch", "scenery_branch"),
+            ("worktree", "scenery_worktree"),
         ],
     );
     if request_duration {
@@ -445,6 +457,9 @@ fn metric(
                 ("is_error", "scenery_is_error"),
                 ("service_name", "scenery_service"),
                 ("endpoint_name", "scenery_endpoint"),
+                ("runtime", "runtime"),
+                ("module", "module"),
+                ("error_code", "error_code"),
             ],
         );
     } else {
@@ -823,5 +838,64 @@ mod tests {
             )]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn otlp_trace_and_duration_metric_carry_generation_http_and_runtime_attributes() {
+        let mut events = BTreeMap::new();
+        let record = json!({
+            "app_id": "polyglot",
+            "session_id": "sess-1",
+            "app_root_hash": "hash-1",
+            "branch": "main",
+            "worktree": "polyglot",
+            "trace_id": "00112233445566778899aabbccddeeff",
+            "span_id": "aabbccddeeff0011",
+            "type": "REQUEST",
+            "is_root": true,
+            "is_error": false,
+            "service_name": "pricing",
+            "endpoint_name": "pricing/binding/quote",
+            "module": "pricing",
+            "runtime": "rust",
+            "generation": 7,
+            "http_method": "POST",
+            "http_path": "/api/quote",
+            "http_status_code": 200,
+            "started_at": "2026-11-26T00:00:00Z",
+            "duration_nanos": 5_000_000,
+        });
+        let payloads = encode(&mut events, [("trace-summary".into(), record)].into_iter());
+        let trace_bytes = &payloads["traces"];
+        for needle in [
+            b"scenery.generation".as_slice(),
+            b"scenery.branch",
+            b"scenery.worktree",
+            b"http.request.method",
+            b"url.path",
+            b"http.response.status_code",
+            b"/api/quote",
+        ] {
+            assert!(
+                contains(trace_bytes, needle),
+                "trace payload missing {:?}",
+                String::from_utf8_lossy(needle)
+            );
+        }
+        let metric_bytes = &payloads["metrics"];
+        for needle in [
+            b"scenery_request_duration_seconds".as_slice(),
+            b"scenery_branch",
+            b"scenery_worktree",
+            b"runtime",
+            b"rust",
+            b"module",
+        ] {
+            assert!(
+                contains(metric_bytes, needle),
+                "metric payload missing {:?}",
+                String::from_utf8_lossy(needle)
+            );
+        }
     }
 }

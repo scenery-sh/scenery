@@ -31,7 +31,7 @@ export type StreamBody = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
 export type Headers = Readonly<Record<string, string | number | readonly string[] | undefined>>;
 
 export interface TelemetryRecord {
-  readonly kind: "span" | "log";
+  readonly kind: "span" | "log" | "metric";
   readonly name: string;
   readonly message?: string;
   readonly elapsed_ns?: number;

@@ -853,7 +853,7 @@ impl Host {
                 Ok(json_reply(StatusCode::OK, &json!({"accepted": accepted})))
             }
             (_, path) if path.starts_with("/host/v1/storage/") => {
-                crate::storage::serve(request, scope, service).await
+                crate::storage::serve(self, request, scope, service).await
             }
             (Method::POST, "/host/v1/connections/token") => {
                 let bad_request =

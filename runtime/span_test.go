@@ -20,10 +20,13 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 
 	state := &requestState{
 		request: shared.Request{
-			Service:  "maps",
-			Endpoint: "GetEarth",
+			Service:      "maps",
+			Endpoint:     "GetEarth",
+			InvocationID: "inv-1",
 		},
-		traceEnabled: true,
+		workerModule:  "maps",
+		workerRuntime: "go",
+		traceEnabled:  true,
 		trace: &traceSpan{
 			traceID: "trace-1",
 			spanID:  "request-1",
@@ -51,6 +54,12 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 	if !fetchSummary.TraceSummary.IsError {
 		t.Fatal("fetch summary is not marked as an error")
 	}
+	if fetchSummary.TraceSummary.ErrorCode == "" {
+		t.Fatal("fetch summary is missing error_code")
+	}
+	if fetchSummary.TraceSummary.Runtime != "go" || fetchSummary.TraceSummary.Module != "maps" || fetchSummary.TraceSummary.InvocationID != "inv-1" {
+		t.Fatalf("fetch correlation = %+v", fetchSummary.TraceSummary.InvocationCorrelation)
+	}
 	if fetchSummary.TraceSummary.ParentSpanID == nil || *fetchSummary.TraceSummary.ParentSpanID != generateStart.TraceEvent.SpanID {
 		t.Fatalf("fetch parent = %#v, want %q", fetchSummary.TraceSummary.ParentSpanID, generateStart.TraceEvent.SpanID)
 	}
@@ -59,6 +68,9 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 	}
 	if got := generateSummary.TraceSummary.Type; got != "WORK" {
 		t.Fatalf("generate type = %q, want WORK", got)
+	}
+	if generateSummary.TraceSummary.Runtime != "go" || generateSummary.TraceSummary.Module != "maps" {
+		t.Fatalf("generate correlation = %+v", generateSummary.TraceSummary.InvocationCorrelation)
 	}
 	if generateSummary.TraceSummary.ParentSpanID == nil || *generateSummary.TraceSummary.ParentSpanID != "request-1" {
 		t.Fatalf("generate parent = %#v, want request-1", generateSummary.TraceSummary.ParentSpanID)

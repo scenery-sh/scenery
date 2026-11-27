@@ -94,7 +94,10 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("typescript", runHarnessTypeScriptCheckerProbeStep),
 		harnessSingleProbe("code-task", runHarnessCodeTaskProcessProbeStep),
 		{id: "observability", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
-			resp.Steps = append(resp.Steps, runHarnessObservabilityProbeStepWithArtifacts(ctx, root, artifacts))
+			resp.Steps = append(resp.Steps,
+				runHarnessObservabilityProbeStepWithArtifacts(ctx, root, artifacts),
+				runHarnessPolyglotObservabilityProbeStep(ctx, root),
+			)
 		}},
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),

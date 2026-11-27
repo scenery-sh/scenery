@@ -1,0 +1,10 @@
+func (s *Service) Label(ctx context.Context, _ contract.LabelInput) (contract.LabelOutcome, error) {
+	if strings.TrimSpace(os.Getenv("SCENERY_VICTORIA_TRACES_URL")) == "" {
+		return nil, fmt.Errorf("missing SCENERY_VICTORIA_TRACES_URL in Go worker")
+	}
+	ctx, span := scenery.StartSpan(ctx, "go-polyglot-work")
+	defer span.End(nil)
+	slog.WarnContext(ctx, "polyglot-go-log", "lang", "go")
+	if _, err := s.database.ExecContext(ctx, "-- name: PolyglotGoQuery :exec\nSELECT 1"); err != nil {
+		return nil, err
+	}

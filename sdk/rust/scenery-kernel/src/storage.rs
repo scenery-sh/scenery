@@ -30,10 +30,12 @@ const PATH_COMPONENT: &AsciiSet = &CONTROLS
     .add(b'\x7f');
 
 pub(crate) async fn serve(
+    host: &Host,
     request: Request<Incoming>,
     scope: &Scope,
     service: &Service,
 ) -> Result<Reply, Fault> {
+    let started = tokio::time::Instant::now();
     let query = values::query_pairs(request.uri().query());
     let one = |key: &str| {
         query
@@ -44,10 +46,14 @@ pub(crate) async fn serve(
     let name = one("store")
         .and_then(|name| service.stores.get(name))
         .ok_or_else(Fault::forbidden)?;
-    let action = request.uri().path().trim_start_matches("/host/v1/storage/");
+    let action = request
+        .uri()
+        .path()
+        .trim_start_matches("/host/v1/storage/")
+        .to_owned();
     let method = request.method().clone();
     if !matches!(
-        (action, method),
+        (action.as_str(), method),
         ("read", Method::GET | Method::HEAD)
             | ("write", Method::PUT)
             | ("delete", Method::DELETE)
@@ -60,6 +66,48 @@ pub(crate) async fn serve(
             "unsupported storage method",
         ));
     }
+    let child = scope.call.child_span()?;
+    let result = serve_store(request, scope, name, &action, &query).await;
+    let status_code;
+    let code = match &result {
+        Ok(reply) if reply.status().is_client_error() || reply.status().is_server_error() => {
+            status_code = format!("http_{}", reply.status().as_u16());
+            status_code.as_str()
+        }
+        Ok(_) => "",
+        Err(fault) => fault.code,
+    };
+    // Object keys and contents are deliberately excluded from telemetry.
+    let mut attrs = serde_json::Map::new();
+    attrs.insert(
+        "storage".into(),
+        json!({"store": name, "operation": action}),
+    );
+    host.telemetry.typed_span(
+        "STORAGE",
+        &child,
+        service,
+        &format!("{name}.{action}"),
+        started.elapsed(),
+        code,
+        attrs,
+    );
+    result
+}
+
+async fn serve_store(
+    request: Request<Incoming>,
+    scope: &Scope,
+    name: &str,
+    action: &str,
+    query: &std::collections::BTreeMap<String, Vec<String>>,
+) -> Result<Reply, Fault> {
+    let one = |key: &str| {
+        query
+            .get(key)
+            .filter(|values| values.len() == 1)
+            .map(|values| values[0].as_str())
+    };
     let recursive = match query.get("recursive") {
         None => false,
         Some(values) if values.len() == 1 && matches!(values[0].as_str(), "1" | "true") => true,
@@ -105,7 +153,7 @@ pub(crate) async fn serve(
         tenant,
         key,
         recursive,
-        query: &query,
+        query,
     };
     if store["kind"] == "local" {
         return crate::local_storage::serve(request, selection).await;

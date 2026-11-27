@@ -36,6 +36,8 @@ pub(crate) struct Sink {
     session: String,
     /// root_hash names the development worktree the exported signals belong to.
     root_hash: String,
+    branch: String,
+    worktree: String,
     sender: Option<mpsc::Sender<Value>>,
     victoria: Option<mpsc::Sender<(String, Value)>>,
     exporter: Option<crate::otlp::Flush>,
@@ -68,6 +70,8 @@ impl Sink {
     ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
         let root_hash = env::var("SCENERY_APP_ROOT_HASH").unwrap_or_default();
+        let branch = env::var("SCENERY_BRANCH").unwrap_or_default();
+        let worktree = env::var("SCENERY_WORKTREE").unwrap_or_default();
         let mut sender = None;
         if !development
             && let (Ok(endpoint), Ok(token)) = (
@@ -100,6 +104,8 @@ impl Sink {
             tracing: Filter::new(&filters.tracing),
             session,
             root_hash,
+            branch,
+            worktree,
             sender,
             victoria,
             exporter,
@@ -169,10 +175,14 @@ impl Sink {
     fn export(&self, kind: &str, value: &Value) {
         if let Some(sender) = &self.victoria {
             let mut value = value.clone();
-            if !self.root_hash.is_empty()
-                && value["app_root_hash"].as_str().is_none_or(str::is_empty)
-            {
-                value["app_root_hash"] = json!(self.root_hash);
+            for (field, fallback) in [
+                ("app_root_hash", self.root_hash.as_str()),
+                ("branch", self.branch.as_str()),
+                ("worktree", self.worktree.as_str()),
+            ] {
+                if !fallback.is_empty() && value[field].as_str().is_none_or(str::is_empty) {
+                    value[field] = json!(fallback);
+                }
             }
             let _ = sender.try_send((kind.into(), value));
         }
@@ -195,6 +205,7 @@ impl Sink {
                 Some("log") => ("log", &report["log_event"]),
                 Some("trace-summary") => ("trace-summary", &report["trace_summary"]),
                 Some("trace-event") => ("trace-event", &report["trace_event"]),
+                Some("metric") => ("metric", &report["metric_event"]),
                 Some("internal-failure") => {
                     let _ = self.save_failure(
                         &report["internal_failure"],
@@ -371,18 +382,107 @@ impl Sink {
         code: &str,
     ) {
         if self.tracing.allows(&service.name, operation, &call.path) {
-            self.span_record(call, service, operation, duration, code, Map::new());
+            let kind = default_span_kind(call);
+            self.span_record(kind, call, service, operation, duration, code, Map::new(), None);
         }
     }
 
-    fn span_record(
+    /// Records a root HTTP request span with request/response metadata so trace
+    /// consumers observe the real HTTP method, path, status code and principal.
+    pub(crate) fn http_span(
         &self,
+        call: &Call,
+        service: &Service,
+        operation: &str,
+        duration: Duration,
+        status_code: u16,
+        code: &str,
+    ) {
+        if !self.tracing.allows(&service.name, operation, &call.path) || !self.records() {
+            return;
+        }
+        let at = OffsetDateTime::now_utc();
+        let started = at - duration;
+        let mut start_req = json!({
+            "service_name": service.name,
+            "endpoint_name": operation,
+            "http_method": call.method,
+            "path": call.path,
+        });
+        let mut end_req = json!({
+            "service_name": service.name,
+            "endpoint_name": operation,
+            "http_status_code": status_code,
+        });
+        if let Some(uid) = call.principal_id().filter(|uid| !uid.is_empty()) {
+            start_req["uid"] = json!(uid);
+            end_req["uid"] = json!(uid);
+        }
+        if !code.is_empty() {
+            end_req["err"] = json!(code);
+        }
+        self.report(
+            "trace-event",
+            "trace_event",
+            json!({
+                "trace_id": call.trace_id, "span_id": call.span_id, "event_id": 1,
+                "event_time": stamp(started), "session_id": self.session,
+                "event": {"span_start": {"request": start_req}},
+            }),
+        );
+        self.report(
+            "trace-event",
+            "trace_event",
+            json!({
+                "trace_id": call.trace_id, "span_id": call.span_id, "event_id": 2,
+                "event_time": stamp(at), "session_id": self.session,
+                "event": {
+                    "span_end": {
+                        "duration_nanos": duration.as_nanos() as u64,
+                        "request": end_req,
+                    }
+                },
+            }),
+        );
+        self.span_record(
+            default_span_kind(call),
+            call,
+            service,
+            operation,
+            duration,
+            code,
+            Map::new(),
+            Some((call.method.as_str(), call.path.as_str(), status_code)),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn typed_span(
+        &self,
+        kind: &str,
         call: &Call,
         service: &Service,
         operation: &str,
         duration: Duration,
         code: &str,
         attrs: Map<String, Value>,
+    ) {
+        if self.tracing.allows(&service.name, operation, &call.path) {
+            self.span_record(kind, call, service, operation, duration, code, attrs, None);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn span_record(
+        &self,
+        kind: &str,
+        call: &Call,
+        service: &Service,
+        operation: &str,
+        duration: Duration,
+        code: &str,
+        attrs: Map<String, Value>,
+        http: Option<(&str, &str, u16)>,
     ) {
         if !self.records() {
             return;
@@ -399,25 +499,23 @@ impl Sink {
                 }),
             );
         }
-        let kind = if !call.stack.is_empty() {
-            "WORKER"
-        } else {
-            match call.method.as_str() {
-                "DURABLE" => "DURABLE",
-                "SCHEDULE" => "SCHEDULE",
-                _ => "REQUEST",
-            }
-        };
-        self.report("trace-summary", "trace_summary", json!({
+        let mut summary = json!({
             "app_id": self.app, "session_id": self.session, "type": kind,
             "trace_id": call.trace_id, "span_id": call.span_id, "parent_span_id": parent,
             "invocation_id": call.invocation_id, "execution_id": call.execution_id,
             "module": service.module, "runtime": service.runtime, "generation": call.generation.number,
             "build_input_digest": call.generation.identity.build_input_digest,
             "service_name": service.name, "endpoint_name": operation,
-            "is_root": kind != "WORKER", "started_at": stamp(at - duration),
+            "is_root": matches!(kind, "REQUEST" | "DURABLE" | "SCHEDULE"),
+            "started_at": stamp(at - duration),
             "duration_nanos": duration.as_nanos() as u64, "is_error": !code.is_empty(), "error_code": code,
-        }));
+        });
+        if let Some((method, path, status_code)) = http {
+            summary["http_method"] = json!(method);
+            summary["http_path"] = json!(path);
+            summary["http_status_code"] = json!(status_code);
+        }
+        self.report("trace-summary", "trace_summary", summary);
     }
 
     pub(crate) fn started(&self, call: &Call, service: &Service, operation: &str) {
@@ -473,7 +571,7 @@ impl Sink {
             );
         }
         let count = records.len();
-        for record in records {
+        for mut record in records {
             let call = &scope.call;
             match record.kind.as_str() {
                 "span" if self.tracing.allows(&service.name, &scope.endpoint, &call.path) => {
@@ -482,7 +580,17 @@ impl Sink {
                     child.stack.push(scope.operation.clone());
                     child.span_id = random_hex::<8>()?;
                     let code = record.attributes.get("error_code").and_then(Value::as_str).unwrap_or_default().to_owned();
-                    self.span_record(&child, service, &record.name, Duration::from_nanos(record.elapsed_ns), &code, record.attributes);
+                    let span_kind = record
+                        .attributes
+                        .get("span_type")
+                        .or_else(|| record.attributes.get("type"))
+                        .and_then(Value::as_str)
+                        .and_then(normalize_worker_span_kind)
+                        .unwrap_or("WORK");
+                    if !record.message.is_empty() && !record.attributes.contains_key("message") {
+                        record.attributes.insert("message".into(), json!(record.message));
+                    }
+                    self.span_record(span_kind, &child, service, &record.name, Duration::from_nanos(record.elapsed_ns), &code, record.attributes, None);
                 }
                 "metric" => self.report("metric", "metric_event", json!({
                     "app_id": self.app, "session_id": self.session, "timestamp": stamp(OffsetDateTime::now_utc()),
@@ -496,18 +604,71 @@ impl Sink {
                     "unit": record.attributes.get("unit").and_then(Value::as_str).unwrap_or(
                         if record.attributes.contains_key("value") { "" } else { "s" }),
                 })),
-                "log" if self.logs_enabled(call, service, &scope.endpoint) => self.report("log", "log_event", json!({
-                    "app_id": self.app, "session_id": self.session, "timestamp": stamp(OffsetDateTime::now_utc()),
-                    "trace_id": call.trace_id, "span_id": call.span_id, "parent_span_id": call.parent_span_id,
-                    "invocation_id": call.invocation_id, "execution_id": call.execution_id,
-                    "service": service.name, "module": service.module, "runtime": service.runtime,
-                    "operation": scope.operation, "generation": call.generation.number, "level": "info",
-                    "message": record.message, "attrs": {"name": record.name, "kind": record.kind, "values": record.attributes},
-                })),
+                "log" if self.logs_enabled(call, service, &scope.endpoint) => {
+                    let level = record
+                        .attributes
+                        .get("level")
+                        .and_then(Value::as_str)
+                        .map_or("info", normalize_log_level);
+                    let mut attrs = Map::new();
+                    attrs.insert("name".into(), json!(record.name));
+                    attrs.insert("kind".into(), json!(record.kind));
+                    for (key, value) in &record.attributes {
+                        if !matches!(key.as_str(), "level" | "name" | "kind" | "values") {
+                            attrs.insert(key.clone(), value.clone());
+                        }
+                    }
+                    attrs.insert("values".into(), Value::Object(record.attributes));
+                    self.report("log", "log_event", json!({
+                        "app_id": self.app, "session_id": self.session, "timestamp": stamp(OffsetDateTime::now_utc()),
+                        "trace_id": call.trace_id, "span_id": call.span_id, "parent_span_id": call.parent_span_id,
+                        "invocation_id": call.invocation_id, "execution_id": call.execution_id,
+                        "service": service.name, "module": service.module, "runtime": service.runtime,
+                        "operation": scope.operation, "generation": call.generation.number, "level": level,
+                        "message": record.message, "attrs": Value::Object(attrs),
+                    }));
+                }
                 _ => {},
             }
         }
         Ok(count)
+    }
+}
+
+fn default_span_kind(call: &Call) -> &'static str {
+    if !call.stack.is_empty() {
+        "WORKER"
+    } else {
+        match call.method.as_str() {
+            "DURABLE" => "DURABLE",
+            "SCHEDULE" => "SCHEDULE",
+            _ => "REQUEST",
+        }
+    }
+}
+
+fn normalize_worker_span_kind(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_uppercase().as_str() {
+        "WORK" => Some("WORK"),
+        "DB" => Some("DB"),
+        "HTTP" => Some("HTTP"),
+        "STORAGE" => Some("STORAGE"),
+        "PUBLISH" => Some("PUBLISH"),
+        "EVENT" => Some("EVENT"),
+        "DURABLE" => Some("DURABLE"),
+        "WORKER" => Some("WORKER"),
+        _ => None,
+    }
+}
+
+fn normalize_log_level(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "trace" => "trace",
+        "debug" => "debug",
+        "warn" | "warning" => "warn",
+        "error" => "error",
+        "fatal" => "fatal",
+        _ => "info",
     }
 }
 
@@ -664,6 +825,8 @@ mod tests {
             tracing: Filter::new(&EndpointFilter::default()),
             session: "session".into(),
             root_hash: "root".into(),
+            branch: "main".into(),
+            worktree: "app".into(),
             sender,
             victoria: None,
             exporter: None,
@@ -791,6 +954,148 @@ mod tests {
             (record["app_id"].as_str(), record["session_id"].as_str()),
             (Some("inbox"), Some("session"))
         );
+        assert_eq!(record["branch"], "main");
+        assert_eq!(record["worktree"], "app");
+        Ok(())
+    }
+
+    #[test]
+    fn http_span_records_request_events_and_http_metadata() -> Result<()> {
+        let (sender, mut receiver) = mpsc::channel(8);
+        let mut sink = test_sink(std::path::Path::new(""), false, None);
+        sink.victoria = Some(sender);
+        let guard = crate::host::ScopeGuard::test();
+        let mut call = guard.scope.call.clone();
+        call.method = "POST".into();
+        call.path = "/api/orders".into();
+        let service = Service {
+            address: "orders/service/orders".into(),
+            module: "orders".into(),
+            name: "orders".into(),
+            process: "orders".into(),
+            runtime: "python".into(),
+            operations: Default::default(),
+            publishers: Default::default(),
+            clients: Default::default(),
+            bindings: vec![],
+            durable: Default::default(),
+            schedules: vec![],
+            stores: Default::default(),
+        };
+        sink.http_span(
+            &call,
+            &service,
+            "orders/binding/create",
+            Duration::from_millis(12),
+            201,
+            "",
+        );
+        let (k1, start_evt) = receiver.try_recv()?;
+        let (k2, end_evt) = receiver.try_recv()?;
+        let (k3, summary) = receiver.try_recv()?;
+        assert_eq!((k1.as_str(), k2.as_str(), k3.as_str()), ("trace-event", "trace-event", "trace-summary"));
+        assert_eq!(start_evt["event"]["span_start"]["request"]["http_method"], "POST");
+        assert_eq!(start_evt["event"]["span_start"]["request"]["path"], "/api/orders");
+        assert_eq!(end_evt["event"]["span_end"]["request"]["http_status_code"], 201);
+        assert_eq!(summary["type"], "REQUEST");
+        assert_eq!(summary["http_method"], "POST");
+        assert_eq!(summary["http_path"], "/api/orders");
+        assert_eq!(summary["http_status_code"], 201);
+        assert_eq!(summary["runtime"], "python");
+        Ok(())
+    }
+
+    #[test]
+    fn worker_telemetry_preserves_log_levels_span_types_metrics_and_ingest_metrics() -> Result<()> {
+        let (sender, mut receiver) = mpsc::channel(16);
+        let mut sink = test_sink(std::path::Path::new(""), false, None);
+        sink.victoria = Some(sender);
+        let guard = crate::host::ScopeGuard::test();
+        let service = Service {
+            address: "pricing/service/pricing".into(),
+            module: "pricing".into(),
+            name: "pricing".into(),
+            process: "pricing".into(),
+            runtime: "ts".into(),
+            operations: Default::default(),
+            publishers: Default::default(),
+            clients: Default::default(),
+            bindings: vec![],
+            durable: Default::default(),
+            schedules: vec![],
+            stores: Default::default(),
+        };
+        let accepted = sink.worker(
+            &guard.scope,
+            &service,
+            json!([
+                {
+                    "kind": "log",
+                    "name": "quote.warn",
+                    "message": "rate limit close",
+                    "attributes": {"level": "warning", "component": "pricing", "remaining": 2}
+                },
+                {
+                    "kind": "span",
+                    "name": "compute_quote",
+                    "message": "computed quote",
+                    "elapsed_ns": 2_500_000,
+                    "attributes": {"currency": "CZK"}
+                },
+                {
+                    "kind": "span",
+                    "name": "cache_fetch",
+                    "elapsed_ns": 1_000_000,
+                    "attributes": {"span_type": "HTTP"}
+                },
+                {
+                    "kind": "metric",
+                    "name": "quote_total",
+                    "attributes": {"value": 3.0, "unit": "1"}
+                }
+            ])
+            .to_string()
+            .as_bytes(),
+        )?;
+        assert_eq!(accepted, 4);
+
+        let (k1, log) = receiver.try_recv()?;
+        assert_eq!(k1, "log");
+        assert_eq!(log["level"], "warn");
+        assert_eq!(log["runtime"], "ts");
+        assert_eq!(log["attrs"]["component"], "pricing");
+        assert_eq!(log["attrs"]["remaining"], 2);
+
+        let (k2, span1_evt) = receiver.try_recv()?;
+        let (k3, span1) = receiver.try_recv()?;
+        assert_eq!((k2.as_str(), k3.as_str()), ("trace-event", "trace-summary"));
+        assert_eq!(span1["type"], "WORK");
+        assert_eq!(span1["is_root"], false);
+        assert_eq!(span1["runtime"], "ts");
+        assert_eq!(span1_evt["event"]["message"], "computed quote");
+
+        let (k4, _span2_evt) = receiver.try_recv()?;
+        let (k5, span2) = receiver.try_recv()?;
+        assert_eq!((k4.as_str(), k5.as_str()), ("trace-event", "trace-summary"));
+        assert_eq!(span2["type"], "HTTP");
+
+        let (k6, metric) = receiver.try_recv()?;
+        assert_eq!(k6, "metric");
+        assert_eq!(metric["name"], "quote_total");
+        assert_eq!(metric["value"], 3.0);
+        assert_eq!(metric["runtime"], "ts");
+
+        // Go worker metric ingest should also forward to exporter.
+        sink.ingest(
+            json!({"reports":[{"type":"metric","app_id":"inbox","session_id":"session",
+                "metric_event":{"name":"go_jobs_processed","value":4.0,"unit":"1","runtime":"go"}}]})
+            .to_string()
+            .as_bytes(),
+        )?;
+        let (k7, go_metric) = receiver.try_recv()?;
+        assert_eq!(k7, "metric");
+        assert_eq!(go_metric["name"], "go_jobs_processed");
+        assert_eq!(go_metric["runtime"], "go");
         Ok(())
     }
 }

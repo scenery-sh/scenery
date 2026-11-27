@@ -49,6 +49,7 @@ func (applicationSpanStarter) StartApplicationSpan(ctx context.Context, name str
 	}
 	clone := *state
 	clone.trace = child
+	correlation := invocationCorrelation(state)
 
 	reporter.enqueue(devreport.ReportEnvelope{
 		Type:  "trace-event",
@@ -69,10 +70,10 @@ func (applicationSpanStarter) StartApplicationSpan(ctx context.Context, name str
 		},
 	})
 
-	return withState(ctx, &clone), func(err error) { finishApplicationSpan(reporter, child, err) }
+	return withState(ctx, &clone), func(err error) { finishApplicationSpan(reporter, child, correlation, err) }
 }
 
-func finishApplicationSpan(reporter *devReporter, span *traceSpan, err error) {
+func finishApplicationSpan(reporter *devReporter, span *traceSpan, correlation devreport.InvocationCorrelation, err error) {
 	if reporter == nil || span == nil {
 		return
 	}
@@ -102,18 +103,20 @@ func finishApplicationSpan(reporter *devReporter, span *traceSpan, err error) {
 		Type:  "trace-summary",
 		AppID: reporter.appID,
 		TraceSummary: &devreport.TraceSummary{
-			AppID:         reporter.appID,
-			TraceID:       span.traceID,
-			SpanID:        span.spanID,
-			Type:          span.spanType,
-			IsRoot:        false,
-			IsError:       err != nil,
-			StartedAt:     span.started,
-			DurationNanos: uint64(duration),
-			ServiceName:   span.service,
-			EndpointName:  optionalString(span.endpoint),
-			ParentSpanID:  optionalString(span.parentSpanID),
-			Generation:    span.generation,
+			AppID:                 reporter.appID,
+			TraceID:               span.traceID,
+			SpanID:                span.spanID,
+			Type:                  span.spanType,
+			InvocationCorrelation: correlation,
+			ErrorCode:             traceErrorCode(err),
+			IsRoot:                false,
+			IsError:               err != nil,
+			StartedAt:             span.started,
+			DurationNanos:         uint64(duration),
+			ServiceName:           span.service,
+			EndpointName:          optionalString(span.endpoint),
+			ParentSpanID:          optionalString(span.parentSpanID),
+			Generation:            span.generation,
 		},
 	})
 }

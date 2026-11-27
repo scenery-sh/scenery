@@ -189,12 +189,14 @@ pub(crate) async fn emit(
         Ok::<_, Fault>(json_reply(StatusCode::OK, &json!({"output": receipt})))
     }
     .await;
-    host.telemetry.span(
+    host.telemetry.typed_span(
+        "PUBLISH",
         &call,
         service,
         address,
         started.elapsed(),
         result.as_ref().err().map_or("", |fault| fault.code),
+        serde_json::Map::new(),
     );
     result
 }

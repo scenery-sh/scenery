@@ -314,11 +314,12 @@ pub(crate) async fn ingress(
         cors_origin.as_ref(),
     );
     header(response.headers_mut(), "x-trace-id", &call.trace_id);
-    host.telemetry.span(
+    host.telemetry.http_span(
         &call,
         selected.service,
         &selected.binding.address,
         started.elapsed(),
+        response.status().as_u16(),
         &error,
     );
     attest(response, &generation, worker)

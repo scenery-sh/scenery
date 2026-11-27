@@ -67,3 +67,12 @@ func (s *devSupervisor) configureWorktreeVictoria() error {
 	s.victoriaProcesses.portsAvailable = func() bool { return true }
 	return nil
 }
+
+func (s *devSupervisor) observabilityEnvironment() []string {
+	if s.victoriaDesiredEnv != nil {
+		return s.victoriaDesiredEnv
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.victoria.Env()
+}

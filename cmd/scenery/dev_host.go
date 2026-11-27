@@ -184,7 +184,9 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 			return err
 		}
 		// Every worker launch inherits this process's environment.
-		return setProcessEnvironment(append(append([]string(nil), environment.managed...), environment.storage...))
+		processEnv := append(append([]string(nil), environment.managed...), environment.storage...)
+		processEnv = append(processEnv, s.observabilityEnvironment()...)
+		return setProcessEnvironment(processEnv)
 	}); err != nil {
 		return nil, metadata, apiEncoding, err
 	}
@@ -485,6 +487,7 @@ func (s *devSupervisor) hostEnvironment(contract *compiler.Result, environment *
 	}
 	env = append(env, environment.managed...)
 	env = append(env, environment.storage...)
+	env = append(env, s.observabilityEnvironment()...)
 	env = append(env, s.sessionAuthEnv()...)
 	return env
 }
