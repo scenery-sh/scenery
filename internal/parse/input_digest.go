@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/gotarget"
 )
 
@@ -45,7 +46,11 @@ func AnalysisInputDigest(root string, overlay map[string][]byte, target gotarget
 	if len(target.BuildTags) > 0 {
 		flags = append(flags, "-tags="+strings.Join(target.BuildTags, ","))
 	}
-	stamp, err := captureAnalysisStamp(moduleRoot, &target, tool, flags, target.Patterns)
+	linkedRoot, _, err := app.LinkedFrameworkReplaceRoot(moduleRoot)
+	if err != nil {
+		return "", err
+	}
+	stamp, err := captureAnalysisStamp(moduleRoot, &target, tool, flags, target.Patterns, linkedRoot)
 	if err != nil {
 		return "", err
 	}

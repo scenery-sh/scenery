@@ -19,7 +19,7 @@ Continue authorized reading, local edits, builds, cached tests, and worktree
 unresolved scope choices or missing authorization.
 
 - Do not spawn subagents unless the human explicitly asks; skills cannot grant permission.
-- Validate with `.scenery/harness/bin/scenery`. Do not run `go install ./cmd/scenery` unless the human explicitly requests installation; worktrees share that installed path.
+- Validate with `.scenery/harness/bin/scenery`. Do not run `go install ./cmd/scenery` unless the human explicitly requests installation; worktrees share that installed path. For co-developing Scenery with a local consuming app on the same machine, link this checkout from the app with `scenery framework link <scenery-checkout>` (not by pushing WIP changes to `main` or adding `replace` lines to the app's `go.mod`); `scenery up` watches the linked checkout and hands off automatically on edits, and `scenery framework unlink` returns the app to its pinned version.
 - Preserve unrelated dirty work and verified runtime/data ownership. Branch switches and worktree removal do not authorize data deletion. Never adopt or reset mismatched resources.
 - Land on `main` only through `scenery feature land`. Once a worktree's work is fully on `main`, remove it completely in the same task (close its feature record, remove checkout, local branch, and candidate checkout). Retain worktrees with uncommitted/unlanded work or running processes and report them.
 - Add no environment-variable knobs unless requested; register approved env vars in `docs/environment.registry.json`.

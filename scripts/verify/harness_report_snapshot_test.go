@@ -67,7 +67,7 @@ func TestReportSnapshotHumanCoverage(t *testing.T) {
 		}
 	}
 	const cliSource = "  CLI /owned (complete, archived=false): read 1024 / captured 1024 bytes; retained 2, in window 2, duplicate invocations 0, invalid 0; first to last.\n"
-	const cliOutcome = "CLI commands (2 records, 0 failed)\n  help 2 failed 0 timed successes n=2 p50 0ms p95 0ms\n"
+	const cliOutcome = "CLI commands (2 records, 0 failed, 0 uptime)\n  help 2 failed 0 timed successes n=2 p50 0ms p95 0ms\n"
 	for name, output := range map[string]string{
 		"valid":            cliSource + cliOutcome,
 		"missing commands": cliSource,

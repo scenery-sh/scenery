@@ -117,7 +117,7 @@ var errAnalysisNotRetainable = errors.New("analysis is not retainable")
 
 // captureAnalysisStamp reads what identifies an analysis of the module at
 // moduleRoot for target.
-func captureAnalysisStamp(moduleRoot string, target *gotarget.Context, environment, buildFlags, patterns []string) (analysisStamp, error) {
+func captureAnalysisStamp(moduleRoot string, target *gotarget.Context, environment, buildFlags, patterns []string, linkedFrameworkRoot string) (analysisStamp, error) {
 	identity := sha256.New()
 	encoded, err := json.Marshal(struct {
 		Target      *gotarget.Context
@@ -171,6 +171,16 @@ func captureAnalysisStamp(moduleRoot string, target *gotarget.Context, environme
 			return analysisStamp{}, err
 		}
 		_, _ = identity.Write([]byte("\x00replace\x00" + replacement.Old.Path + "\x00" + digestAnalysisDirs(dirs)))
+	}
+	if linkedFrameworkRoot != "" {
+		_, _ = identity.Write([]byte("\x00linked-framework\x00" + linkedFrameworkRoot))
+		if !contentAddressedDir(linkedFrameworkRoot) {
+			dirs, err := analysisSourceDirs(linkedFrameworkRoot)
+			if err != nil {
+				return analysisStamp{}, err
+			}
+			_, _ = identity.Write([]byte("\x00" + digestAnalysisDirs(dirs)))
+		}
 	}
 	dirs, err := analysisSourceDirs(moduleRoot)
 	if err != nil {

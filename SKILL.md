@@ -51,10 +51,15 @@ Host/worker protocol.
 - **Framework selection.** Set `framework_version` in `.scenery.json` to the
   exact version of a prebuilt CLI, then run that executable's
   `scenery framework use -o json` to check the selection. Go applications
-  can select their CLI through the `scenery.sh` requirement in `go.mod` when
-  they omit the explicit executable pin. For Go co-development,
-  `scenery framework use --source <checkout>` snapshots local source. Keep
-  the app-local replacement out of commits.
+  select their CLI through the `scenery.sh` requirement in `go.mod` when they
+  omit the explicit executable pin. For local co-development against a Scenery
+  checkout on the same machine, run `scenery framework link <checkout> -o json`:
+  this binds `.scenery/framework/link.json` without editing `go.mod`, lets
+  `scenery up` watch `<checkout>` and automatically rebuild/hand off on edits,
+  and applies `-modfile` automatically for `scenery check`/`build`/`test`/
+  `validate`. Run `scenery framework unlink -o json` to return to the pinned
+  module. Do not push WIP Scenery commits to `main` or repin `go.mod` just to
+  iterate locally.
 - **Prefer JSON output (`-o json` / `-o jsonl`).** Branch on stable `SCNxxxx`
   diagnostic codes. `SCN9xxx` internal failures withhold cause details; inspect
   them via `scenery inspect report <report-token> -o json` and reproduce or turn

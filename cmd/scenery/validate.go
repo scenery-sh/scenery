@@ -358,7 +358,8 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 		if len(step.Command) == 0 {
 			return fmt.Errorf("validation command has no executable")
 		}
-		cmd := commandTreeContext(ctx, step.Command[0], step.Command[1:]...)
+		command := applyLinkedFrameworkGoCommand(appRoot, step.CWD, step.Command)
+		cmd := commandTreeContext(ctx, command[0], command[1:]...)
 		cmd.Dir, cmd.Stdout, cmd.Stderr = step.CWD, stdout, stderr
 		overrides := make([]string, 0, len(step.Env))
 		for _, key := range sortedMapKeys(step.Env) {

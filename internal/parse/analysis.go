@@ -16,6 +16,7 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/model"
 )
@@ -41,6 +42,16 @@ func MissingHermeticModulePackages(target gotarget.Context) ([]string, error) {
 	}
 	args := []string{"list"}
 	args = append(args, target.BuildFlags...)
+	if linkedRoot, linked, err := app.LinkedFrameworkReplaceRoot(target.ModuleRoot); err != nil {
+		return nil, fmt.Errorf("read linked framework for hermetic Go dependencies: %w", err)
+	} else if linked {
+		modFile, cleanup, err := prepareAnalysisModFile(target.ModuleRoot, linkedRoot)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		args = append(args, "-modfile="+modFile)
+	}
 	if len(target.BuildTags) > 0 {
 		args = append(args, "-tags="+strings.Join(target.BuildTags, ","))
 	}
@@ -120,6 +131,10 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 	// paths like Scenery-owned compilation makes that the same Go build cache
 	// entry the build reuses instead of a second, path-bound copy.
 	cfg.BuildFlags = gotarget.WithTrimpath(nil)
+	var (
+		stampFlags []string
+		linkedRoot string
+	)
 	if target != nil {
 		cfg.Dir, err = filepath.EvalSymlinks(target.ModuleRoot)
 		if err != nil {
@@ -127,8 +142,17 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 		}
 		cfg.Env = gotarget.Hermetic(target)
 		cfg.BuildFlags = gotarget.WithTrimpath(append([]string(nil), target.BuildFlags...))
-		if overlay != nil {
-			modFile, cleanup, err := prepareAnalysisModFile(cfg.Dir)
+		if len(target.BuildTags) > 0 {
+			cfg.BuildFlags = append(cfg.BuildFlags, "-tags="+strings.Join(target.BuildTags, ","))
+		}
+		stampFlags = slices.Clone(cfg.BuildFlags)
+		var linked bool
+		linkedRoot, linked, err = app.LinkedFrameworkReplaceRoot(cfg.Dir)
+		if err != nil {
+			return nil, err
+		}
+		if overlay != nil || linked {
+			modFile, cleanup, err := prepareAnalysisModFile(cfg.Dir, linkedRoot)
 			if err != nil {
 				return nil, err
 			}
@@ -136,10 +160,11 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 			// Generated overlays can import implementation-only dependencies
 			// which an ordinary source-only `go mod tidy` correctly removes.
 			// Let Go update only this private copy while loading the overlay.
-			cfg.BuildFlags = append(cfg.BuildFlags, "-mod=mod", "-modfile="+modFile)
-		}
-		if len(target.BuildTags) > 0 {
-			cfg.BuildFlags = append(cfg.BuildFlags, "-tags="+strings.Join(target.BuildTags, ","))
+			if overlay != nil {
+				cfg.BuildFlags = append(cfg.BuildFlags, "-mod=mod", "-modfile="+modFile)
+			} else {
+				cfg.BuildFlags = append(cfg.BuildFlags, "-modfile="+modFile)
+			}
 		}
 	}
 
@@ -149,7 +174,7 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 	retainKey := ""
 	var stamp analysisStamp
 	if overlay == nil && target != nil {
-		stamp, err = captureAnalysisStamp(cfg.Dir, target, cfg.Env, cfg.BuildFlags, patterns)
+		stamp, err = captureAnalysisStamp(cfg.Dir, target, cfg.Env, stampFlags, patterns, linkedRoot)
 		if err == nil {
 			// Several targets of one workspace are analyzed in turn, so each
 			// retains its own analysis.
@@ -309,10 +334,16 @@ func canonicalizeAnalysisOverlay(logicalRoot, physicalRoot string, overlay map[s
 	return canonical
 }
 
-func prepareAnalysisModFile(moduleRoot string) (string, func(), error) {
+func prepareAnalysisModFile(moduleRoot, sceneryReplaceRoot string) (string, func(), error) {
 	modData, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod"))
 	if err != nil {
 		return "", nil, fmt.Errorf("read target go.mod for staged analysis: %w", err)
+	}
+	if sceneryReplaceRoot != "" {
+		modData, err = app.FormatLinkedGoMod(modData, moduleRoot, sceneryReplaceRoot)
+		if err != nil {
+			return "", nil, fmt.Errorf("format linked target go.mod for staged analysis: %w", err)
+		}
 	}
 	file, err := os.CreateTemp("", "scenery-analysis-*.mod")
 	if err != nil {
@@ -334,14 +365,23 @@ func prepareAnalysisModFile(moduleRoot string) (string, func(), error) {
 		return "", nil, fmt.Errorf("close staged analysis go.mod: %w", err)
 	}
 	sumData, err := os.ReadFile(filepath.Join(moduleRoot, "go.sum"))
-	if err == nil {
+	if err != nil && !os.IsNotExist(err) {
+		cleanup()
+		return "", nil, fmt.Errorf("read target go.sum for staged analysis: %w", err)
+	}
+	if sceneryReplaceRoot != "" {
+		extraSum, extraErr := os.ReadFile(filepath.Join(sceneryReplaceRoot, "go.sum"))
+		if extraErr != nil && !os.IsNotExist(extraErr) {
+			cleanup()
+			return "", nil, fmt.Errorf("read linked framework go.sum for staged analysis: %w", extraErr)
+		}
+		sumData = app.MergeGoSum(sumData, extraSum)
+	}
+	if len(sumData) > 0 {
 		if err := os.WriteFile(sumPath, sumData, 0o600); err != nil {
 			cleanup()
 			return "", nil, fmt.Errorf("write staged analysis go.sum: %w", err)
 		}
-	} else if !os.IsNotExist(err) {
-		cleanup()
-		return "", nil, fmt.Errorf("read target go.sum for staged analysis: %w", err)
 	}
 	return modPath, cleanup, nil
 }

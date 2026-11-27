@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/app"
 )
 
 func TestDesiredFrameworkReadsOnlyTheAuthoredSelection(t *testing.T) {
@@ -38,6 +40,20 @@ func TestDesiredFrameworkReadsOnlyTheAuthoredSelection(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("%s: got %+v, %v; want %+v", test.name, got, err, want)
 		}
+	}
+
+	// An app-local link overrides go.mod without mutating it.
+	linkedApp := filepath.Join(root, "linked")
+	linkedOrigin := filepath.Join(root, "local-scenery")
+	writeBuildTestFile(t, linkedApp, "go.mod", "module example.test/app\n\ngo 1.27.0\nrequire scenery.sh v0.3.7\n")
+	writeBuildTestFile(t, linkedOrigin, "go.mod", "module scenery.sh\n\ngo 1.27.0\n")
+	if _, err := app.WriteFrameworkLink(linkedApp, linkedOrigin); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadDesiredFramework(linkedApp)
+	want := DesiredFramework{Version: "dev", Root: linkedOrigin, Linked: true}
+	if err != nil || got != want {
+		t.Errorf("linked: got %+v, %v; want %+v", got, err, want)
 	}
 }
 

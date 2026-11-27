@@ -529,10 +529,13 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		defer func() { _ = watcher.Close() }()
 	}
 
+	frameworkWatcher := newFrameworkSourceWatcher(ctx, root)
+	defer frameworkWatcher.Close()
+
 	go supervisor.watchConfiguration(ctx)
 	var failedHandoff build.DesiredFramework
 	for {
-		nextSnapshot, forced, err := waitForStableChange(ctx, root, snapshot, watcher, supervisor.rebuildRequestChan())
+		nextSnapshot, wakeKind, err := waitForStableChangeWithFramework(ctx, root, snapshot, watcher, supervisor.rebuildRequestChan(), frameworkWatcher.Events())
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -543,6 +546,13 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			}
 			return err
 		}
+		if wakeKind == watchWakeFramework {
+			if handoff := supervisor.frameworkHandoffBeforeBuild(ctx, &failedHandoff); handoff != nil {
+				return handoff
+			}
+			continue
+		}
+		forced := wakeKind == watchWakeRebuild
 		paths := changedPaths(snapshot, nextSnapshot)
 		snapshot = nextSnapshot
 		frontendNames, appPaths := splitProductionFrontendPaths(root, paths)
