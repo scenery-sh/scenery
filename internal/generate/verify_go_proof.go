@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 
 	"scenery.sh/internal/atomicfile"
@@ -46,12 +47,20 @@ func implementationProofPath(result *compiler.Result, overlay map[string][]byte,
 		}
 	}
 	write("scenery.implementation-proof/1", *producer, result.WorkspaceRevision, result.Manifest.ContractRevision, result.Manifest.Application.Name)
-	for _, target := range targets {
-		digest, err := parse.AnalysisInputDigest(result.Root, overlay, target.Context)
-		if err != nil {
+	digests := make([]string, len(targets))
+	errs := make([]error, len(targets))
+	var wg sync.WaitGroup
+	for i, target := range targets {
+		wg.Go(func() {
+			digests[i], errs[i] = parse.AnalysisInputDigest(result.Root, overlay, target.Context)
+		})
+	}
+	wg.Wait()
+	for i, target := range targets {
+		if errs[i] != nil {
 			return ""
 		}
-		write(target.Address, target.Role, digest)
+		write(target.Address, target.Role, digests[i])
 	}
 	return filepath.Join(result.Root, ".scenery", "build", "implementation-check", hex.EncodeToString(hash.Sum(nil)))
 }

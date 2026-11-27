@@ -151,13 +151,22 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		}
 	}
 	var bundle workerBundle
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, true)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, !check)
 	if err != nil {
 		return bundle, err
 	}
 	js, err := projectJSBuilds(result, bundle, role)
 	if err != nil {
 		return bundle, err
+	}
+	pythonBuilds, err := projectPythonBuilds(result, bundle, role)
+	if err != nil {
+		return bundle, err
+	}
+	if check && (len(services) > 0 || len(js) > 0 || len(pythonBuilds) > 0) {
+		if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
+			return bundle, err
+		}
 	}
 	for i := range js {
 		program, _, err := (&js[i]).run(ctx, result.Root, check)
@@ -167,10 +176,6 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		if !check {
 			bundle.Programs = append(bundle.Programs, program)
 		}
-	}
-	pythonBuilds, err := projectPythonBuilds(result, bundle, role)
-	if err != nil {
-		return bundle, err
 	}
 	for i := range pythonBuilds {
 		program, _, err := (&pythonBuilds[i]).run(ctx, result.Root, check)
