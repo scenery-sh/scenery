@@ -48,6 +48,20 @@ func TestFrameworkSelectionArgsAndExplicitModuleRewrite(t *testing.T) {
 	if _, err := parseFrameworkArgs([]string{"inspect", "--source", "../scenery"}); err == nil {
 		t.Fatal("read-only inspection accepted source selection")
 	}
+	linkOpts, err := parseFrameworkArgs([]string{"link", "../scenery", "--app-root", "/app", "-o", "json"})
+	if err != nil || linkOpts.Command != "link" || linkOpts.Source != "../scenery" || !linkOpts.JSON {
+		t.Fatalf("link options=%+v err=%v", linkOpts, err)
+	}
+	if _, err := parseFrameworkArgs([]string{"link"}); err == nil {
+		t.Fatal("framework link accepted missing checkout")
+	}
+	unlinkOpts, err := parseFrameworkArgs([]string{"unlink", "--app-root", "/app", "-o", "json"})
+	if err != nil || unlinkOpts.Command != "unlink" || !unlinkOpts.JSON {
+		t.Fatalf("unlink options=%+v err=%v", unlinkOpts, err)
+	}
+	if _, err := parseFrameworkArgs([]string{"unlink", "../scenery"}); err == nil {
+		t.Fatal("framework unlink accepted unexpected argument")
+	}
 	root := t.TempDir()
 	snapshot := filepath.Join(root, ".scenery", "framework", "source", "content")
 	before := []byte("module example.test/app\n\ngo 1.27.0\nrequire scenery.sh v0.3.7\nreplace scenery.sh v0.3.7 => ../mutable\nreplace example.test/shared => ../shared\n")
@@ -102,5 +116,30 @@ func TestDiscoverFrameworkRootRequiresConfigMarker(t *testing.T) {
 	_, err := discoverFrameworkRoot(t.TempDir())
 	if !errors.Is(err, appcfg.ErrRootNotFound) {
 		t.Fatalf("discoverFrameworkRoot error = %v, want %v", err, appcfg.ErrRootNotFound)
+	}
+}
+
+func TestApplyLinkedFrameworkGoCommandInjectsModfile(t *testing.T) {
+	t.Parallel()
+	appRoot := t.TempDir()
+	origin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(origin, "go.mod"), []byte("module scenery.sh\n\ngo 1.27.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "go.mod"), []byte("module example.test/app\n\ngo 1.27.0\n\nrequire scenery.sh v0.3.7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := applyLinkedFrameworkGoCommand(appRoot, appRoot, []string{"go", "test", "./..."}); len(got) != 3 {
+		t.Fatalf("unlinked command changed: %v", got)
+	}
+	if _, err := appcfg.WriteFrameworkLink(appRoot, origin); err != nil {
+		t.Fatal(err)
+	}
+	got := applyLinkedFrameworkGoCommand(appRoot, appRoot, []string{"go", "test", "./..."})
+	if len(got) != 4 || got[0] != "go" || got[1] != "test" || !strings.HasPrefix(got[2], "-modfile=") || got[3] != "./..." {
+		t.Fatalf("linked command = %v", got)
+	}
+	if already := applyLinkedFrameworkGoCommand(appRoot, appRoot, []string{"go", "test", "-modfile=custom.mod", "./..."}); len(already) != 4 || already[2] != "-modfile=custom.mod" {
+		t.Fatalf("existing -modfile was overwritten: %v", already)
 	}
 }

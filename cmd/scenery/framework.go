@@ -33,6 +33,7 @@ type frameworkResult struct {
 	Mode             string `json:"mode"`
 	FrameworkVersion string `json:"framework_version"`
 	SourceRoot       string `json:"source_root,omitempty"`
+	SourceOrigin     string `json:"source_origin,omitempty"`
 	SourceDigest     string `json:"source_digest,omitempty"`
 	SourceRevision   string `json:"source_revision,omitempty"`
 	Executable       string `json:"executable"`
@@ -57,11 +58,27 @@ func parseFrameworkArgs(args []string) (frameworkOptions, error) {
 	if err != nil {
 		return opts, err
 	}
-	if len(positionals) != 1 || (positionals[0] != "use" && positionals[0] != "inspect") {
-		return opts, usageErrorf("usage: scenery framework use|inspect [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
+	if len(positionals) == 0 {
+		return opts, usageErrorf("usage: scenery framework use|link|unlink|inspect [<checkout>] [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
 	}
 	opts.Command = positionals[0]
-	if opts.Command == "inspect" && opts.Source != "" {
+	switch opts.Command {
+	case "use", "inspect", "unlink":
+		if len(positionals) != 1 {
+			return opts, usageErrorf("usage: scenery framework use|link|unlink|inspect [<checkout>] [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
+		}
+	case "link":
+		if len(positionals) != 2 || strings.TrimSpace(positionals[1]) == "" {
+			return opts, usageErrorf("usage: scenery framework link <checkout> [--app-root <path>] [-o json]")
+		}
+		if opts.Source != "" {
+			return opts, usageErrorf("--source belongs only to scenery framework use")
+		}
+		opts.Source = positionals[1]
+	default:
+		return opts, usageErrorf("unknown framework subcommand %q; expected use, link, unlink, or inspect", opts.Command)
+	}
+	if opts.Command != "use" && opts.Command != "link" && opts.Source != "" {
 		return opts, usageErrorf("--source belongs only to scenery framework use")
 	}
 	if opts.Command != "inspect" && opts.Runtime {
@@ -89,30 +106,45 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 			return &codedCLIError{err: pinErr, code: 3}
 		}
 		if pinned != "" {
+			if opts.Command == "unlink" {
+				if _, err := appcfg.RemoveFrameworkLink(root); err != nil {
+					return &codedCLIError{err: err, code: 3}
+				}
+			}
 			return reportPrebuiltFramework(stdout, opts, root, pinned)
 		}
 	}
 	var selection build.FrameworkSelection
 	changed := false
-	if opts.Command == "use" {
+	switch opts.Command {
+	case "use":
 		selection, changed, err = useAppFramework(ctx, root, opts.Source, false)
 		if err == nil && !build.OwnsFrameworkSelection(selection) {
-			// B must publish and emit B's exact protocol. A must not decode,
-			// restamp or wrap that output with its own specification identity.
-			command := exec.CommandContext(ctx, selection.Executable, append([]string{"framework"}, args...)...)
-			command.Stdout, command.Stderr, command.Stdin = stdout, os.Stderr, os.Stdin
-			if err := command.Run(); err != nil {
-				if exit, ok := errors.AsType[*exec.ExitError](err); ok {
-					return &silentCLIError{err: err, code: exit.ExitCode()}
-				}
-				return err
+			return delegateFrameworkCommand(ctx, stdout, selection.Executable, args)
+		}
+	case "link":
+		var delegated bool
+		selection, delegated, err = linkAppFramework(ctx, stdout, root, opts.Source, opts.JSON)
+		if err != nil || delegated {
+			if err != nil {
+				return &codedCLIError{err: err, code: 3}
 			}
 			return nil
 		}
-	} else if opts.Runtime {
-		selection, err = build.ReadRuntimeFramework(root)
-	} else {
-		selection, err = build.ReadFrameworkSelection(root)
+	case "unlink":
+		if _, err := appcfg.RemoveFrameworkLink(root); err != nil {
+			return &codedCLIError{err: err, code: 3}
+		}
+		selection, changed, err = useAppFramework(ctx, root, "", false)
+		if err == nil && !build.OwnsFrameworkSelection(selection) {
+			return delegateFrameworkCommand(ctx, stdout, selection.Executable, frameworkUseDelegateArgs(root, opts.JSON))
+		}
+	case "inspect":
+		if opts.Runtime {
+			selection, err = build.ReadRuntimeFramework(root)
+		} else {
+			selection, err = build.ReadFrameworkSelection(root)
+		}
 	}
 	if err == nil {
 		if opts.Runtime {
@@ -125,8 +157,15 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 		return &codedCLIError{err: err, code: 3}
 	}
 	mode := "pinned"
+	sourceOrigin := ""
 	if selection.Version == "dev" {
 		mode = "source"
+	}
+	if !opts.Runtime {
+		if link, linked, linkErr := appcfg.ReadFrameworkLink(root); linkErr == nil && linked {
+			mode = "linked"
+			sourceOrigin = link.SourceOrigin
+		}
 	}
 	if opts.Runtime {
 		mode = "runtime"
@@ -136,8 +175,9 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	}
 	result := frameworkResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.framework"), OK: true, AppRoot: root, Mode: mode,
-		FrameworkVersion: selection.Version, SourceRoot: selection.Source.Root, SourceDigest: selection.Source.Digest,
-		SourceRevision: selection.SourceRevision, Executable: selection.Executable, ExecutableDigest: selection.ExecutableDigest,
+		FrameworkVersion: selection.Version, SourceRoot: selection.Source.Root, SourceOrigin: sourceOrigin,
+		SourceDigest: selection.Source.Digest, SourceRevision: selection.SourceRevision,
+		Executable: selection.Executable, ExecutableDigest: selection.ExecutableDigest,
 		SelectionPath: build.FrameworkSelectionPath(root), ModuleChanged: changed,
 		NextCommand: frameworkNextCommand(selection.Executable, "up", root),
 	}
@@ -148,8 +188,73 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	if opts.JSON {
 		return writeCLIJSON(stdout, result)
 	}
+	if result.SourceOrigin != "" {
+		_, err = fmt.Fprintf(stdout, "framework %s %s\norigin: %s\nsource: %s\nexecutable: %s\nnext: %s\n", mode, result.SourceDigest, result.SourceOrigin, result.SourceRoot, result.Executable, result.NextCommand)
+		return err
+	}
 	_, err = fmt.Fprintf(stdout, "framework %s %s\nsource: %s\nexecutable: %s\nnext: %s\n", mode, result.SourceDigest, result.SourceRoot, result.Executable, result.NextCommand)
 	return err
+}
+
+func delegateFrameworkCommand(ctx context.Context, stdout io.Writer, executable string, args []string) error {
+	// B must publish and emit B's exact protocol. A must not decode,
+	// restamp or wrap that output with its own specification identity.
+	command := exec.CommandContext(ctx, executable, append([]string{"framework"}, args...)...)
+	command.Stdout, command.Stderr, command.Stdin = stdout, os.Stderr, os.Stdin
+	if err := command.Run(); err != nil {
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			return &silentCLIError{err: err, code: exit.ExitCode()}
+		}
+		return err
+	}
+	return nil
+}
+
+func frameworkUseDelegateArgs(root string, jsonOutput bool) []string {
+	args := []string{"use", "--app-root", root}
+	if jsonOutput {
+		args = append(args, "-o", "json")
+	}
+	return args
+}
+
+func linkAppFramework(ctx context.Context, stdout io.Writer, root, origin string, jsonOutput bool) (build.FrameworkSelection, bool, error) {
+	canonicalOrigin, err := appcfg.ValidateFrameworkLinkOrigin(origin)
+	if err != nil {
+		return build.FrameworkSelection{}, false, err
+	}
+	revision := frameworkSourceGitRevision(ctx, root, canonicalOrigin)
+	selection, err := build.PrepareFramework(ctx, root, canonicalOrigin, "dev", revision)
+	if err != nil {
+		return build.FrameworkSelection{}, false, err
+	}
+	previousLink, hadPrevious, _ := appcfg.ReadFrameworkLink(root)
+	restoreLink := func() {
+		if hadPrevious {
+			_, _ = appcfg.WriteFrameworkLink(root, previousLink.SourceOrigin)
+			return
+		}
+		_, _ = appcfg.RemoveFrameworkLink(root)
+	}
+	if _, err := appcfg.WriteFrameworkLink(root, canonicalOrigin); err != nil {
+		return build.FrameworkSelection{}, false, err
+	}
+	if !build.OwnsFrameworkSelection(selection) {
+		if err := delegateFrameworkCommand(ctx, stdout, selection.Executable, frameworkUseDelegateArgs(root, jsonOutput)); err != nil {
+			restoreLink()
+			return build.FrameworkSelection{}, true, err
+		}
+		return selection, true, nil
+	}
+	if err := build.WriteFrameworkSelection(selection); err != nil {
+		restoreLink()
+		return build.FrameworkSelection{}, false, err
+	}
+	if _, err := appcfg.SyncLinkedGoModFile(root, selection.Source.Root); err != nil {
+		return build.FrameworkSelection{}, false, err
+	}
+	_, _ = build.PruneFrameworkState(root)
+	return selection, false, nil
 }
 
 func runningFrameworkVersion() string {
@@ -162,8 +267,8 @@ func frameworkNextCommand(executable, command, root string) string {
 }
 
 func reportPrebuiltFramework(stdout io.Writer, opts frameworkOptions, root, pinned string) error {
-	if opts.Source != "" {
-		return &codedCLIError{err: fmt.Errorf("framework_version selects a prebuilt executable; remove the pin to select a local source snapshot"), code: 3}
+	if opts.Source != "" || opts.Command == "link" {
+		return &codedCLIError{err: fmt.Errorf("framework_version selects a prebuilt executable; remove the pin to select a local source snapshot or link"), code: 3}
 	}
 	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
@@ -207,40 +312,35 @@ func useAppFramework(ctx context.Context, root, sourceOverride string, preserveM
 	}
 	source, version := sourceOverride, "dev"
 	local := sourceOverride != ""
+	linked := false
 	if sourceOverride == "" {
-		source, version, err = build.ResolveFrameworkModule(ctx, root, true)
-		if err != nil {
-			return selection, false, err
-		}
-		for _, replacement := range module.Replace {
-			if replacement.Old.Path == "scenery.sh" && replacement.New.Version == "" && (replacement.Old.Version == "" || replacement.Old.Version == version) {
-				local = true
+		if link, isLinked, linkErr := appcfg.ReadFrameworkLink(root); linkErr != nil {
+			return selection, false, linkErr
+		} else if isLinked {
+			source, version, local, linked = link.SourceOrigin, "dev", true, true
+		} else {
+			source, version, err = build.ResolveFrameworkModule(ctx, root, true)
+			if err != nil {
+				return selection, false, err
+			}
+			for _, replacement := range module.Replace {
+				if replacement.Old.Path == "scenery.sh" && replacement.New.Version == "" && (replacement.Old.Version == "" || replacement.Old.Version == version) {
+					local = true
+				}
 			}
 		}
 	}
 	revision := ""
 	if local {
 		version = "dev"
-		// A private snapshot can sit inside the application's Git checkout.
-		// Never report that enclosing application's HEAD as framework provenance.
-		canonicalSource, _ := filepath.EvalSymlinks(source)
-		canonicalSource, _ = filepath.Abs(canonicalSource)
-		command := exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "--show-toplevel")
-		if output, err := command.Output(); err == nil && strings.TrimSpace(string(output)) == canonicalSource {
-			command = exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "HEAD")
-			if output, err := command.Output(); err == nil {
-				revision = strings.TrimSpace(string(output))
-			}
-		} else if retained, err := build.ReadFrameworkSelection(root); err == nil && retained.Source.Root == canonicalSource {
-			revision = retained.SourceRevision
-		}
+		revision = frameworkSourceGitRevision(ctx, root, source)
 	}
 	selection, err = build.PrepareFramework(ctx, root, source, version, revision)
 	if err != nil {
 		return selection, false, err
 	}
 	after := before
-	if local {
+	if local && !linked {
 		after, err = selectFrameworkSnapshotModule(before, root, selection.Source.Root)
 		if err != nil {
 			return selection, false, err
@@ -261,13 +361,69 @@ func useAppFramework(ctx context.Context, root, sourceOverride string, preserveM
 	if err := build.WriteFrameworkSelection(selection); err != nil {
 		return selection, false, err
 	}
+	if linked {
+		if _, err := appcfg.SyncLinkedGoModFile(root, selection.Source.Root); err != nil {
+			return selection, false, err
+		}
+	}
 	changed := !bytes.Equal(before, after)
 	if changed {
 		if err := atomicfile.Write(modulePath, after, moduleInfo.Mode().Perm(), atomicfile.Options{SyncFile: true, SyncDir: true}); err != nil {
 			return selection, false, err
 		}
 	}
+	_, _ = build.PruneFrameworkState(root)
 	return selection, changed, nil
+}
+
+func frameworkSourceGitRevision(ctx context.Context, root, source string) string {
+	// A private snapshot can sit inside the application's Git checkout.
+	// Never report that enclosing application's HEAD as framework provenance.
+	canonicalSource, _ := filepath.EvalSymlinks(source)
+	canonicalSource, _ = filepath.Abs(canonicalSource)
+	command := exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "--show-toplevel")
+	if output, err := command.Output(); err == nil && strings.TrimSpace(string(output)) == canonicalSource {
+		command = exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "HEAD")
+		if output, err := command.Output(); err == nil {
+			return strings.TrimSpace(string(output))
+		}
+	} else if retained, err := build.ReadFrameworkSelection(root); err == nil && retained.Source.Root == canonicalSource {
+		return retained.SourceRevision
+	}
+	return ""
+}
+
+// applyLinkedFrameworkGoCommand injects -modfile=<.scenery/framework/go.mod>
+// into Go commands targeting appRoot while a local Scenery checkout is linked.
+func applyLinkedFrameworkGoCommand(appRoot, cwd string, command []string) []string {
+	if len(command) < 2 || command[0] != "go" {
+		return command
+	}
+	switch command[1] {
+	case "test", "build", "run", "list", "vet", "generate":
+	default:
+		return command
+	}
+	for _, arg := range command[2:] {
+		if arg == "-modfile" || strings.HasPrefix(arg, "-modfile=") {
+			return command
+		}
+	}
+	if cwd != "" && !pathUnder(appRoot, cwd) {
+		return command
+	}
+	linkedRoot, linked, err := appcfg.LinkedFrameworkReplaceRoot(appRoot)
+	if err != nil || !linked {
+		return command
+	}
+	modFile, err := appcfg.SyncLinkedGoModFile(appRoot, linkedRoot)
+	if err != nil {
+		return command
+	}
+	updated := make([]string, 0, len(command)+1)
+	updated = append(updated, command[0], command[1], "-modfile="+modFile)
+	updated = append(updated, command[2:]...)
+	return updated
 }
 
 // discoverFrameworkRoot locates the app root without decoding .scenery.json.

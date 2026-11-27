@@ -21,7 +21,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.db.migrate":                "sha256:0f400279c74205778e4d2656af9295ce659ce08b93a7502e8dcfb41dd79d81c4",
 	"scenery.config.show":               "sha256:a98b049f8eb2fc74c8bd92be9d15d028746b4c3fb0b38d453859cc2d33e828a0",
 	"scenery.config.change":             "sha256:02c8d5305d3a5c7fed8657e41e0722f5245b0dbab69666e371e6badc58d9a71c",
-	"scenery.framework":                 "sha256:69a8bb90531001ad4fa884544fb666f56adec701957f6ef642eb531b6878b6f4",
+	"scenery.framework":                 "sha256:0cb384386033ff4642a699be3cf9044e17f4f46b33d7a528f303296e38c535b8",
 	"scenery.help":                      "sha256:0a6845da958e8576a6a281c8a563b31fa81fba7f4bf489dbe2a5180d27305a9f",
 	"scenery.agent_context":             "sha256:061aeab809775c884cf58810b69ed7f4fcc5d55753ae810bbc72a362d8a272ff",
 	"scenery.db.list":                   "sha256:f896a0e3a62155d6e8017ef85f87b0892ea43a8d21e3b79bb1aaa73c877275fc",

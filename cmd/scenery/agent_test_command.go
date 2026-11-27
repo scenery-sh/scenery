@@ -242,13 +242,13 @@ func (g agentGraph) testCommand(module agentModule) (string, []string, error) {
 				if relative != "." {
 					pattern = "./" + filepath.ToSlash(relative) + "/..."
 				}
-				return parent, []string{"go", "test", pattern}, nil
+				return parent, applyLinkedFrameworkGoCommand(g.Root, parent, []string{"go", "test", pattern}), nil
 			}
 			if parent == g.Root {
 				break
 			}
 		}
-		return dir, []string{"go", "test", "./..."}, nil
+		return dir, applyLinkedFrameworkGoCommand(g.Root, dir, []string{"go", "test", "./..."}), nil
 	case "rust":
 		for _, target := range g.Manifest.Resources {
 			if target.Kind != "scenery.rust-target" || target.Spec["role"] != "development" {

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"scenery.sh/internal/app"
 )
 
 const (
@@ -88,11 +90,13 @@ func bindOwnedGoModuleSources(ctx context.Context, appRoot, workspace string, sn
 		}
 	}
 	byOrigin := map[string]OwnedGoModuleSource{}
+	hasSceneryReplace := false
 	for _, replacement := range authored.Replace {
 		newPath, newVersion := replacement.New.Path, replacement.New.Version
 		if replacement.New.Version != "" || replacement.New.Path == "" {
 			// Versioned replacements have no local source root to capture.
 		} else if replacement.Old.Path == "scenery.sh" {
+			hasSceneryReplace = true
 			// Framework selection already owns and verifies this exact authored
 			// source generation. Preserve its spelling as well as its ownership;
 			// canonicalizing /var and /private aliases would cause a needless
@@ -126,6 +130,29 @@ func bindOwnedGoModuleSources(ctx context.Context, appRoot, workspace string, sn
 		}
 		if err := file.AddReplace(replacement.Old.Path, replacement.Old.Version, newPath, newVersion); err != nil {
 			return nil, err
+		}
+	}
+	if !hasSceneryReplace {
+		linkedRoot, linked, linkErr := app.LinkedFrameworkReplaceRoot(appRoot)
+		if linkErr != nil {
+			return nil, linkErr
+		}
+		if linked {
+			hasRequire := false
+			for _, req := range file.Require {
+				if req.Mod.Path == "scenery.sh" {
+					hasRequire = true
+					break
+				}
+			}
+			if !hasRequire {
+				if err := file.AddRequire("scenery.sh", "v0.0.0"); err != nil {
+					return nil, err
+				}
+			}
+			if err := file.AddReplace("scenery.sh", "", linkedRoot, ""); err != nil {
+				return nil, err
+			}
 		}
 	}
 	formatted, err := file.Format()

@@ -93,6 +93,12 @@ func verifyFrameworkSession(ctx context.Context, appRoot, producerVersion string
 	if selected.Digest != producer.Digest {
 		return FrameworkSource{}, &FrameworkMismatchError{Selected: selected.Digest, Producer: producer.Digest}
 	}
+	// When an app links an external checkout whose content matches the running
+	// producer's immutable snapshot, bind the producer snapshot into the build
+	// context so workspace compilation and input discovery reuse it directly.
+	if linkedRoot, linked, err := app.LinkedFrameworkReplaceRoot(appRoot); err == nil && linked && linkedRoot == producer.Root {
+		return producer, nil
+	}
 	return selected, nil
 }
 
@@ -194,11 +200,13 @@ func VerifyPreparedFramework(selection FrameworkSelection) error {
 }
 
 // DesiredFramework identifies the selected CLI producer. A source selection
-// identifies a local Go module replacement by path.
+// identifies a local Go module replacement or an app-local link by path.
 type DesiredFramework struct {
-	Version  string
-	Root     string
-	Prebuilt bool
+	Version      string
+	Root         string
+	Prebuilt     bool
+	Linked       bool
+	SourceDigest string
 }
 
 // ReadDesiredFramework parses the authored selection only. It neither
@@ -210,6 +218,13 @@ func ReadDesiredFramework(appRoot string) (DesiredFramework, error) {
 	}
 	if version != "" {
 		return DesiredFramework{Version: version, Prebuilt: true}, nil
+	}
+	link, linked, err := app.ReadFrameworkLink(appRoot)
+	if err != nil {
+		return DesiredFramework{}, err
+	}
+	if linked {
+		return DesiredFramework{Version: "dev", Root: link.SourceOrigin, Linked: true}, nil
 	}
 	return readGoFrameworkModule(appRoot)
 }
@@ -327,6 +342,11 @@ func canonicalPath(path string) string {
 // explicit preparation only; a build never changes it. A running `scenery up`
 // downloads only while preparing a framework handoff.
 func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) (string, string, error) {
+	if link, linked, err := app.ReadFrameworkLink(appRoot); err != nil {
+		return "", "", err
+	} else if linked {
+		return link.SourceOrigin, "dev", nil
+	}
 	desired, err := readGoFrameworkModule(appRoot)
 	if err != nil {
 		return "", "", err

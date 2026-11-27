@@ -5,77 +5,89 @@ import (
 	"time"
 )
 
-func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher, wake <-chan struct{}) (fileSnapshot, bool, error) {
+type watchWakeKind int
+
+const (
+	watchWakeFiles watchWakeKind = iota
+	watchWakeRebuild
+	watchWakeFramework
+)
+
+func waitForStableChangeWithFramework(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher, wake, frameworkWake <-chan struct{}) (fileSnapshot, watchWakeKind, error) {
 	if watcher != nil {
-		return waitForStableChangeEvents(ctx, root, current, watcher.Events(), wake)
+		return waitForStableChangeEvents(ctx, root, current, watcher.Events(), wake, frameworkWake)
 	}
-	return waitForStableChangePolling(ctx, root, current, wake)
+	return waitForStableChangePolling(ctx, root, current, wake, frameworkWake)
 }
 
-func waitForStableChangePolling(ctx context.Context, root string, current fileSnapshot, wake <-chan struct{}) (fileSnapshot, bool, error) {
+func waitForStableChangePolling(ctx context.Context, root string, current fileSnapshot, wake, frameworkWake <-chan struct{}) (fileSnapshot, watchWakeKind, error) {
 	ticker := time.NewTicker(watchPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fileSnapshot{}, false, ctx.Err()
+			return fileSnapshot{}, watchWakeFiles, ctx.Err()
+		case <-frameworkWake:
+			return current, watchWakeFramework, nil
 		case <-wake:
 			next, err := scanWatchAfterTransaction(ctx, root, current)
-			return next, true, err
+			return next, watchWakeRebuild, err
 		case <-ticker.C:
 		}
 
 		next, err := scanWatchAfterTransaction(ctx, root, current)
 		if err != nil {
-			return fileSnapshot{}, false, err
+			return fileSnapshot{}, watchWakeFiles, err
 		}
 		if snapshotsEqual(current, next) {
 			current = next
 			continue
 		}
 		settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
-		return settled, false, err
+		return settled, watchWakeFiles, err
 	}
 }
 
-func waitForStableChangeEvents(ctx context.Context, root string, current fileSnapshot, events <-chan struct{}, wake <-chan struct{}) (fileSnapshot, bool, error) {
+func waitForStableChangeEvents(ctx context.Context, root string, current fileSnapshot, events, wake, frameworkWake <-chan struct{}) (fileSnapshot, watchWakeKind, error) {
 	ticker := time.NewTicker(watchBackupPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fileSnapshot{}, false, ctx.Err()
+			return fileSnapshot{}, watchWakeFiles, ctx.Err()
+		case <-frameworkWake:
+			return current, watchWakeFramework, nil
 		case <-wake:
 			next, err := scanWatchAfterTransaction(ctx, root, current)
-			return next, true, err
+			return next, watchWakeRebuild, err
 		case _, ok := <-events:
 			if !ok {
-				return waitForStableChangePolling(ctx, root, current, wake)
+				return waitForStableChangePolling(ctx, root, current, wake, frameworkWake)
 			}
 		case <-ticker.C:
 			next, err := scanWatchAfterTransaction(ctx, root, current)
 			if err != nil {
-				return fileSnapshot{}, false, err
+				return fileSnapshot{}, watchWakeFiles, err
 			}
 			if snapshotsEqual(current, next) {
 				current = next
 				continue
 			}
 			settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
-			return settled, false, err
+			return settled, watchWakeFiles, err
 		}
 
 		next, err := waitForSnapshotToSettleEvents(ctx, root, current, events)
 		if err != nil {
-			return fileSnapshot{}, false, err
+			return fileSnapshot{}, watchWakeFiles, err
 		}
 		if snapshotsEqual(current, next) {
 			current = next
 			continue
 		}
-		return next, false, nil
+		return next, watchWakeFiles, nil
 	}
 }
 

@@ -24,15 +24,24 @@ func TestWaitForStableChangePollingWakes(t *testing.T) {
 	wake <- struct{}{}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	next, forced, err := waitForStableChangePolling(ctx, root, snapshot, wake)
+	next, kind, err := waitForStableChangePolling(ctx, root, snapshot, wake, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !forced {
-		t.Fatal("wake did not force a rebuild")
+	if kind != watchWakeRebuild {
+		t.Fatalf("wake kind = %v, want watchWakeRebuild", kind)
 	}
 	if !snapshotsEqual(snapshot, next) {
 		t.Fatal("wake with no file changes should return an equal snapshot")
+	}
+	frameworkWake := make(chan struct{}, 1)
+	frameworkWake <- struct{}{}
+	_, kind, err = waitForStableChangePolling(ctx, root, snapshot, nil, frameworkWake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != watchWakeFramework {
+		t.Fatalf("framework wake kind = %v, want watchWakeFramework", kind)
 	}
 }
 

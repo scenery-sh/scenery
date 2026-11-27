@@ -44,6 +44,9 @@ func frameworkLabel(version, sourceDigest string) string {
 }
 
 func desiredFrameworkLabel(desired build.DesiredFramework, root string) string {
+	if desired.Linked && desired.SourceDigest != "" {
+		return frameworkLabel("dev", desired.SourceDigest)
+	}
 	if desired.Root == "" {
 		return desired.Version
 	}
@@ -72,7 +75,18 @@ func changedAppFramework(root string) (build.DesiredFramework, bool) {
 		// The build's framework verification reports the authored error.
 		return build.DesiredFramework{}, false
 	}
-	return desired, !desired.Prebuilt && frameworkSelectionDiffers(root, desired, sceneryVersion, build.LinkedFrameworkDigest())
+	if desired.Prebuilt {
+		return desired, false
+	}
+	if desired.Linked {
+		source, err := build.FrameworkSourceManifest(desired.Root)
+		if err != nil {
+			return build.DesiredFramework{}, false
+		}
+		desired.SourceDigest = source.Digest
+		return desired, source.Digest != build.LinkedFrameworkDigest()
+	}
+	return desired, frameworkSelectionDiffers(root, desired, sceneryVersion, build.LinkedFrameworkDigest())
 }
 
 // frameworkSelectionDiffers compares the authored selection with a producer
