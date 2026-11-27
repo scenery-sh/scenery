@@ -44,8 +44,8 @@ type workerRustDevelopment struct {
 	pythonModules []string
 }
 
-func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, captureInputs func() (workerInputs, error), compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
-	dev := &workerDevelopment{watch: watch}
+func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, cfg app.Config, compiled *compiler.Result) (*workerDevelopment, workerBundle, error) {
+	dev := &workerDevelopment{watch: watch, cfg: cfg}
 	result := compiled
 	if result == nil {
 		var err error
@@ -67,7 +67,7 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, captur
 			return inputs, nil
 		}
 		var captureErr error
-		inputs, captureErr = captureInputs()
+		inputs, captureErr = watch.capture()
 		if captureErr != nil {
 			return nil, captureErr
 		}
@@ -99,14 +99,15 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, captur
 		}
 		bundle.Programs = append(bundle.Programs, program)
 	}
-	// Go worker builds do not consume workerInputs; overlapping capture with
-	// addGoWorkers hides full-tree hashing behind workspace cache verification.
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
 	if err := bundle.projectConfig(dev.compiled); err != nil {
 		return nil, workerBundle{}, err
+	}
+	if !inputsLoaded && len(dev.rust.services) == 0 {
+		watch.roots = dev.inputScopeRoots()
 	}
 	loaded, err := loadInputs()
 	if err != nil {
@@ -116,6 +117,38 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, captur
 		return nil, workerBundle{}, err
 	}
 	return dev, bundle, nil
+}
+
+// inputScopeRoots returns the minimal directory prefixes that contain worker
+// inputs (declarations, Go sources/embeds, migrations, and JS/Python modules).
+// Root-level files are always included regardless of roots; returning nil
+// preserves full-repository scanning.
+func (dev *workerDevelopment) inputScopeRoots() []string {
+	var raw []string
+	for path := range dev.declarations {
+		if dir := filepath.Dir(filepath.FromSlash(path)); dir != "." {
+			raw = append(raw, dir)
+		}
+	}
+	if dev.goWorkspace != nil {
+		for _, path := range dev.goWorkspace.SourceFiles {
+			if dir := filepath.Dir(filepath.FromSlash(path)); dir != "." {
+				raw = append(raw, dir)
+			}
+		}
+	}
+	for _, migration := range dev.cfg.Database.Migrations {
+		if migration.Directory != "" && migration.Directory != "." {
+			raw = append(raw, migration.Directory)
+		}
+	}
+	for _, item := range dev.js {
+		raw = append(raw, item.service.Directory)
+	}
+	for _, item := range dev.python {
+		raw = append(raw, item.service.Directory)
+	}
+	return normalizeWorkerScopeRoots(raw)
 }
 
 func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Result) (workerBundle, error) {

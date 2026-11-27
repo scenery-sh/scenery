@@ -268,21 +268,7 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled
 		if scope.generated, err = compiler.ManagedGeneratedRoots(contract); err != nil {
 			return err
 		}
-		var (
-			capturedInputs workerInputs
-			captureErr     error
-			captureDone    = make(chan struct{})
-		)
-		go func() {
-			defer close(captureDone)
-			capturedInputs, captureErr = scope.capture()
-		}()
-		defer func() { <-captureDone }()
-		waitInputs := func() (workerInputs, error) {
-			<-captureDone
-			return capturedInputs, captureErr
-		}
-		if dev, bundle, err = startWorkerDevelopment(ctx, scope, waitInputs, contract); err != nil {
+		if dev, bundle, err = startWorkerDevelopment(ctx, scope, s.cfg, contract); err != nil {
 			return err
 		}
 		if generation.config, err = s.resolveGenerationConfig(ctx, dev.compiled.Manifest); err != nil {
