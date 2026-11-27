@@ -357,8 +357,8 @@ async fn run(mut input: Input) -> Result<()> {
             result = publication.wait_for(Option::is_some) => { result?; }
             () = stop.cancelled() => return Ok(()),
         }
-        if let Some(mut watcher) = watcher.take() {
-            watcher.reconcile_startup(directory, &publisher, &revision).await;
+        if let Some(watcher) = watcher.take() {
+            watcher.publish_initial();
             rebuild = Some(tokio::spawn(watcher.run(directory.clone(), publisher, revision)));
         }
         // No public socket is bound until the entire initial process set has

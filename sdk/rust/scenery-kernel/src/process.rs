@@ -280,7 +280,7 @@ impl Worker {
                         );
                         return Ok(());
                     }
-                    _ => sleep(Duration::from_millis(10)).await,
+                    _ => sleep(Duration::from_millis(2)).await,
                 }
             }
         })
