@@ -103,7 +103,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "running"}, "info", "build started", map[string]any{"initial": initial})
 	s.console.Event("process.compile-start", map[string]any{"initial": initial})
 	// The running host keeps serving until a complete candidate replaces it.
-	generation, metadata, apiEncoding, err := s.startHost(ctx, initial, s.stopHost)
+	generation, metadata, apiEncoding, err := s.startHost(ctx, initial, captured.contract, s.stopHost)
 	if err != nil {
 		s.cfg, s.env = previousConfig, previousEnvironment
 		s.setAppIdentity(previousConfig)
@@ -147,7 +147,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 // application and starts its development host, calling replace to stop its
 // predecessor only once the candidate is complete. It returns once the host
 // has published its first generation and accepts connections.
-func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace func()) (_ *devHostGeneration, metadata, apiEncoding []byte, returnErr error) {
+func (s *devSupervisor) startHost(ctx context.Context, initial bool, precompiled *compiler.Result, replace func()) (_ *devHostGeneration, metadata, apiEncoding []byte, returnErr error) {
 	var err error
 	if err := s.console.Phase("Verifying framework source and producer", func() error {
 		ctx, err = build.VerifyFrameworkSessionForBuild(ctx, s.root, runningFrameworkVersion())
@@ -157,7 +157,11 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 	}
 	var contract *compiler.Result
 	if err := s.console.Phase("Building scenery application graph", func() error {
-		contract, err = compiler.CompileContext(ctx, s.root)
+		if precompiled != nil {
+			contract, err = reuseStartupCompilerResult(s.root, precompiled)
+		} else {
+			contract, err = compiler.CompileContext(ctx, s.root)
+		}
 		if err == nil && !contract.Valid() {
 			err = invalidGraphError(contract)
 		}
@@ -192,44 +196,56 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 			}
 		}()
 	}
-	var environment *devRuntimeEnvironment
-	if err := s.console.Phase("Resolving database and storage capabilities", func() error {
-		if err := s.waitForStorageStartup(ctx); err != nil {
-			return err
-		}
-		environment, err = s.prepareRuntimeEnvironment(ctx, contract)
-		if err != nil {
-			return err
-		}
-		// Every worker launch inherits this process's environment.
-		processEnv := append(append([]string(nil), environment.managed...), environment.storage...)
-		processEnv = append(processEnv, s.observabilityEnvironment()...)
-		return setProcessEnvironment(processEnv)
-	}); err != nil {
-		return nil, metadata, apiEncoding, err
-	}
-	if initial {
-		postgresStart, err := s.beginRetainedPostgresStart(ctx, contract)
-		if err != nil {
-			return nil, metadata, apiEncoding, err
-		}
-		err = postgresStart.wait()
-		postgresStart.release()
-		if err != nil {
-			return nil, metadata, apiEncoding, err
-		}
-	}
-	setup, run, err := s.nextDevDatabaseSetup(initial, s.readDevDatabaseSetupInputs(contract))
-	if err != nil {
-		return nil, metadata, apiEncoding, err
-	}
-	if run {
-		if err := s.console.Phase("Running database setup", func() error {
-			return s.runDevDatabaseSetup(ctx, setup, contract, environment)
+	// Resolve database/storage capabilities, start retained PostgreSQL, and run
+	// database setup concurrently with worker compilation. Process environment
+	// updates happen on this goroutine after the join so child Go builds never
+	// race with os.Setenv.
+	var (
+		environment *devRuntimeEnvironment
+		dbErr       error
+		dbDone      = make(chan struct{})
+	)
+	go func() {
+		defer close(dbDone)
+		if err := s.console.Phase("Resolving database and storage capabilities", func() error {
+			if err := s.waitForStorageStartup(ctx); err != nil {
+				return err
+			}
+			var prepErr error
+			environment, prepErr = s.prepareRuntimeEnvironment(ctx, contract)
+			return prepErr
 		}); err != nil {
-			return nil, metadata, apiEncoding, err
+			dbErr = err
+			return
 		}
-	}
+		if initial {
+			postgresStart, err := s.beginRetainedPostgresStart(ctx, contract)
+			if err != nil {
+				dbErr = err
+				return
+			}
+			err = postgresStart.wait()
+			postgresStart.release()
+			if err != nil {
+				dbErr = err
+				return
+			}
+		}
+		setup, run, err := s.nextDevDatabaseSetup(initial, s.readDevDatabaseSetupInputs(contract))
+		if err != nil {
+			dbErr = err
+			return
+		}
+		if run {
+			if err := s.console.Phase("Running database setup", func() error {
+				return s.runDevDatabaseSetup(ctx, setup, contract, environment)
+			}); err != nil {
+				dbErr = err
+				return
+			}
+		}
+	}()
+	defer func() { <-dbDone }()
 	reports, err := newWorkerReportListener(s.activeAppID(), s.currentSessionID())
 	if err != nil {
 		return nil, metadata, apiEncoding, err
@@ -269,6 +285,16 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 		bundle.config, err = workerruntime.DecodeConfigSnapshot(generation.config.snapshotFor(applicationConsumer).data)
 		return err
 	}); err != nil {
+		return nil, metadata, apiEncoding, err
+	}
+	<-dbDone
+	if dbErr != nil {
+		return nil, metadata, apiEncoding, dbErr
+	}
+	// Every worker launch inherits this process's environment.
+	processEnv := append(append([]string(nil), environment.managed...), environment.storage...)
+	processEnv = append(processEnv, s.observabilityEnvironment()...)
+	if err := setProcessEnvironment(processEnv); err != nil {
 		return nil, metadata, apiEncoding, err
 	}
 	options := workerHostOptions{Root: s.root, Environment: s.env.Name, SessionID: s.currentSessionID(), Victoria: s.victoriaEndpoints()}
@@ -316,9 +342,15 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, replace fun
 		return nil, metadata, apiEncoding, err
 	}
 	if options.Assistants.RuntimePath != "" {
-		if err := s.assistants.StartPrepared(ctx); err != nil {
-			s.eventSink().Emit(ctx, devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Status: "error"}, "error", "assistant helpers unavailable", map[string]any{"error": err.Error()})
+		assistCtx := s.ctx
+		if assistCtx == nil {
+			assistCtx = context.WithoutCancel(ctx)
 		}
+		go func() {
+			if err := s.assistants.StartPrepared(assistCtx); err != nil {
+				s.eventSink().Emit(assistCtx, devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Status: "error"}, "error", "assistant helpers unavailable", map[string]any{"error": err.Error()})
+			}
+		}()
 	}
 	if initial {
 		if err := s.waitForStartupReady(ctx); err != nil {
