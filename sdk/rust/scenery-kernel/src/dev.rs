@@ -266,8 +266,14 @@ impl WatcherLoop {
         }
     }
 
-    /// Reconciles edits that landed while generation 1 workers were booting
-    /// before declaring readiness or publishing the initial snapshot digest.
+    /// Publishes the initial snapshot digest immediately so the host can bind
+    /// its public listener and declare readiness before running the startup
+    /// filesystem reconciliation scan asynchronously.
+    pub(crate) fn publish_initial(&self) {
+        self.publish(dev_inputs::digest(&self.active), None);
+    }
+
+    /// Reconciles edits that landed while generation 1 workers were booting.
     pub(crate) async fn reconcile_startup(
         &mut self,
         directory: &Path,
@@ -297,6 +303,8 @@ impl WatcherLoop {
     }
 
     pub(crate) async fn run(mut self, directory: PathBuf, publisher: Publisher, revision: String) {
+        self.reconcile_startup(&directory, &publisher, &revision)
+            .await;
         let mut reconcile = tokio::time::interval(Duration::from_secs(5));
         reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut seen = self.active.clone();
