@@ -1,6 +1,8 @@
 package build
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -94,8 +96,17 @@ func (inventory *workspaceInventory) digest(rel string) (string, bool, error) {
 	case info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular():
 		result.err = fmt.Errorf("prepared workspace input is not a regular file: %s", rel)
 	default:
-		result.digest, _, result.err = cachedBuildInputFileDigest(path, info, os.ReadFile)
-		result.exists = result.err == nil
+		inventory.mu.Lock()
+		cachedRead, hasRead := inventory.files[rel]
+		inventory.mu.Unlock()
+		if hasRead && cachedRead.err == nil {
+			sum := sha256.Sum256(cachedRead.data)
+			result.digest = "sha256:" + hex.EncodeToString(sum[:])
+			result.exists = true
+		} else {
+			result.digest, _, result.err = cachedBuildInputFileDigest(path, info, os.ReadFile)
+			result.exists = result.err == nil
+		}
 	}
 	inventory.mu.Lock()
 	inventory.digests[rel] = result

@@ -51,7 +51,7 @@ func WriteRuntimeFramework(appRoot, version, revision string) error {
 	if err != nil {
 		return err
 	}
-	digest, err := digestExecutable(executable)
+	digest, err := executableDigest()
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,13 @@ func verifyRuntimeFramework(selection FrameworkSelection, requireCurrentProducer
 			return err
 		}
 	}
-	digest, err := digestExecutable(selection.Executable)
+	var digest string
+	var err error
+	if requireCurrentProducer {
+		digest, err = executableDigest()
+	} else {
+		digest, err = digestExecutable(selection.Executable)
+	}
 	if err != nil || digest != selection.ExecutableDigest {
 		return fmt.Errorf("runtime producer executable content changed: %v", err)
 	}

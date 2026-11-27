@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gobuild "go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/mod/modfile"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
 )
@@ -64,13 +67,25 @@ func verifyFrameworkSession(ctx context.Context, appRoot, producerVersion string
 	if pinned != "" {
 		return FrameworkSource{}, VerifyPrebuiltFramework(appRoot, pinned, producerVersion)
 	}
-	producer, err := VerifyFrameworkProducer()
-	if err != nil {
-		return FrameworkSource{}, err
+	var (
+		producer     FrameworkSource
+		producerErr  error
+		selectedRoot string
+		resolveErr   error
+		wg           sync.WaitGroup
+	)
+	wg.Go(func() {
+		producer, producerErr = VerifyFrameworkProducer()
+	})
+	wg.Go(func() {
+		selectedRoot, _, resolveErr = ResolveFrameworkModule(ctx, appRoot, false)
+	})
+	wg.Wait()
+	if producerErr != nil {
+		return FrameworkSource{}, producerErr
 	}
-	selectedRoot, _, err := ResolveFrameworkModule(ctx, appRoot, false)
-	if err != nil {
-		return FrameworkSource{}, err
+	if resolveErr != nil {
+		return FrameworkSource{}, resolveErr
 	}
 	canonical, err := filepath.EvalSymlinks(selectedRoot)
 	if err != nil {
@@ -355,6 +370,11 @@ func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) 
 	if desired.Root != "" {
 		return desired.Root, version, nil
 	}
+	if !download {
+		if dir, ok := resolveCachedGoModule("scenery.sh", version); ok {
+			return dir, version, nil
+		}
+	}
 	arguments := []string{"list", "-m", "-json", "scenery.sh"}
 	environment := gotarget.Hermetic(nil)
 	if download {
@@ -380,4 +400,32 @@ func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) 
 		return "", "", fmt.Errorf("pinned scenery.sh %s did not resolve to its exact module source", version)
 	}
 	return resolved.Dir, version, nil
+}
+
+// resolveCachedGoModule locates an already-downloaded pinned module in
+// GOMODCACHE without spawning a `go list` subprocess. Callers fall back to
+// `go list` when the cache path is missing or non-standard.
+func resolveCachedGoModule(modulePath, version string) (string, bool) {
+	if modulePath == "" || version == "" || strings.Contains(modulePath, "..") || strings.Contains(version, "..") {
+		return "", false
+	}
+	cache := strings.TrimSpace(envpolicy.Get("GOMODCACHE"))
+	if cache == "" {
+		gopath := strings.TrimSpace(envpolicy.Get("GOPATH"))
+		if gopath == "" {
+			gopath = gobuild.Default.GOPATH
+		}
+		if list := filepath.SplitList(gopath); len(list) > 0 && list[0] != "" {
+			cache = filepath.Join(list[0], "pkg", "mod")
+		}
+	}
+	if cache == "" {
+		return "", false
+	}
+	dir := filepath.Join(cache, filepath.FromSlash(modulePath)+"@"+version)
+	info, err := os.Stat(filepath.Join(dir, "go.mod"))
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return dir, true
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/filemeta"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -31,6 +33,7 @@ type workerInputScope struct {
 	root      string
 	generated []string
 	roots     []string
+	cached    map[string]fileStamp
 }
 
 func normalizeWorkerScopeRoots(paths []string) []string {
@@ -146,9 +149,11 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 		return nil
 	}
 	type candidate struct {
-		path string
-		rel  string
-		mode fs.FileMode
+		path   string
+		rel    string
+		mode   fs.FileMode
+		reused bool
+		digest [sha256.Size]byte
 	}
 	var candidates []candidate
 	ignore := watchignore.NewGitignore(watch.root)
@@ -198,7 +203,18 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 		if err != nil {
 			return err
 		}
-		candidates = append(candidates, candidate{path: path, rel: rel, mode: info.Mode().Perm()})
+		item := candidate{path: path, rel: rel, mode: info.Mode().Perm()}
+		if len(watch.cached) > 0 {
+			if prev, ok := watch.cached[filepath.ToSlash(rel)]; ok && prev.hash != "" && prev.size == info.Size() && prev.mode == uint32(info.Mode().Perm()) && prev.modTime.Equal(info.ModTime()) {
+				if meta, ok := filemeta.Read(info); ok && meta.ChangeTimeNano != 0 && prev.changeTime == meta.ChangeTimeNano && prev.device == meta.Device && prev.inode == meta.Inode {
+					if raw, decErr := hex.DecodeString(prev.hash); decErr == nil && len(raw) == sha256.Size {
+						copy(item.digest[:], raw)
+						item.reused = true
+					}
+				}
+			}
+		}
+		candidates = append(candidates, item)
 		return nil
 	}); err != nil {
 		return err
@@ -221,6 +237,10 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 				index := int(next.Add(1)) - 1
 				if index >= len(candidates) {
 					return
+				}
+				if candidates[index].reused {
+					results[index] = hashed{ok: true, digest: candidates[index].digest}
+					continue
 				}
 				digest, err := hashWorkerInput(candidates[index].path)
 				if errors.Is(err, os.ErrNotExist) {

@@ -79,6 +79,7 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 		plan.RustWorkspace = filepath.Join(dev.watch.root, ".scenery", "rust", "snapshot")
 	}
 	bundle.setWorkerConfig()
+	lookedUp := make(map[string]string, 4)
 	for _, program := range bundle.Programs {
 		launch, err := projectWorkerLaunch(program)
 		if err != nil {
@@ -126,9 +127,15 @@ func (dev *workerDevelopment) project(bundle workerBundle) (workerRebuildPlan, e
 		if err != nil {
 			return plan, err
 		}
-		command.Program, err = exec.LookPath(command.Program)
-		if err != nil {
-			return plan, err
+		if resolved, ok := lookedUp[command.Program]; ok {
+			command.Program = resolved
+		} else {
+			resolved, err = exec.LookPath(command.Program)
+			if err != nil {
+				return plan, err
+			}
+			lookedUp[command.Program] = resolved
+			command.Program = resolved
 		}
 		plan.Commands = append(plan.Commands, command)
 	}
