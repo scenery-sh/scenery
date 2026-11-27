@@ -14,9 +14,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/app"
@@ -47,30 +50,61 @@ const absentArtifactStamp = "absent"
 
 func artifactPathStamps(root string, paths []string) (map[string]string, error) {
 	stamps := make(map[string]string, len(paths))
-	for _, rel := range paths {
+	if len(paths) == 0 {
+		return stamps, nil
+	}
+	cleaned := make([]string, len(paths))
+	for i, rel := range paths {
 		rel = filepath.ToSlash(filepath.Clean(rel))
 		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") {
 			return nil, fmt.Errorf("artifact path escapes root: %s", rel)
 		}
-		path := filepath.Join(root, filepath.FromSlash(rel))
-		info, err := buildInputLstat(path)
-		if errors.Is(err, os.ErrNotExist) {
-			stamps[rel] = absentArtifactStamp
-			continue
-		}
+		cleaned[i] = rel
+	}
+	values := make([]string, len(cleaned))
+	errs := make([]error, len(cleaned))
+	workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(cleaned))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(cleaned) {
+					return
+				}
+				rel := cleaned[i]
+				path := filepath.Join(root, filepath.FromSlash(rel))
+				info, err := buildInputLstat(path)
+				if errors.Is(err, os.ErrNotExist) {
+					values[i] = absentArtifactStamp
+					continue
+				}
+				if err != nil {
+					errs[i] = err
+					continue
+				}
+				if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+					errs[i] = fmt.Errorf("artifact path is not a regular file: %s", rel)
+					continue
+				}
+				// Generated artifacts are re-proven every build; a digest retained for
+				// the file's exact stamp names its content without reading it again.
+				digest, _, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
+				if err != nil {
+					errs[i] = err
+					continue
+				}
+				values[i] = strings.TrimPrefix(digest, "sha256:")
+			}
+		})
+	}
+	wg.Wait()
+	for i, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("artifact path is not a regular file: %s", rel)
-		}
-		// Generated artifacts are re-proven every build; a digest retained for
-		// the file's exact stamp names its content without reading it again.
-		digest, _, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
-		if err != nil {
-			return nil, err
-		}
-		stamps[rel] = strings.TrimPrefix(digest, "sha256:")
+		stamps[cleaned[i]] = values[i]
 	}
 	return stamps, nil
 }
@@ -151,14 +185,39 @@ func dependencyFingerprintOfGoFiles(inventory *workspaceInventory, goFiles []str
 	goFiles = slices.Clone(goFiles)
 	sort.Strings(goFiles)
 	goFiles = slices.Compact(goFiles)
-	for _, rel := range goFiles {
-		imports, err := inventory.goImports(rel)
-		if err != nil {
-			return "", err
+	allImports := make([][]string, len(goFiles))
+	if len(goFiles) > 0 {
+		errs := make([]error, len(goFiles))
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(goFiles))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(goFiles) {
+						return
+					}
+					imports, err := inventory.goImports(goFiles[i])
+					if err != nil {
+						errs[i] = err
+						continue
+					}
+					allImports[i] = imports
+				}
+			})
 		}
+		wg.Wait()
+		for _, err := range errs {
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+	for i, rel := range goFiles {
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		for _, imp := range imports {
+		for _, imp := range allImports[i] {
 			_, _ = h.Write([]byte(imp))
 			_, _ = h.Write([]byte{0})
 		}
@@ -549,18 +608,43 @@ func workspaceBuildFingerprintFromInventory(inventory *workspaceInventory, goBui
 		_, _ = h.Write([]byte(flag))
 		_, _ = h.Write([]byte{0})
 	}
-	// Each input contributes its content digest.
-	for _, rel := range paths {
-		digest, exists, err := inventory.digest(rel)
-		if err != nil {
-			return "", err
+	// Each input contributes its content digest; hash in parallel and fold in
+	// sorted order for deterministic fingerprints.
+	type fileDigestResult struct {
+		digest string
+		exists bool
+		err    error
+	}
+	results := make([]fileDigestResult, len(paths))
+	if len(paths) > 0 {
+		workers := min(16, max(4, runtime.GOMAXPROCS(0)), len(paths))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(paths) {
+						return
+					}
+					digest, exists, err := inventory.digest(paths[i])
+					results[i] = fileDigestResult{digest: digest, exists: exists, err: err}
+				}
+			})
 		}
-		if !exists {
+		wg.Wait()
+	}
+	for i, rel := range paths {
+		res := results[i]
+		if res.err != nil {
+			return "", res.err
+		}
+		if !res.exists {
 			continue
 		}
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(digest))
+		_, _ = h.Write([]byte(res.digest))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
