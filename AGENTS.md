@@ -44,6 +44,17 @@ unresolved scope choices or missing authorization.
 - UI catalog or generator changes require `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` and regenerating committed fixtures.
 - Release certification uses `scripts/release-gate.sh`.
 
+## Review & Orchestration
+
+- Cap PR review at max 2 rounds; R2+ is diff-only (`prev_sha..HEAD`) gated on P0/P1 (batch remaining P2s into a follow-up PR).
+- Avoid Double-Codex: when GitHub `@codex review` is active, skip local `gpt-6.2-sol` review on the same commit (or run local `gpt-6.2-sol` pre-push only).
+- Route `claude-opus-5-5` via `claudeAgent` (not `antigravity`). Check PR merge state before pushing follow-up commits, check running task status before spawning quota-reset resumes, and split >30-file changes into smaller mergeable PRs.
+
+## Agent Ergonomics & Cross-Language Checklist
+
+- Prefer `Read`/`Edit`/`Write` over `Bash` heredocs (`python3 <<'EOF'`, `sed -i ''`); on macOS/zsh quote globs and do not rely on GNU `timeout`.
+- Cross-Language Checklist (Worker ABI / host / SDKs): update the shared golden parity corpus, run `TestCLIPayloadSchemaRevisionsMatchCheckedSchemas`, and check `scripts/verify/harness_self_*.go` probes for removed runtime paths.
+
 ## Completion Contract
 
 Continue through required validation and change-caused failures. Demonstrate the

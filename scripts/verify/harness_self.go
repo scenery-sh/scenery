@@ -84,17 +84,18 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 
 	localSceneryPath := harnessLocalSceneryBinaryPath(repoRoot)
 	var (
-		sourceChecks                                     sync.WaitGroup
-		knowledgeStep, changedAreaStep, architectureStep harnessStep
-		changedArea                                      *harnessChangedAreaReport
-		drift                                            *harnessDriftReport
-		driftSourceDuration                              time.Duration
+		sourceChecks                                                sync.WaitGroup
+		knowledgeStep, changedAreaStep, architectureStep, gofmtStep harnessStep
+		changedArea                                                 *harnessChangedAreaReport
+		drift                                                       *harnessDriftReport
+		driftSourceDuration                                         time.Duration
 	)
 	// Read-only source checks need neither the product binary nor each other,
 	// so they run while it builds. Steps keep their fixed report order.
 	sourceChecks.Go(func() { knowledgeStep = runHarnessKnowledgeStep(repoRoot) })
 	sourceChecks.Go(func() { changedAreaStep, changedArea = runHarnessChangedAreaStep(ctx, repoRoot, opts.Base) })
 	sourceChecks.Go(func() { architectureStep = runHarnessArchitectureStep(repoRoot) })
+	sourceChecks.Go(func() { gofmtStep = runHarnessGofmtStep(ctx, repoRoot) })
 	sourceChecks.Go(func() { drift, driftSourceDuration = runHarnessDriftSourceChecks(ctx, repoRoot) })
 	resp.Steps = append(resp.Steps,
 		runHarnessLocalSceneryBuildStep(ctx, repoRoot, localSceneryPath, artifactCtx),
@@ -103,11 +104,12 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 
 	// Checks of the built binary are independent of each other.
 	var (
-		binaryChecks  sync.WaitGroup
-		toolchainStep harnessStep
-		toolchain     *harnessToolchainReport
+		binaryChecks              sync.WaitGroup
+		toolchainStep, docSCNStep harnessStep
+		toolchain                 *harnessToolchainReport
 	)
 	binaryChecks.Go(func() { toolchainStep, toolchain = runHarnessToolchainPreflightStep(ctx, repoRoot) })
+	binaryChecks.Go(func() { docSCNStep = runHarnessDocSCNFormatStep(ctx, repoRoot, localSceneryPath) })
 	sourceChecks.Wait()
 	driftStep, drift := finishHarnessDriftStep(repoRoot, drift, driftSourceDuration)
 	binaryChecks.Wait()
@@ -119,6 +121,8 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		knowledgeStep,
 		changedAreaStep,
 		architectureStep,
+		gofmtStep,
+		docSCNStep,
 		driftStep,
 	)
 
@@ -126,10 +130,21 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	case harnessSelfModeQuick:
 		resp.Steps = append(resp.Steps, runHarnessAffectedPackageTestsStep(ctx, repoRoot, changedArea, opts.FreshTests, artifactCtx))
 	case harnessSelfModeDefault, harnessSelfModeRace, harnessSelfModeRelease:
-		goTestStep, testTiming := runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode, opts.FreshTests, artifactCtx)
+		var (
+			goChecks   sync.WaitGroup
+			goTestStep harnessStep
+			testTiming *harnessTestTimingReport
+			goLintStep harnessStep
+		)
+		goChecks.Go(func() {
+			goTestStep, testTiming = runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode, opts.FreshTests, artifactCtx)
+		})
+		goChecks.Go(func() {
+			goLintStep = runHarnessGoLintStep(ctx, repoRoot, artifactCtx)
+		})
+		goChecks.Wait()
 		resp.TestTiming = testTiming
-		resp.Steps = append(resp.Steps, goTestStep,
-			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx))
+		resp.Steps = append(resp.Steps, goTestStep, goLintStep)
 		if opts.Mode == harnessSelfModeRace {
 			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/scenery"}, artifactCtx))
 		}
@@ -246,7 +261,11 @@ func harnessSelfGoTestEnv() []string {
 	// Tests needing state must select their own disposable home. A stable,
 	// unavailable fallback keeps isolation without invalidating Go's result cache
 	// with the enclosing verifier's randomly named home on every invocation.
-	return []string{"GOWORK=off", "SCENERY_AGENT_HOME=" + os.DevNull}
+	env := []string{"GOWORK=off", "SCENERY_AGENT_HOME=" + os.DevNull}
+	if normalizedTMPDIR, changed := normalizeDarwinTMPDIR(); changed {
+		env = append(env, "TMPDIR="+normalizedTMPDIR)
+	}
+	return env
 }
 
 func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
@@ -412,7 +431,7 @@ func runHarnessExecStep(ctx context.Context, dir, name string, command []string,
 
 	cmd := commandTreeContext(ctx, path, command[1:]...)
 	cmd.Dir = dir
-	if command[0] == "go" {
+	if command[0] == "go" || command[0] == "golangci-lint" {
 		cmd.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off")
 	}
 	var stdout, stderr bytes.Buffer

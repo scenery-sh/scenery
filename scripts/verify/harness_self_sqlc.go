@@ -59,7 +59,7 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 	var assertions []string
 	runWithFormat := func(format string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), "generate", "sqlc", "--app-root", root, "-o", format)
-		cmd.Env = append(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_HOME"), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
+		cmd.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr

@@ -66,7 +66,11 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	telemetry.finish(exitCode)
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
-			_, _ = fmt.Fprintln(stderr, humanCLIErrorMessage(err))
+			msg := strings.TrimSpace(humanCLIErrorMessage(err))
+			if msg == "" {
+				msg = fmt.Sprintf("scenery: command failed with exit code %d", exitCode)
+			}
+			_, _ = fmt.Fprintln(stderr, msg)
 		}
 	}
 	return exitCode
@@ -97,13 +101,13 @@ func renderMachineError(stdout io.Writer, args []string, err error) error {
 	if output == "jsonl" {
 		writer := newCLIEventWriter(stdout)
 		if encodeErr := writer.write("summary", true, map[string]any{"event_count": 0, "ok": false, "diagnostic": diagnostic}); encodeErr != nil {
-			return &silentCLIError{err: fmt.Errorf("internal: encode CLI error event: %w", encodeErr), code: 10}
+			return &codedCLIError{err: fmt.Errorf("internal: encode CLI error event: %w", encodeErr), code: 10}
 		}
 		return &silentCLIError{err: err, code: code}
 	}
 	envelope := newCLIEnvelope(false, nil, []graph.Diagnostic{diagnostic})
 	if encodeErr := json.NewEncoder(stdout).Encode(envelope); encodeErr != nil {
-		return &silentCLIError{err: fmt.Errorf("internal: encode CLI error envelope: %w", encodeErr), code: 10}
+		return &codedCLIError{err: fmt.Errorf("internal: encode CLI error envelope: %w", encodeErr), code: 10}
 	}
 	return &silentCLIError{err: err, code: code}
 }

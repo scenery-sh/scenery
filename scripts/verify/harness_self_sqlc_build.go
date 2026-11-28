@@ -76,7 +76,7 @@ func runHarnessSQLCOwnedOutputBuild(ctx context.Context, repoRoot, root string) 
 	}
 	cli := func(args ...string) error {
 		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), append(args, "--app-root", app, "-o", "json")...)
-		cmd.Env = append(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_HOME", "GOWORK", "GOFLAGS"), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
+		cmd.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {

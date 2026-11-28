@@ -395,8 +395,8 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			return
 		}
 		runErr = preserveCLIDiagnostic(runErr)
-		console.Finish(runErr)
-		if jsonMode && runErr != nil {
+		wroteSummary := console.Finish(runErr)
+		if jsonMode && runErr != nil && wroteSummary {
 			runErr = &silentCLIError{err: runErr, code: cliExitCode(runErr)}
 		}
 	}()

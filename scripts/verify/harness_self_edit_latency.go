@@ -214,7 +214,7 @@ func prepareHarnessEditLatencyLane(ctx context.Context, root, label, fixtureRoot
 	if err := prepareHarnessHandoffService(appRoot); err != nil {
 		return nil, err
 	}
-	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "SCENERY_DEV_DASHBOARD_ADDR", "SCENERY_DEV_CACHE_DIR", "DATABASE_URL", "GOCACHE", detachedDevChildEnv),
+	env := scrubSceneryProbeEnv(envpolicy.Environ(),
 		"SCENERY_AGENT_HOME="+filepath.Join(laneRoot, "agent"),
 		"SCENERY_DEV_CACHE_DIR="+filepath.Join(laneRoot, "cache"),
 		"GOCACHE="+filepath.Join(laneRoot, "gocache"),

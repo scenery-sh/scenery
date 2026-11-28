@@ -46,6 +46,24 @@ func DependencyChecks(ctx context.Context, deps ProbeDeps, features AppFeatures,
 			SuggestedAction: "Install Bun when working on managed frontends, benchmarks, or TypeScript workers.",
 		},
 		{
+			ID:              "tool.cargo",
+			Name:            "Cargo",
+			Command:         "cargo",
+			VersionArgs:     []string{"--version"},
+			Relevant:        true,
+			MissingMessage:  "cargo not found; optional unless building the Rust kernel/SDK or Rust workers",
+			SuggestedAction: "Install Rust 1.99.1 (cargo) via rustup when working on Rust workers or the Rust kernel.",
+		},
+		{
+			ID:              "tool.uv",
+			Name:            "uv",
+			Command:         "uv",
+			VersionArgs:     []string{"--version"},
+			Relevant:        true,
+			MissingMessage:  "uv not found; optional unless working on Python workers or SDK tests",
+			SuggestedAction: "Install uv when working on Python workers or running Python SDK checks.",
+		},
+		{
 			ID:              "tool.sqlc",
 			Name:            "SQLC",
 			Command:         "sqlc",
@@ -167,6 +185,22 @@ func toolCheck(ctx context.Context, deps ProbeDeps, spec toolSpec) Check {
 					check.Status = StatusError
 					check.Message = fmt.Sprintf("%s found at %s; scenery requires Go %d.%d or newer", versionInfo.String(), path, minGoMajor, minGoMinor)
 					check.SuggestedAction = "Install Go 1.27 or newer and ensure it appears first on PATH."
+				}
+			}
+		}
+		if spec.ID == "tool.cargo" {
+			versionInfo, ok := parseCargoVersion(version)
+			if !ok {
+				check.Status = StatusWarn
+				check.Message = "could not parse Cargo version output: " + version
+				check.SuggestedAction = "Install Rust 1.99.1 or newer via rustup and ensure `cargo --version` reports a standard version."
+			} else {
+				check.Observed["parsed_version"] = versionInfo.Semver()
+				minimum := goVersion{Major: minCargoMajor, Minor: minCargoMinor, Patch: minCargoPatch}
+				if versionInfo.compare(minimum) < 0 {
+					check.Status = StatusWarn
+					check.Message = fmt.Sprintf("cargo %s found at %s; Rust kernel/SDK expects Cargo %s or newer", versionInfo.Semver(), path, minimum.Semver())
+					check.SuggestedAction = "Install Rust 1.99.1 or newer via rustup (or run inside a checkout with rust-toolchain.toml)."
 				}
 			}
 		}
@@ -365,9 +399,35 @@ func (v goVersion) compare(other goVersion) int {
 	}
 }
 
+var cargoVersionRE = regexp.MustCompile(`cargo\s+([0-9]+)\.([0-9]+)\.([0-9]+)`)
+
+func parseCargoVersion(output string) (goVersion, bool) {
+	match := cargoVersionRE.FindStringSubmatch(output)
+	if len(match) == 0 {
+		return goVersion{}, false
+	}
+	major, err := strconv.Atoi(match[1])
+	if err != nil {
+		return goVersion{}, false
+	}
+	minor, err := strconv.Atoi(match[2])
+	if err != nil {
+		return goVersion{}, false
+	}
+	patch, err := strconv.Atoi(match[3])
+	if err != nil {
+		return goVersion{}, false
+	}
+	return goVersion{Major: major, Minor: minor, Patch: patch}, true
+}
+
 func (v goVersion) String() string {
 	if v.Patch == 0 {
 		return fmt.Sprintf("go%d.%d", v.Major, v.Minor)
 	}
 	return fmt.Sprintf("go%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+func (v goVersion) Semver() string {
+	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
 }

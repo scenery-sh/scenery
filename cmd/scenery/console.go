@@ -196,6 +196,9 @@ func (c *runConsole) BuildBlocked(block devBuildBlock) {
 // FrameworkHandoff announces that the runtime stops so the prepared producer
 // of the app's newly selected Scenery continues this `scenery up`.
 func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {
+	if c == nil {
+		return
+	}
 	c.Event("framework.handoff", handoff.summary())
 	if c.json {
 		return
@@ -203,6 +206,35 @@ func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {
 	c.printf(c.out, "\n  %s\n  %s\n\n",
 		c.palette.Bold("The app now selects Scenery "+handoff.label()+"; restarting with it."),
 		c.palette.Dim(handoff.Executable))
+}
+
+// FrameworkHandoffWarning reports that a linked Scenery checkout failed to
+// prepare (e.g. a WIP compile error) while the last-known-good binary stays
+// active and serving.
+func (c *runConsole) FrameworkHandoffWarning(label, sourceRoot string, err error) {
+	if c == nil || err == nil {
+		return
+	}
+	c.Event("framework.handoff_failed", map[string]any{
+		"label":       label,
+		"source_root": sourceRoot,
+		"kept_active": true,
+		"error":       err.Error(),
+		"diagnostic":  cliErrorDiagnostic(err),
+		"exit_code":   cliExitCode(err),
+	})
+	if c.json {
+		return
+	}
+	c.printf(c.err, "\n  %s %s\n", c.palette.Red("⚠"), c.palette.Bold("Linked Scenery checkout "+label+" failed to compile; keeping last-known-good binary active."))
+	for _, line := range strings.Split(strings.TrimSpace(err.Error()), "\n") {
+		c.printf(c.err, "    %s\n", c.formatErrorLine(line))
+	}
+	if sourceRoot != "" {
+		c.printf(c.err, "  %s\n\n", c.palette.Dim("scenery up will retry automatically after the next edit to "+sourceRoot+"."))
+	} else {
+		c.printf(c.err, "  %s\n\n", c.palette.Dim("scenery up will retry automatically after the next edit."))
+	}
 }
 
 func (c *runConsole) Banner(urls runURLs) {
@@ -461,14 +493,14 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 	}
 }
 
-func (c *runConsole) Finish(err error) {
+func (c *runConsole) Finish(err error) bool {
 	if c == nil {
-		return
+		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.events == nil && c.eventLog == nil {
-		return
+		return false
 	}
 	data := map[string]any{"event_count": c.eventCount, "ok": err == nil}
 	if handoff, ok := errors.AsType[*frameworkHandoff](err); ok {
@@ -480,12 +512,14 @@ func (c *runConsole) Finish(err error) {
 		data["diagnostic"] = cliErrorDiagnostic(err)
 		data["exit_code"] = cliExitCode(err)
 	}
+	wroteStdout := false
 	if c.events != nil {
-		_ = c.events.write("summary", true, data)
+		wroteStdout = c.events.write("summary", true, data) == nil
 	}
 	if c.eventLog != nil {
 		_ = c.eventLog.write("summary", true, data)
 	}
+	return wroteStdout
 }
 
 type setupOutputWriter struct {

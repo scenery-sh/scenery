@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -137,16 +136,20 @@ func startupFrameworkHandoff(appRootOption string) *frameworkHandoff {
 	if err != nil {
 		return nil
 	}
-	desired, changed := changedAppFramework(root)
+	desired, changed := changedAppFrameworkFunc(root)
 	if !changed {
 		return nil
 	}
 	label := desiredFrameworkLabel(desired, root)
-	fmt.Fprintf(os.Stderr, "scenery: the app selects Scenery %s; preparing it before startup\n", label)
+	_, _ = fmt.Fprintf(cliStderr, "scenery: the app selects Scenery %s; preparing it before startup\n", label)
 	// Nothing is owned yet: an interrupt may simply end the process.
-	handoff, err := prepareFrameworkHandoff(context.Background(), root)
+	handoff, err := prepareFrameworkHandoffFunc(context.Background(), root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "scenery: Scenery %s could not be prepared; starting with this Scenery: %v\n", label, err)
+		if desired.Linked {
+			_, _ = fmt.Fprintf(cliStderr, "scenery: warning: linked Scenery checkout %s failed to compile; keeping the last-known-good Scenery binary active: %v\n", label, err)
+		} else {
+			_, _ = fmt.Fprintf(cliStderr, "scenery: Scenery %s could not be prepared; starting with this Scenery: %v\n", label, err)
+		}
 		return nil
 	}
 	return handoff
@@ -179,7 +182,11 @@ func (s *devSupervisor) frameworkHandoffBeforeBuild(ctx context.Context, failed 
 			return nil
 		}
 		*failed = desired
-		s.console.RebuildFailed(fmt.Errorf("the app now selects Scenery %s, which could not be prepared; the current runtime keeps serving: %w", label, err))
+		if desired.Linked {
+			s.console.FrameworkHandoffWarning(label, desired.Root, err)
+		} else {
+			s.console.RebuildFailed(fmt.Errorf("the app now selects Scenery %s, which could not be prepared; the current runtime keeps serving: %w", label, err))
+		}
 		return nil
 	}
 	if handoff != nil {

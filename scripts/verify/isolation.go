@@ -28,7 +28,7 @@ func isolateVerification(repoRoot, runID, mode string) (func(), error) {
 	if mode == harnessSelfModeRelease || envpolicy.Get("SCENERY_EXECUTION_PURPOSE") == "release" {
 		purpose = "release"
 	}
-	restore := patchEnv(map[string]*string{
+	envPatch := map[string]*string{
 		// Include Git invoked by the Go driver: optional index locks change
 		// directory metadata tracked by otherwise cacheable repository tests.
 		"GIT_OPTIONAL_LOCKS":        stringPtr("0"),
@@ -36,7 +36,11 @@ func isolateVerification(repoRoot, runID, mode string) (func(), error) {
 		"SCENERY_AGENT_SOCKET":      nil,
 		"SCENERY_AGENT_ROUTER_ADDR": nil,
 		"SCENERY_EXECUTION_PURPOSE": stringPtr(purpose),
-	})
+	}
+	if normalizedTMPDIR, changed := normalizeDarwinTMPDIR(); changed {
+		envPatch["TMPDIR"] = stringPtr(normalizedTMPDIR)
+	}
+	restore := patchEnv(envPatch)
 	return func() {
 		restore()
 		if data, readErr := os.ReadFile(filepath.Join(home, "telemetry.jsonl")); readErr == nil {

@@ -105,15 +105,15 @@ func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *tes
 func TestWorkerInputScopeRootsFiltersUnrelatedDirectories(t *testing.T) {
 	root := t.TempDir()
 	for name, content := range map[string]string{
-		"app.scn":                  "app test",
-		"go.mod":                   "module example.test/app\n",
-		"solar/service.go":         "package solar",
-		"solar/sub/helper.go":      "package sub",
-		"apps/api/handler.go":      "package api",
-		"apps/README.md":           "outside nested root",
-		"apps/web/src/index.tsx":   "export {}",
-		"docs/guide.md":            "# docs",
-		"research/large.bin":       "big",
+		"app.scn":                "app test",
+		"go.mod":                 "module example.test/app\n",
+		"solar/service.go":       "package solar",
+		"solar/sub/helper.go":    "package sub",
+		"apps/api/handler.go":    "package api",
+		"apps/README.md":         "outside nested root",
+		"apps/web/src/index.tsx": "export {}",
+		"docs/guide.md":          "# docs",
+		"research/large.bin":     "big",
 	} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

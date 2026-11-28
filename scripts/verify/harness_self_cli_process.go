@@ -70,7 +70,7 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		}
 		command := exec.CommandContext(ctx, binary, args...)
 		command.Dir = repoRoot
-		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+home, "SCENERY_AGENT_HOME="+filepath.Join(home, "private-agent"))
+		command.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "HOME="+home, "SCENERY_AGENT_HOME="+filepath.Join(home, "private-agent"))
 		output, runErr := command.Output()
 		exitCode := 0
 		if runErr != nil {

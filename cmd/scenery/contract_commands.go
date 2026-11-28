@@ -79,6 +79,7 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 		}
 		generateDiagnostic = graph.Diagnostic{Code: code, Severity: "error", Message: generateErr.Error()}
 	}
+	wroteJSON := false
 	if opts.Output == "json" {
 		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage}, nil)
 		if compilation != nil {
@@ -94,17 +95,20 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 		if generateErr != nil {
 			envelope.Diagnostics = append(envelope.Diagnostics, generateDiagnostic)
 		}
-		_ = json.NewEncoder(stdout).Encode(envelope)
+		if encodeErr := json.NewEncoder(stdout).Encode(envelope); encodeErr != nil {
+			return &codedCLIError{err: fmt.Errorf("internal: encode generate output: %w", encodeErr), code: 10}
+		}
+		wroteJSON = true
 	}
 	if generateErr != nil {
 		if opts.Check && len(result.Changed) > 0 {
 			stale := findingsDiagnosticError(generateErr, generateDiagnostic)
-			if opts.Output == "json" {
+			if wroteJSON {
 				return &silentCLIError{err: stale, code: 1}
 			}
 			return stale
 		}
-		if opts.Output == "json" {
+		if wroteJSON {
 			// Telemetry records the diagnostic this command rendered.
 			code := cliExitCode(generateErr)
 			return &silentCLIError{err: &cliDiagnosticError{err: generateErr, code: code, diagnostic: generateDiagnostic}, code: code}

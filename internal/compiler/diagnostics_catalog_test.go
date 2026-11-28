@@ -1,10 +1,12 @@
 package compiler
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 var diagnosticCodePattern = regexp.MustCompile(`^SCN[0-9]{4}$`)
 
 func TestDiagnosticCatalogDeclaresEveryEmittedCodeOnce(t *testing.T) {
+	t.Parallel()
 	definitions := DiagnosticDefinitions()
 	declared := map[string]DiagnosticDefinition{}
 	identities := map[string]string{}
@@ -36,6 +39,8 @@ func TestDiagnosticCatalogDeclaresEveryEmittedCodeOnce(t *testing.T) {
 		identities[definition.Identity] = definition.Code
 	}
 
+	fset := token.NewFileSet()
+	scnNeedle := []byte("SCN")
 	for _, root := range []string{".", filepath.Join("..", "..", "cmd", "scenery")} {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
@@ -50,7 +55,14 @@ func TestDiagnosticCatalogDeclaresEveryEmittedCodeOnce(t *testing.T) {
 			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
-			file, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			src, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			if !bytes.Contains(src, scnNeedle) {
+				return nil
+			}
+			file, parseErr := parser.ParseFile(fset, path, src, 0)
 			if parseErr != nil {
 				return parseErr
 			}

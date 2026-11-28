@@ -70,7 +70,7 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-kernel", "Cargo.toml")
 	command := commandTreeContext(ctx, "cargo", "+"+harnessRustToolchain, "test", "--locked", "--manifest-path", manifest, "browser_auth_test::", "--", "--ignored")
 	command.Dir = repoRoot
-	command.Env = envWithOverrides(envpolicy.Environ(), "DATABASE_URL="+database.URL)
+	command.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "DATABASE_URL="+database.URL)
 	output, err := command.CombinedOutput()
 	summary["output_tail"] = tailString(string(output), 4096)
 	if err != nil {

@@ -758,7 +758,15 @@ fn event_emit_failure(status: StatusCode, raw: &[u8]) -> BindingFailure {
     };
     let mut failure = match serde_json::from_slice::<BindingFailure>(raw) {
         Ok(mut error) => {
-            if status.is_server_error() && error.code.as_deref() != Some("deadline_exceeded") {
+            let normalize_unavailable = if status.is_server_error() {
+                error.code.as_deref() != Some("deadline_exceeded")
+            } else {
+                matches!(
+                    error.code.as_deref(),
+                    None | Some("") | Some("unknown") | Some("internal") | Some("system.internal") | Some("unavailable")
+                )
+            };
+            if normalize_unavailable {
                 error.code = Some("unavailable".into());
             }
             error

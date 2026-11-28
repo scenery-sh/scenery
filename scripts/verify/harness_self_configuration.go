@@ -67,7 +67,7 @@ func (p *configurationProbe) recordPID(pid int) {
 }
 
 func (p *configurationProbe) env() []string {
-	return envWithOverrides(envpolicy.Environ(), append([]string{"SCENERY_AGENT_HOME=" + p.home, "SCENERY_AGENT_ROUTER_ADDR=127.0.0.1:0"}, p.extraEnv...)...)
+	return scrubSceneryProbeEnv(envpolicy.Environ(), append([]string{"SCENERY_AGENT_HOME=" + p.home, "SCENERY_AGENT_ROUTER_ADDR=127.0.0.1:0"}, p.extraEnv...)...)
 }
 
 // run executes the Scenery CLI; stdin carries secret bytes, never argv.

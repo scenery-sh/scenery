@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+  "scenery-kernel",
+  "scenery-sdk",
+  "scenery-sdk/scenery-wire",
+]

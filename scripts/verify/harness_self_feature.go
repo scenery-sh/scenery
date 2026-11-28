@@ -71,7 +71,7 @@ func runHarnessFeatureProbe(ctx context.Context, repoRoot string) (summary map[s
 		return nil, err
 	}
 	p := &featureProbe{ctx: ctx, binary: harnessLocalSceneryBinaryPath(repoRoot), root: root, primary: filepath.Join(root, "main"), remote: filepath.Join(root, "origin.git"), features: map[string]feature.Record{}, assertions: []map[string]any{}}
-	p.environment = envWithOverrides(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent"), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(root, "gitconfig"), "GIT_AUTHOR_NAME=Feature Probe", "GIT_AUTHOR_EMAIL=feature-probe@example.invalid", "GIT_COMMITTER_NAME=Feature Probe", "GIT_COMMITTER_EMAIL=feature-probe@example.invalid")
+	p.environment = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent"), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(root, "gitconfig"), "GIT_AUTHOR_NAME=Feature Probe", "GIT_AUTHOR_EMAIL=feature-probe@example.invalid", "GIT_COMMITTER_NAME=Feature Probe", "GIT_COMMITTER_EMAIL=feature-probe@example.invalid")
 	defer func() {
 		cleanupErr := p.cleanup()
 		returnErr = errors.Join(returnErr, cleanupErr)
