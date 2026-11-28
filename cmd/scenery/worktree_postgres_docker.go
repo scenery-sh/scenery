@@ -153,12 +153,15 @@ type worktreeDockerPort struct {
 
 func decodeWorktreePostgresContainer(encoded string) (*worktreePostgresContainer, error) {
 	var containers []struct {
-		ID, Name string
-		Config   struct {
+		ID, Name, Created string
+		Config            struct {
 			Image  string
 			Labels map[string]string
 		}
-		State  struct{ Running bool }
+		State struct {
+			Running    bool
+			FinishedAt string
+		}
 		Mounts []struct {
 			Type, Name, Source, Destination string
 			RW                              bool
@@ -190,11 +193,28 @@ func decodeWorktreePostgresContainer(encoded string) (*worktreePostgresContainer
 			return nil, worktreePostgresPrecondition("the running database has no valid observed host port")
 		}
 	}
+	updatedAt := parseDockerTimestamp(c.State.FinishedAt)
+	if created := parseDockerTimestamp(c.Created); created.After(updatedAt) {
+		updatedAt = created
+	}
 	return &worktreePostgresContainer{
 		ID: c.ID, Name: strings.TrimPrefix(c.Name, "/"), Image: c.Config.Image,
 		Volume: c.Mounts[0].Name, Mountpoint: c.Mounts[0].Destination, MountSource: c.Mounts[0].Source,
-		Running: c.State.Running, Writable: c.Mounts[0].RW, Port: port, HostIP: bindings[0].HostIP, Labels: c.Config.Labels,
+		Running: c.State.Running, Writable: c.Mounts[0].RW, Port: port, HostIP: bindings[0].HostIP,
+		UpdatedAt: updatedAt, Labels: c.Config.Labels,
 	}, nil
+}
+
+func parseDockerTimestamp(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.HasPrefix(raw, "0001-01-01") {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
 }
 
 func worktreeDockerLabelArgs(record localagent.WorktreeRecord) []string {

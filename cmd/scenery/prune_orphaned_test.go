@@ -169,20 +169,29 @@ func TestPruneOrphanedDiscoversUnrecordedDockerContainers(t *testing.T) {
 	t.Cleanup(func() { commandAgentPathsOverride = nil })
 
 	missingRoot := filepath.Join(t.TempDir(), "deleted-worktree")
+	recentMissingRoot := filepath.Join(t.TempDir(), "recent-deleted-worktree")
+	runningMissingRoot := filepath.Join(t.TempDir(), "running-deleted-worktree")
 	existingRoot := t.TempDir()
+	recentInstance := "11111111111111111111111111111111"
+	runningInstance := "22222222222222222222222222222222"
 	missingRec := localagent.WorktreeRecord{AppRoot: missingRoot, AppID: "factoryapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: orphanedTestInstance}}
+	recentRec := localagent.WorktreeRecord{AppRoot: recentMissingRoot, AppID: "factoryapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: recentInstance}}
+	runningRec := localagent.WorktreeRecord{AppRoot: runningMissingRoot, AppID: "factoryapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: runningInstance}}
 	existingRec := localagent.WorktreeRecord{AppRoot: existingRoot, AppID: "liveapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: "fedcba9876543210fedcba9876543210"}}
 
+	oldTime := time.Now().UTC().Add(-2 * time.Hour)
 	base := &fakeWorktreePostgresDocker{
 		id:        "owned-daemon",
 		volume:    &worktreePostgresVolume{Name: "scenery-pg-data-" + orphanedTestInstance, Labels: worktreePostgresLabels(missingRec)},
-		container: &worktreePostgresContainer{ID: "orphan-c", Name: "scenery-pg-" + orphanedTestInstance, Volume: "scenery-pg-data-" + orphanedTestInstance, Running: false, Labels: worktreePostgresLabels(missingRec)},
+		container: &worktreePostgresContainer{ID: "orphan-c", Name: "scenery-pg-" + orphanedTestInstance, Volume: "scenery-pg-data-" + orphanedTestInstance, Running: false, UpdatedAt: oldTime, Labels: worktreePostgresLabels(missingRec)},
 	}
 	docker := &fakeOrphanedDockerWithList{
 		fakeWorktreePostgresDocker: base,
 		listed: []worktreePostgresContainer{
 			*base.container,
-			{ID: "live-c", Name: "scenery-pg-fedcba9876543210fedcba9876543210", Volume: "scenery-pg-data-fedcba9876543210fedcba9876543210", Running: true, Labels: worktreePostgresLabels(existingRec)},
+			{ID: "recent-c", Name: "scenery-pg-" + recentInstance, Volume: "scenery-pg-data-" + recentInstance, Running: false, UpdatedAt: time.Now().UTC(), Labels: worktreePostgresLabels(recentRec)},
+			{ID: "running-c", Name: "scenery-pg-" + runningInstance, Volume: "scenery-pg-data-" + runningInstance, Running: true, UpdatedAt: oldTime, Labels: worktreePostgresLabels(runningRec)},
+			{ID: "live-c", Name: "scenery-pg-fedcba9876543210fedcba9876543210", Volume: "scenery-pg-data-fedcba9876543210fedcba9876543210", Running: false, UpdatedAt: oldTime, Labels: worktreePostgresLabels(existingRec)},
 		},
 	}
 	newOrphanedWorktreeDocker = func(context.Context) (worktreePostgresDocker, error) { return docker, nil }
@@ -194,7 +203,8 @@ func TestPruneOrphanedDiscoversUnrecordedDockerContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(preview.Records) != 1 || !preview.Records[0].Selected || preview.Records[0].Key != "docker:"+orphanedTestInstance {
+	// Running container and existing-root container are excluded; recent exited container is kept by cutoff; old exited container is selected.
+	if len(preview.Records) != 2 || orphanedSelected(preview.Records) != 1 || !preview.Records[0].Selected || preview.Records[0].Key != "docker:"+orphanedTestInstance || preview.Records[1].Selected {
 		t.Fatalf("preview = %+v", preview)
 	}
 	applied, err := runPruneOrphanedForTest(t, "--older-than", "1h", "--yes", "--expect-revision", preview.Revision)

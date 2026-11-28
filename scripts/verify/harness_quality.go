@@ -294,7 +294,7 @@ func isMarkdownFenceClose(trimmed string, fenceChar byte, fenceLen int) bool {
 
 func classifySCNFenceInfo(info string) (isSCN bool, skip bool) {
 	fields := strings.Fields(strings.ToLower(info))
-	if len(fields) == 0 || fields[0] != "scn" {
+	if len(fields) == 0 || (fields[0] != "scn" && fields[0] != "hcl") {
 		return false, false
 	}
 	for _, token := range fields[1:] {

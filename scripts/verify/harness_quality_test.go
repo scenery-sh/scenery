@@ -101,8 +101,11 @@ func TestScrubSceneryProbeEnv(t *testing.T) {
 func TestExtractDocSCNBlocks(t *testing.T) {
 	doc := strings.Join([]string{
 		"# Example",
+		"```go",
+		`package ignored`,
+		"```",
 		"```hcl",
-		`service "ignored" {}`,
+		`service "hcl_demo" {}`,
 		"```",
 		"```scn",
 		`application "demo" {}`,
@@ -118,14 +121,17 @@ func TestExtractDocSCNBlocks(t *testing.T) {
 		"```",
 	}, "\n")
 	blocks, skipped := extractDocSCNBlocks("README.md", doc)
-	if len(blocks) != 1 {
-		t.Fatalf("len(blocks) = %d, want 1: %+v", len(blocks), blocks)
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2: %+v", len(blocks), blocks)
 	}
 	if skipped != 3 {
 		t.Fatalf("skipped = %d, want 3", skipped)
 	}
-	if blocks[0].DocRel != "README.md" || blocks[0].Line != 6 || blocks[0].Body != "application \"demo\" {}\n" {
-		t.Fatalf("unexpected block: %+v", blocks[0])
+	if blocks[0].DocRel != "README.md" || blocks[0].Line != 6 || blocks[0].Body != "service \"hcl_demo\" {}\n" {
+		t.Fatalf("unexpected hcl block: %+v", blocks[0])
+	}
+	if blocks[1].DocRel != "README.md" || blocks[1].Line != 9 || blocks[1].Body != "application \"demo\" {}\n" {
+		t.Fatalf("unexpected scn block: %+v", blocks[1])
 	}
 }
 
