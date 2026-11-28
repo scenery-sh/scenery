@@ -64,9 +64,16 @@ func objectTypeSignature(object types.Object) (*types.Signature, bool) {
 }
 
 func validateNativeGoServices(appModel *model.App, resources []Resource) []Diagnostic {
+	return validateNativeGoServicesForModules(appModel, resources, nil)
+}
+
+func validateNativeGoServicesForModules(appModel *model.App, resources []Resource, modules map[string]bool) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		if resource.Kind != "scenery.service" || resource.Origin.Kind != "authored" || stringValue(resource.Spec["runtime"]) != "go" {
+			continue
+		}
+		if modules != nil && !modules[resource.Module] {
 			continue
 		}
 		implementation, _ := resource.Spec["implementation"].(map[string]any)
@@ -129,10 +136,17 @@ func validateLifecycleMethods(resource Resource, named *types.Named) []Diagnosti
 }
 
 func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagnostic {
+	return validateNativeGoHandlersForModules(appModel, resources, nil)
+}
+
+func validateNativeGoHandlersForModules(appModel *model.App, resources []Resource, modules map[string]bool) []Diagnostic {
 	var diagnostics []Diagnostic
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	for _, operation := range resources {
 		if operation.Kind != "scenery.operation" || operation.Origin.Kind != "authored" {
+			continue
+		}
+		if modules != nil && !modules[operation.Module] {
 			continue
 		}
 		if refString(operation.Spec["library"]) != "" {

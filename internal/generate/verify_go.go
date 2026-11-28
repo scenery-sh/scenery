@@ -41,7 +41,7 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	if implementationProven(proof) {
 		return nil
 	}
-	diagnostics := verifyGoTargets(context.Background(), result, result.Root, overlay, targets)
+	diagnostics := verifyGoTargetsIncremental(context.Background(), result, result.Root, overlay, targets)
 	if len(diagnostics) == 0 {
 		recordImplementationProof(proof)
 	}

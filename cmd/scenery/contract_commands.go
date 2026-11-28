@@ -181,6 +181,8 @@ func findContractRoot(value string) (string, error) {
 	}
 }
 
+var compileForContractCheck = compiler.CompileUnvalidatedContext
+
 func runContractCheck(stdout io.Writer, args []string) error {
 	opts, positionals, err := parseContractOptions("check", args)
 	if err != nil {
@@ -200,7 +202,10 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
-	result, err := compiler.CompileUnvalidatedContext(context.Background(), root)
+	if cached, ok := tryCheckCacheHit(root, pinned); ok {
+		return writeCachedCheckResult(stdout, opts.Output, opts.Quiet, cached)
+	}
+	result, err := compileForContractCheck(context.Background(), root)
 	if err != nil {
 		return err
 	}
@@ -221,7 +226,13 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
 	}
-	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
+	if err := writeSourceResult(stdout, opts.Output, opts.Quiet, result, data); err != nil {
+		return err
+	}
+	if result.Valid() {
+		recordCheckCache(root, pinned, result)
+	}
+	return nil
 }
 
 func contractManifestSummary(manifest *graph.Manifest) map[string]any {

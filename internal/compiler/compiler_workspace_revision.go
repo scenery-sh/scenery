@@ -758,3 +758,75 @@ func walkImplementationRoots(root string, workspace *Block, managedRoots []strin
 	sort.Strings(walked)
 	return walked, nil
 }
+
+// WorkspaceRevisionWatchedDirs returns the sorted, workspace-relative
+// directories scanned beneath workspace implementation_root blocks using the
+// same skip and revision_exclude rules as workspace revision hashing.
+func WorkspaceRevisionWatchedDirs(result *Result) ([]string, error) {
+	if result == nil {
+		return nil, errors.New("compiler result is unavailable")
+	}
+	workspace := rootWorkspaceBlock(result.Sources)
+	if workspace == nil {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	for _, implementationRoot := range workspace.Blocks {
+		if implementationRoot.Type != "implementation_root" {
+			continue
+		}
+		rootPath, ok := literalString(implementationRoot, "path")
+		if !ok || filepath.IsAbs(rootPath) || strings.HasPrefix(filepath.Clean(rootPath), "..") {
+			return nil, fmt.Errorf("workspace implementation_root requires a workspace-relative path")
+		}
+		excludes := literalStringList(implementationRoot, "revision_exclude")
+		if err := validateWorkspaceGlobs(excludes); err != nil {
+			return nil, err
+		}
+		excludeMatcher := newGlobMatcher(excludes)
+		walkRoot := filepath.Join(result.Root, filepath.FromSlash(rootPath))
+		if err := rejectPathSymlinks(result.Root, walkRoot); err != nil {
+			return nil, fmt.Errorf("workspace implementation_root %s: %w", rootPath, err)
+		}
+		if _, err := os.Lstat(walkRoot); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		err := walkRevisionTree(walkRoot, os.ReadDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				return nil
+			}
+			if filePath != walkRoot {
+				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				relToImpl, err := filepath.Rel(walkRoot, filePath)
+				if err != nil {
+					return err
+				}
+				if excludeMatcher.coversDirectory(filepath.ToSlash(relToImpl)) {
+					return filepath.SkipDir
+				}
+			}
+			rel, err := filepath.Rel(result.Root, filePath)
+			if err != nil {
+				return err
+			}
+			seen[filepath.ToSlash(filepath.Clean(rel))] = true
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	dirs := make([]string, 0, len(seen))
+	for dir := range seen {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
