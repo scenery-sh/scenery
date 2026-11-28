@@ -37,6 +37,7 @@ type testModuleDatabaseSummary struct {
 	Name     string `json:"name"`
 	Template string `json:"template"`
 	CloneMS  int64  `json:"clone_ms"`
+	Reused   bool   `json:"reused,omitempty"`
 }
 
 type testHostSummary struct {
@@ -44,8 +45,9 @@ type testHostSummary struct {
 	StartupMS int64  `json:"startup_ms"`
 }
 
+const defaultMaxTestTemplates = 4
+
 type testDatabaseHarness struct {
-	cloneMu         sync.Mutex
 	admin           *sql.DB
 	adminURL        string
 	templateName    string
@@ -54,6 +56,27 @@ type testDatabaseHarness struct {
 	summary         *testDatabaseTemplateSummary
 	releaseTemplate func() error
 	stopServer      func() error
+
+	// Optional hooks used by unit tests; nil defaults to postgresdb operations.
+	cloneFn   func(ctx context.Context, targetName, templateName string) (time.Duration, error)
+	dropFn    func(ctx context.Context, name string) error
+	inspectFn func(ctx context.Context, dbName string) (*postgresdb.ResettableDatabaseState, error)
+	resetFn   func(ctx context.Context, dbName string, state *postgresdb.ResettableDatabaseState) error
+
+	mu              sync.Mutex
+	closed          bool
+	resetInspected  bool
+	resetInspecting bool
+	resetState      *postgresdb.ResettableDatabaseState
+	idleDBs         []string
+	pooledDBs       map[string]struct{}
+
+	tplCond         *sync.Cond
+	idleTemplates   []string
+	ownedTemplates  []string
+	totalTemplates  int
+	templateWaiters int
+	maxTemplates    int
 }
 
 func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, baseEnv []string) (*testDatabaseHarness, error) {
@@ -105,7 +128,7 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 		}
 		return nil, nil
 	}
-	return &testDatabaseHarness{
+	h := &testDatabaseHarness{
 		admin:        admin,
 		adminURL:     adminURL,
 		templateName: templateName,
@@ -118,14 +141,65 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 		},
 		releaseTemplate: releaseTemplate,
 		stopServer:      stopAfter,
-	}, nil
+		maxTemplates:    defaultMaxTestTemplates,
+	}
+	h.initPoolLocked()
+	return h, nil
+}
+
+func (h *testDatabaseHarness) initPoolLocked() {
+	if h.tplCond == nil {
+		h.tplCond = sync.NewCond(&h.mu)
+	}
+	if h.maxTemplates <= 0 {
+		h.maxTemplates = defaultMaxTestTemplates
+	}
+	if h.totalTemplates == 0 && h.templateName != "" {
+		h.idleTemplates = []string{h.templateName}
+		h.totalTemplates = 1
+	}
+	if h.pooledDBs == nil {
+		h.pooledDBs = make(map[string]struct{})
+	}
 }
 
 func (h *testDatabaseHarness) Close() error {
 	if h == nil {
 		return nil
 	}
+	h.mu.Lock()
+	h.closed = true
+	toDrop := make([]string, 0, len(h.pooledDBs)+len(h.ownedTemplates))
+	for name := range h.pooledDBs {
+		toDrop = append(toDrop, name)
+	}
+	h.pooledDBs = nil
+	h.idleDBs = nil
+	toDrop = append(toDrop, h.ownedTemplates...)
+	h.ownedTemplates = nil
+	h.idleTemplates = nil
+	if h.tplCond != nil {
+		h.tplCond.Broadcast()
+	}
+	h.mu.Unlock()
+
 	var err error
+	if len(toDrop) > 0 {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var errMu sync.Mutex
+		var wg sync.WaitGroup
+		for _, dbName := range toDrop {
+			wg.Go(func() {
+				if dropErr := h.dropDatabase(dropCtx, dbName); dropErr != nil {
+					errMu.Lock()
+					err = errors.Join(err, dropErr)
+					errMu.Unlock()
+				}
+			})
+		}
+		wg.Wait()
+	}
 	if h.releaseTemplate != nil {
 		err = errors.Join(err, h.releaseTemplate())
 	}
@@ -142,55 +216,294 @@ func (h *testDatabaseHarness) branchForModule(ctx context.Context, moduleName st
 	if h == nil {
 		return nil, nil, func() {}, nil
 	}
-	var randBytes [4]byte
-	if _, err := rand.Read(randBytes[:]); err != nil {
+	started := time.Now()
+
+	if pooledName, state, ok := h.popIdleDB(); ok {
+		if resetErr := h.resetDatabase(ctx, pooledName, state); resetErr == nil {
+			env, envErr := h.moduleDatabaseEnv(pooledName)
+			if envErr != nil {
+				h.discardPooledDB(context.WithoutCancel(ctx), pooledName)
+				return nil, nil, nil, envErr
+			}
+			return &testModuleDatabaseSummary{
+				Name:     pooledName,
+				Template: h.templateName,
+				CloneMS:  time.Since(started).Milliseconds(),
+				Reused:   true,
+			}, env, h.makeCleanup(ctx, pooledName), nil
+		}
+		h.discardPooledDB(context.WithoutCancel(ctx), pooledName)
+	}
+
+	cloneName, err := h.randomDBName(moduleName)
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	slug := sanitizeWorktreeName(moduleName)
-	slug = strings.ReplaceAll(slug, "-", "_")
-	if slug == "" {
-		slug = "mod"
+	if _, err := h.cloneFromPool(ctx, cloneName); err != nil {
+		return nil, nil, nil, err
 	}
+	h.ensureResettableInspected(ctx, cloneName)
+
+	env, err := h.moduleDatabaseEnv(cloneName)
+	if err != nil {
+		_ = h.dropDatabase(context.WithoutCancel(ctx), cloneName)
+		return nil, nil, nil, err
+	}
+	return &testModuleDatabaseSummary{
+		Name:     cloneName,
+		Template: h.templateName,
+		CloneMS:  time.Since(started).Milliseconds(),
+	}, env, h.makeCleanup(ctx, cloneName), nil
+}
+
+func (h *testDatabaseHarness) randomDBName(label string) (string, error) {
+	var randBytes [4]byte
+	if _, err := rand.Read(randBytes[:]); err != nil {
+		return "", err
+	}
+	slug := sanitizeWorktreeName(label)
+	slug = strings.ReplaceAll(slug, "-", "_")
 	if len(slug) > 32 {
 		slug = strings.TrimRight(slug[:32], "_")
 	}
-	cloneName := fmt.Sprintf("scenery_test_%s_%s", slug, hex.EncodeToString(randBytes[:]))
-	h.cloneMu.Lock()
-	_, cloneDur, err := postgresdb.CloneDatabaseFromTemplate(ctx, h.admin, cloneName, h.templateName, true)
-	h.cloneMu.Unlock()
-	if err != nil {
-		return nil, nil, nil, err
+	if slug == "" {
+		slug = "mod"
 	}
-	cleanup := func() {
-		_ = postgresdb.DropDatabase(context.WithoutCancel(ctx), h.admin, cloneName)
-	}
-	cloneURL, err := postgresdb.DatabaseURLWithName(h.adminURL, cloneName)
+	return fmt.Sprintf("scenery_test_%s_%s", slug, hex.EncodeToString(randBytes[:])), nil
+}
+
+func (h *testDatabaseHarness) moduleDatabaseEnv(dbName string) ([]string, error) {
+	cloneURL, err := postgresdb.DatabaseURLWithName(h.adminURL, dbName)
 	if err != nil {
-		cleanup()
-		return nil, nil, nil, err
+		return nil, err
 	}
 	services := make([]postgresdb.Service, 0, len(h.bindings))
 	for _, svc := range h.bindings {
 		serviceURL, svcErr := postgresdb.ServiceURL(cloneURL, svc.Schema)
 		if svcErr != nil {
-			cleanup()
-			return nil, nil, nil, svcErr
+			return nil, svcErr
 		}
 		services = append(services, postgresdb.Service{Name: svc.Name, Schema: svc.Schema, URL: serviceURL})
 	}
 	database := postgresdb.Database{
-		Database: cloneName,
+		Database: dbName,
 		URL:      cloneURL,
 		Source:   postgresdb.SourceManaged,
 		Schemas:  services,
 	}
 	managed := postgresdb.Env(database)
 	managed = append(managed, managedDatabaseSetupEnv(h.requirements, managed)...)
-	return &testModuleDatabaseSummary{
-		Name:     cloneName,
-		Template: h.templateName,
-		CloneMS:  cloneDur.Milliseconds(),
-	}, managed, cleanup, nil
+	return managed, nil
+}
+
+func (h *testDatabaseHarness) popIdleDB() (string, *postgresdb.ResettableDatabaseState, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || len(h.idleDBs) == 0 || !h.resetInspected || h.resetState == nil || !h.resetState.Resettable {
+		return "", nil, false
+	}
+	last := len(h.idleDBs) - 1
+	name := h.idleDBs[last]
+	h.idleDBs = h.idleDBs[:last]
+	return name, h.resetState, true
+}
+
+func (h *testDatabaseHarness) discardPooledDB(ctx context.Context, dbName string) {
+	h.mu.Lock()
+	delete(h.pooledDBs, dbName)
+	h.mu.Unlock()
+	_ = h.dropDatabase(ctx, dbName)
+}
+
+func (h *testDatabaseHarness) makeCleanup(ctx context.Context, dbName string) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			h.returnOrDropDB(context.WithoutCancel(ctx), dbName)
+		})
+	}
+}
+
+func (h *testDatabaseHarness) returnOrDropDB(ctx context.Context, dbName string) {
+	h.mu.Lock()
+	canReuse := !h.closed && h.resetInspected && h.resetState != nil && h.resetState.Resettable
+	if canReuse {
+		if h.pooledDBs == nil {
+			h.pooledDBs = make(map[string]struct{})
+		}
+		h.pooledDBs[dbName] = struct{}{}
+		h.idleDBs = append(h.idleDBs, dbName)
+		h.mu.Unlock()
+		return
+	}
+	delete(h.pooledDBs, dbName)
+	h.mu.Unlock()
+	_ = h.dropDatabase(ctx, dbName)
+}
+
+func (h *testDatabaseHarness) ensureResettableInspected(ctx context.Context, dbName string) {
+	h.mu.Lock()
+	if h.resetInspected || h.resetInspecting {
+		h.mu.Unlock()
+		return
+	}
+	h.resetInspecting = true
+	h.mu.Unlock()
+
+	state, err := h.inspectDatabase(ctx, dbName)
+
+	h.mu.Lock()
+	h.resetInspecting = false
+	if err != nil && ctx.Err() != nil {
+		h.mu.Unlock()
+		return
+	}
+	if err != nil || state == nil {
+		h.resetState = &postgresdb.ResettableDatabaseState{Resettable: false}
+	} else {
+		h.resetState = state
+	}
+	h.resetInspected = true
+	h.mu.Unlock()
+}
+
+func (h *testDatabaseHarness) acquireTemplate(ctx context.Context) (string, bool, error) {
+	h.mu.Lock()
+	h.initPoolLocked()
+	h.mu.Unlock()
+
+	stopWake := context.AfterFunc(ctx, func() {
+		h.mu.Lock()
+		h.tplCond.Broadcast()
+		h.mu.Unlock()
+	})
+	defer stopWake()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for len(h.idleTemplates) == 0 && !h.closed && ctx.Err() == nil {
+		h.templateWaiters++
+		h.tplCond.Wait()
+		h.templateWaiters--
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if h.closed {
+		return "", false, errors.New("test database harness closed")
+	}
+	last := len(h.idleTemplates) - 1
+	src := h.idleTemplates[last]
+	h.idleTemplates = h.idleTemplates[:last]
+	shouldExpand := h.templateWaiters > 0 && h.totalTemplates < h.maxTemplates
+	if shouldExpand {
+		h.totalTemplates++
+	}
+	return src, shouldExpand, nil
+}
+
+func (h *testDatabaseHarness) releaseTemplateSlot(src string) {
+	h.mu.Lock()
+	if !h.closed {
+		h.idleTemplates = append(h.idleTemplates, src)
+		h.tplCond.Signal()
+	}
+	h.mu.Unlock()
+}
+
+func (h *testDatabaseHarness) registerExpandedTemplate(extraTpl string) {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		_ = h.dropDatabase(context.Background(), extraTpl)
+		return
+	}
+	h.ownedTemplates = append(h.ownedTemplates, extraTpl)
+	h.idleTemplates = append(h.idleTemplates, extraTpl)
+	h.tplCond.Signal()
+	h.mu.Unlock()
+}
+
+func (h *testDatabaseHarness) cancelTemplateExpansion() {
+	h.mu.Lock()
+	h.totalTemplates--
+	h.mu.Unlock()
+}
+
+func (h *testDatabaseHarness) cloneFromPool(ctx context.Context, targetName string) (time.Duration, error) {
+	started := time.Now()
+	src, shouldExpand, err := h.acquireTemplate(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if shouldExpand {
+		extraTpl, nameErr := h.randomDBName("tpl")
+		if nameErr == nil {
+			if _, expErr := h.cloneDatabase(ctx, extraTpl, src); expErr == nil {
+				h.registerExpandedTemplate(extraTpl)
+			} else {
+				h.cancelTemplateExpansion()
+			}
+		} else {
+			h.cancelTemplateExpansion()
+		}
+	}
+	_, err = h.cloneDatabase(ctx, targetName, src)
+	h.releaseTemplateSlot(src)
+	if err != nil {
+		return 0, err
+	}
+	return time.Since(started), nil
+}
+
+func (h *testDatabaseHarness) cloneDatabase(ctx context.Context, targetName, templateName string) (time.Duration, error) {
+	if h.cloneFn != nil {
+		return h.cloneFn(ctx, targetName, templateName)
+	}
+	_, dur, err := postgresdb.CloneDatabaseFromTemplate(ctx, h.admin, targetName, templateName, true)
+	return dur, err
+}
+
+func (h *testDatabaseHarness) dropDatabase(ctx context.Context, name string) error {
+	if h.dropFn != nil {
+		return h.dropFn(ctx, name)
+	}
+	return postgresdb.DropDatabase(ctx, h.admin, name)
+}
+
+func (h *testDatabaseHarness) inspectDatabase(ctx context.Context, dbName string) (*postgresdb.ResettableDatabaseState, error) {
+	if h.inspectFn != nil {
+		return h.inspectFn(ctx, dbName)
+	}
+	dbURL, err := postgresdb.DatabaseURLWithName(h.adminURL, dbName)
+	if err != nil {
+		return nil, err
+	}
+	db, err := openPostgresDatabase(ctx, dbURL)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return postgresdb.InspectResettableDatabase(ctx, db)
+}
+
+func (h *testDatabaseHarness) resetDatabase(ctx context.Context, dbName string, state *postgresdb.ResettableDatabaseState) error {
+	if h.resetFn != nil {
+		return h.resetFn(ctx, dbName, state)
+	}
+	if err := postgresdb.TerminateDatabaseBackends(ctx, h.admin, dbName); err != nil {
+		return err
+	}
+	dbURL, err := postgresdb.DatabaseURLWithName(h.adminURL, dbName)
+	if err != nil {
+		return err
+	}
+	db, err := openPostgresDatabase(ctx, dbURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return postgresdb.FastResetDatabase(ctx, db, state)
 }
 
 type testHostBuilder struct {

@@ -52,6 +52,14 @@ func DropDatabase(ctx context.Context, db *sql.DB, name string) error {
 	return err
 }
 
+func TerminateDatabaseBackends(ctx context.Context, db *sql.DB, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("postgres database name is required")
+	}
+	return terminateBackends(ctx, db, name)
+}
+
 func ResetDatabase(ctx context.Context, db *sql.DB, name string) error {
 	if err := DropDatabase(ctx, db, name); err != nil {
 		return err

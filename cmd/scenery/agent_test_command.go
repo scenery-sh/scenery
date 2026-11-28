@@ -282,7 +282,11 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 			}
 			extra := ""
 			if result.Database != nil {
-				extra = fmt.Sprintf(" [db %s cloned in %dms]", result.Database.Name, result.Database.CloneMS)
+				verb := "cloned"
+				if result.Database.Reused {
+					verb = "reset"
+				}
+				extra = fmt.Sprintf(" [db %s %s in %dms]", result.Database.Name, verb, result.Database.CloneMS)
 			}
 			_, _ = fmt.Fprintf(out, "%s (%s): %s in %dms%s\n", result.Name, result.Runtime, state, result.DurationMS, extra)
 			if result.Output != "" {
