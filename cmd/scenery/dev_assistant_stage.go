@@ -181,6 +181,42 @@ func (s *assistantSupervisor) activateStage(ctx context.Context, stage *assistan
 	return nil
 }
 
+// PrepareDescriptors allocates and activates only the lightweight control/MCP
+// descriptors for each assistant without materializing private overlays.
+// Overlay materialization and process startup then happen asynchronously in
+// StartPrepared after the application host is already serving.
+func (s *assistantSupervisor) PrepareDescriptors(ctx context.Context, result *compiler.Result) error {
+	if s == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = s.ctx
+	}
+	previous := s.captureStage()
+	defer s.releaseStage(previous)
+	stage := &assistantStage{
+		contract: result,
+		prepared: map[string]assistantPreparedRuntime{},
+		failures: map[string]error{},
+	}
+	for _, definition := range assistantDefinitionsFromResult(result, s.config.Root) {
+		s.mu.Lock()
+		existing, ok := s.prepared[definition.Address]
+		s.mu.Unlock()
+		if ok && existing.hasDescriptor() && existing.definition.Identity == definition.Identity {
+			stage.prepared[definition.Address] = existing
+			continue
+		}
+		prepared, err := newAssistantPreparedRuntime(result, definition)
+		stage.prepared[definition.Address] = prepared
+		if err != nil {
+			stage.failures[definition.Address] = err
+		}
+	}
+	defer s.releaseStage(stage)
+	return s.activateStage(ctx, stage)
+}
+
 // PrepareFromStage activates a candidate stage prepared ahead of time (for
 // example while Go workers were compiling) when its definitions still match
 // result, falling back to full Prepare otherwise.

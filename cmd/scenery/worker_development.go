@@ -85,24 +85,48 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, cfg ap
 		}
 		bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
 	}
-	for i := range dev.js {
-		program, _, err := (&dev.js[i]).run(ctx, watch.root, false)
-		if err != nil {
-			return nil, workerBundle{}, err
-		}
-		bundle.Programs = append(bundle.Programs, program)
+	var (
+		jsPrograms     = make([]workerProgram, len(dev.js))
+		pythonPrograms = make([]workerProgram, len(dev.python))
+		polyglotErr    error
+		polyglotDone   = make(chan struct{})
+	)
+	if len(dev.js) > 0 || len(dev.python) > 0 {
+		go func() {
+			defer close(polyglotDone)
+			for i := range dev.js {
+				program, _, runErr := (&dev.js[i]).run(ctx, watch.root, false)
+				if runErr != nil {
+					polyglotErr = runErr
+					return
+				}
+				jsPrograms[i] = program
+			}
+			for i := range dev.python {
+				program, _, runErr := (&dev.python[i]).run(ctx, watch.root, false)
+				if runErr != nil {
+					polyglotErr = runErr
+					return
+				}
+				pythonPrograms[i] = program
+			}
+		}()
+	} else {
+		close(polyglotDone)
 	}
-	for i := range dev.python {
-		program, _, err := (&dev.python[i]).run(ctx, watch.root, false)
-		if err != nil {
-			return nil, workerBundle{}, err
-		}
-		bundle.Programs = append(bundle.Programs, program)
+	goBundle := bundle
+	goBundle.Programs = nil
+	dev.goWorkspace, err = goBundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{}, snapshot)
+	<-polyglotDone
+	if polyglotErr != nil {
+		return nil, workerBundle{}, polyglotErr
 	}
-	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{}, snapshot)
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
+	bundle.Programs = append(bundle.Programs, jsPrograms...)
+	bundle.Programs = append(bundle.Programs, pythonPrograms...)
+	bundle.Programs = append(bundle.Programs, goBundle.Programs...)
 	if err := bundle.projectConfig(dev.compiled); err != nil {
 		return nil, workerBundle{}, err
 	}

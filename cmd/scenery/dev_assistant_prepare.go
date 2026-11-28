@@ -140,6 +140,13 @@ func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assi
 		return err
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		if prepared.ownedRoot != "" {
+			_ = os.RemoveAll(prepared.ownedRoot)
+		}
+		return errors.New("assistant supervisor is closed")
+	}
 	if current, ok := s.prepared[prepared.definition.Address]; ok && current.definition.Identity == prepared.definition.Identity {
 		s.prepared[prepared.definition.Address] = *prepared
 		s.ownedRoots[prepared.definition.Address] = prepared.ownedRoot

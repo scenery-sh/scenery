@@ -114,12 +114,26 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		}
 		startupContract = contract
 	}()
+	// Overlap the read-only filesystem walk with framework verification and SQL
+	// preflight so scanInitialWatchedFiles reuses content hashes instead of
+	// walking and hashing the repository serially afterwards.
+	type earlyScanResult struct {
+		snapshot fileSnapshot
+		err      error
+	}
+	earlyWalk := make(chan earlyScanResult, 1)
+	go func() {
+		snap, scanErr := scanWatchedFiles(root)
+		earlyWalk <- earlyScanResult{snapshot: snap, err: scanErr}
+	}()
 	frameworkErr := build.VerifyFrameworkSession(ctx, root, runningFrameworkVersion())
 	<-preflight
 	if frameworkErr != nil {
+		<-earlyWalk
 		return nil, &codedCLIError{code: 3, err: frameworkErr}
 	}
 	if preflightErr != nil {
+		<-earlyWalk
 		return nil, preflightErr
 	}
 	// Source reads can overlap control-plane setup after exclusive ownership,
@@ -131,8 +145,13 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			seeded := <-earlyWalk
+			var seed fileSnapshot
+			if seeded.err == nil {
+				seed = seeded.snapshot
+			}
 			var err error
-			snapshot, err = scanInitialWatchedFiles(root, func(root string) (*compiler.Result, error) {
+			snapshot, err = scanInitialWatchedFilesWithSeed(root, seed, func(root string) (*compiler.Result, error) {
 				if startupContract != nil && filepath.Clean(startupContract.Root) == filepath.Clean(root) {
 					return startupContract, nil
 				}

@@ -286,3 +286,47 @@ func TestAssistantPrepareFromStageReusesMatchingAndFallsBackOnMismatch(t *testin
 		t.Fatalf("mismatched preStage overlay was not released: %v", err)
 	}
 }
+
+func TestAssistantPrepareDescriptorsSkipsOverlayMaterialization(t *testing.T) {
+	control, mcp := assistantControlURLAllocator, assistantMCPListenAddressAllocator
+	assistantControlURLAllocator = func() (string, error) { return "http://127.0.0.1:4201", nil }
+	assistantMCPListenAddressAllocator = func() (string, error) { return "127.0.0.1:4202", nil }
+	t.Cleanup(func() { assistantControlURLAllocator, assistantMCPListenAddressAllocator = control, mcp })
+
+	root := t.TempDir()
+	var nodeCalls, installCalls, buildCalls atomic.Int32
+	s := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{
+		Root: root, StateRoot: filepath.Join(root, "state"), UseAppGateway: true,
+		NodeResolver: func(context.Context) (string, string, string, error) {
+			nodeCalls.Add(1)
+			return "/node", "/npm", "/home", nil
+		},
+		InstallDeps: func(context.Context, string, string, string) error {
+			installCalls.Add(1)
+			return nil
+		},
+		BuildOverlay: func(context.Context, string, string, string, string) error {
+			buildCalls.Add(1)
+			return nil
+		},
+	})
+	t.Cleanup(func() { _ = s.Close() })
+
+	result := &compiler.Result{Manifest: &graph.Manifest{ContractRevision: "desc-only", Resources: []graph.Resource{{
+		Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Module: "app", Spec: map[string]any{
+			"mcp_server":     "mcp_server.support",
+			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
+		},
+	}, {Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Name: "support", Module: "app", Spec: map[string]any{"max_input_bytes": 1024, "max_result_bytes": 1024}}}}}
+
+	if err := s.PrepareDescriptors(context.Background(), result); err != nil {
+		t.Fatalf("PrepareDescriptors: %v", err)
+	}
+	if nodeCalls.Load() != 0 || installCalls.Load() != 0 || buildCalls.Load() != 0 {
+		t.Fatalf("expected zero overlay materialization calls, got node=%d install=%d build=%d", nodeCalls.Load(), installCalls.Load(), buildCalls.Load())
+	}
+	cfg := s.RuntimeConfig()
+	if len(cfg.Assistants) != 1 || cfg.Assistants[0].ControlAddress != "http://127.0.0.1:4201" || cfg.Assistants[0].MCPListenAddress != "127.0.0.1:4202" {
+		t.Fatalf("unexpected runtime config: %+v", cfg.Assistants)
+	}
+}

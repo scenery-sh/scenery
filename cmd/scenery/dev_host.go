@@ -182,14 +182,15 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, captured *f
 	if s.currentPID() == "" {
 		s.setMetadata(metadata, apiEncoding)
 	}
-	// Stage assistant overlays concurrently with database setup and Go worker
-	// compilation; staging only writes candidate-private trees and never mutates
-	// active descriptors until PrepareFromStage activates it.
+	// On rebuilds (!initial), stage assistant overlays concurrently with database
+	// setup and Go worker compilation so live handoff verifies overlays before
+	// swapping. On initial startup, only lightweight descriptors are needed to
+	// boot scenery-kernel; StartPrepared materializes overlays asynchronously.
 	var (
 		preStage     *assistantStage
 		preStageDone chan struct{}
 	)
-	if s.assistants != nil && len(assistantDefinitionsFromResult(contract, s.root)) > 0 {
+	if !initial && s.assistants != nil && len(assistantDefinitionsFromResult(contract, s.root)) > 0 {
 		preStageDone = make(chan struct{})
 		go func() {
 			defer close(preStageDone)
@@ -295,13 +296,19 @@ func (s *devSupervisor) startHost(ctx context.Context, initial bool, captured *f
 	}
 	options := workerHostOptions{Root: s.root, Environment: s.env.Name, SessionID: s.currentSessionID(), Victoria: s.victoriaEndpoints()}
 	if s.assistants != nil && len(bundle.Host.Assistants) > 0 {
-		var staged *assistantStage
-		if preStageDone != nil {
-			<-preStageDone
-			staged, preStage = preStage, nil
-		}
-		if err := s.assistants.PrepareFromStage(ctx, dev.compiled, staged); err != nil {
-			return nil, metadata, apiEncoding, err
+		if initial {
+			if err := s.assistants.PrepareDescriptors(ctx, dev.compiled); err != nil {
+				return nil, metadata, apiEncoding, err
+			}
+		} else {
+			var staged *assistantStage
+			if preStageDone != nil {
+				<-preStageDone
+				staged, preStage = preStage, nil
+			}
+			if err := s.assistants.PrepareFromStage(ctx, dev.compiled, staged); err != nil {
+				return nil, metadata, apiEncoding, err
+			}
 		}
 		s.refreshAssistantRuntimeConfig()
 		options.Assistants = workerAssistantProcess{RuntimePath: s.assistantRuntimeConfigPath(), KeyPath: s.assistantTokenKeyPath}

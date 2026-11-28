@@ -28,6 +28,10 @@ func reuseStartupCompilerResult(root string, result *compiler.Result) (*compiler
 // an unchanged restart compares a Go-only snapshot with the previous process's
 // complete snapshot and needlessly invalidates the graph cache.
 func scanInitialWatchedFiles(root string, compile func(string) (*compiler.Result, error)) (fileSnapshot, error) {
+	return scanInitialWatchedFilesWithSeed(root, fileSnapshot{}, compile)
+}
+
+func scanInitialWatchedFilesWithSeed(root string, seed fileSnapshot, compile func(string) (*compiler.Result, error)) (fileSnapshot, error) {
 	result, err := compile(root)
 	if err != nil {
 		return fileSnapshot{}, err
@@ -43,7 +47,8 @@ func scanInitialWatchedFiles(root string, compile func(string) (*compiler.Result
 		return fileSnapshot{}, fmt.Errorf("app contract graph is invalid")
 	}
 	setAssistantImplementationWatch(root, assistantDefinitionsFromResult(result, root))
-	snapshot, err := scanWatchedFilesReusing(root, fileSnapshot{contract: result})
+	seed.contract = result
+	snapshot, err := scanWatchedFilesReusing(root, seed)
 	if err != nil {
 		return fileSnapshot{}, err
 	}
