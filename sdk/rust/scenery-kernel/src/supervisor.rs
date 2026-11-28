@@ -28,7 +28,132 @@ use crate::transport::{Body, read, response};
 
 const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(20);
 
-pub(crate) type Workers = BTreeMap<String, Arc<Worker>>;
+pub(crate) type Workers = BTreeMap<String, Arc<WorkerSlot>>;
+
+enum SlotState {
+    Cold,
+    Starting(watch::Receiver<Option<std::result::Result<Arc<Worker>, String>>>),
+    Ready(Arc<Worker>),
+}
+
+pub(crate) struct WorkerSlot {
+    pub(crate) program: Program,
+    directory: PathBuf,
+    state: std::sync::Mutex<SlotState>,
+    /// Cancelled once no serving or draining generation references this slot.
+    pub(crate) retired: CancellationToken,
+}
+
+impl WorkerSlot {
+    pub(crate) fn warm(directory: PathBuf, worker: Arc<Worker>) -> Self {
+        Self {
+            program: worker.program.clone(),
+            directory,
+            state: std::sync::Mutex::new(SlotState::Ready(worker)),
+            retired: CancellationToken::new(),
+        }
+    }
+
+    pub(crate) fn cold(directory: PathBuf, program: Program) -> Self {
+        Self {
+            program,
+            directory,
+            state: std::sync::Mutex::new(SlotState::Cold),
+            retired: CancellationToken::new(),
+        }
+    }
+
+    pub(crate) fn running(&self) -> Option<Arc<Worker>> {
+        match &*self.state.lock().expect("worker slot") {
+            SlotState::Ready(worker) => Some(worker.clone()),
+            SlotState::Cold | SlotState::Starting(_) => None,
+        }
+    }
+
+    pub(crate) fn is_started(&self) -> bool {
+        !matches!(*self.state.lock().expect("worker slot"), SlotState::Cold)
+    }
+
+    pub(crate) fn still_matches(&self, program: &Program) -> bool {
+        let same_program = self.program.digest == program.digest
+            && self.program.identity == program.identity
+            && self.program.service == program.service
+            && self.program.runtime == program.runtime
+            && self.program.environment == program.environment
+            && self.program.startup.as_ref().map(|config| config.get())
+                == program.startup.as_ref().map(|config| config.get());
+        if !same_program {
+            return false;
+        }
+        match &*self.state.lock().expect("worker slot") {
+            SlotState::Cold | SlotState::Starting(_) => true,
+            SlotState::Ready(worker) => matches!(worker.exited(), Ok(None)),
+        }
+    }
+
+    /// Returns the running worker for this slot, spawning it on demand if it
+    /// has not been started yet. Concurrent callers coalesce onto a single
+    /// startup attempt, and cancelling one caller does not abort startup for
+    /// others.
+    pub(crate) async fn ensure(self: &Arc<Self>) -> std::result::Result<Arc<Worker>, String> {
+        let mut rx = {
+            let mut guard = self.state.lock().expect("worker slot");
+            match &*guard {
+                SlotState::Ready(worker) => return Ok(worker.clone()),
+                SlotState::Starting(rx) => rx.clone(),
+                SlotState::Cold => {
+                    if self.retired.is_cancelled() {
+                        return Err("worker generation retired".into());
+                    }
+                    let (tx, rx) = watch::channel(None);
+                    *guard = SlotState::Starting(rx.clone());
+                    let slot = Arc::clone(self);
+                    tokio::spawn(async move {
+                        let capabilities = slot.directory.join("capabilities.sock");
+                        let outcome =
+                            Worker::spawn(&slot.directory, &capabilities, slot.program.clone())
+                                .await;
+                        match outcome {
+                            Ok(worker) => {
+                                let worker = Arc::new(worker);
+                                {
+                                    let mut guard = slot.state.lock().expect("worker slot");
+                                    *guard = SlotState::Ready(worker.clone());
+                                }
+                                if slot.retired.is_cancelled() {
+                                    worker.retired.cancel();
+                                    let stopped = worker.clone();
+                                    tokio::task::spawn_blocking(move || stopped.stop_process());
+                                    let _ = tx.send(Some(Err("worker generation retired".into())));
+                                } else {
+                                    let _ = tx.send(Some(Ok(worker)));
+                                }
+                            }
+                            Err(error) => {
+                                let message = format!("{error:#}");
+                                eprintln!(
+                                    "on-demand worker {} failed to start: {message}",
+                                    slot.program.service
+                                );
+                                {
+                                    let mut guard = slot.state.lock().expect("worker slot");
+                                    *guard = SlotState::Cold;
+                                }
+                                let _ = tx.send(Some(Err(message)));
+                            }
+                        }
+                    });
+                    rx
+                }
+            }
+        };
+        let value = rx
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| "worker startup aborted".to_owned())?;
+        value.as_ref().expect("watch predicate ensured Some").clone()
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +192,8 @@ struct Status {
 struct WorkerStatus {
     pid: u32,
     digest: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    lazy: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -91,6 +218,7 @@ struct Supervisor {
     retired: BTreeMap<u64, Retired>,
     faults: VecDeque<WorkerFault>,
     fault_sequence: u64,
+    lazy: bool,
 }
 
 impl Supervisor {
@@ -132,12 +260,26 @@ impl Supervisor {
         let mut hash = Sha256::new();
         for program in plan.programs {
             hash.update(program.digest.as_bytes());
-            if let Some(worker) = active
+            if let Some(slot) = active
                 .as_ref()
                 .and_then(|generation| generation.workers.get(&program.process))
-                .filter(|worker| worker.still_matches(&program))
             {
-                workers.insert(program.process, worker.clone());
+                if slot.still_matches(&program) {
+                    workers.insert(program.process, slot.clone());
+                    continue;
+                }
+                if self.lazy && !slot.is_started() {
+                    workers.insert(
+                        program.process.clone(),
+                        Arc::new(WorkerSlot::cold(self.directory.clone(), program)),
+                    );
+                    continue;
+                }
+            } else if self.lazy {
+                workers.insert(
+                    program.process.clone(),
+                    Arc::new(WorkerSlot::cold(self.directory.clone(), program)),
+                );
                 continue;
             }
             let directory = self.directory.clone();
@@ -152,7 +294,10 @@ impl Supervisor {
                 .and_then(std::convert::identity)
             {
                 Ok(worker) => {
-                    workers.insert(worker.program.process.clone(), Arc::new(worker));
+                    workers.insert(
+                        worker.program.process.clone(),
+                        Arc::new(WorkerSlot::warm(self.directory.clone(), Arc::new(worker))),
+                    );
                 }
                 Err(error) => {
                     failure.get_or_insert(error);
@@ -208,11 +353,13 @@ impl Supervisor {
             candidate.generation.number == generation,
             "generation is not prepared"
         );
-        for worker in candidate.generation.workers.values() {
-            ensure!(
-                worker.exited()?.is_none(),
-                "worker exited before publication"
-            );
+        for slot in candidate.generation.workers.values() {
+            if let Some(worker) = slot.running() {
+                ensure!(
+                    worker.exited()?.is_none(),
+                    "worker exited before publication"
+                );
+            }
         }
         let candidate = self.pending.take().expect("candidate already validated");
         self.order = candidate.order;
@@ -297,14 +444,20 @@ impl Supervisor {
                 .as_ref()
                 .into_iter()
                 .flat_map(|a| a.workers.iter())
-                .map(|(name, worker)| {
-                    (
-                        name.clone(),
-                        WorkerStatus {
+                .map(|(name, slot)| {
+                    let status = match slot.running() {
+                        Some(worker) => WorkerStatus {
                             pid: worker.pid(),
                             digest: worker.program.digest.clone(),
+                            lazy: false,
                         },
-                    )
+                        None => WorkerStatus {
+                            pid: 0,
+                            digest: slot.program.digest.clone(),
+                            lazy: true,
+                        },
+                    };
+                    (name.clone(), status)
                 })
                 .collect(),
             faults: self.faults.clone(),
@@ -316,7 +469,10 @@ impl Supervisor {
             return Ok(());
         };
         let mut stopped = false;
-        for worker in active.workers.values() {
+        for slot in active.workers.values() {
+            let Some(worker) = slot.running() else {
+                continue;
+            };
             let Some(status) = worker.exited()? else {
                 continue;
             };
@@ -368,23 +524,40 @@ fn retire_workers<'a>(
     retired: impl Iterator<Item = (&'a Generation, bool)> + Clone,
     serving: impl Iterator<Item = &'a Generation>,
 ) -> Vec<Arc<Worker>> {
-    let in_use: Vec<*const Worker> = serving
+    let active_generations: Vec<&'a Generation> = serving
         .chain(
             retired
                 .clone()
                 .filter(|(_, drained)| !drained)
                 .map(|(generation, _)| generation),
         )
+        .collect();
+    let in_use_slots: Vec<*const WorkerSlot> = active_generations
+        .iter()
         .flat_map(|generation| generation.workers.values().map(Arc::as_ptr))
+        .collect();
+    let in_use_workers: Vec<*const Worker> = active_generations
+        .iter()
+        .flat_map(|generation| {
+            generation
+                .workers
+                .values()
+                .filter_map(|slot| slot.running().map(|worker| Arc::as_ptr(&worker)))
+        })
         .collect();
     let mut stopped = Vec::new();
     for (generation, _) in retired.filter(|(_, drained)| *drained) {
         generation.retired.cancel();
-        for worker in generation.workers.values() {
-            if !in_use.contains(&Arc::as_ptr(worker)) {
+        for slot in generation.workers.values() {
+            if !in_use_slots.contains(&Arc::as_ptr(slot)) {
+                slot.retired.cancel();
+            }
+            if let Some(worker) = slot.running()
+                && !in_use_workers.contains(&Arc::as_ptr(&worker))
+            {
                 worker.retired.cancel();
-                if !worker.is_stopped() && !stopped.iter().any(|item| Arc::ptr_eq(item, worker)) {
-                    stopped.push(worker.clone());
+                if !worker.is_stopped() && !stopped.iter().any(|item| Arc::ptr_eq(item, &worker)) {
+                    stopped.push(worker);
                 }
             }
         }
@@ -480,6 +653,7 @@ impl Control {
             retired: BTreeMap::new(),
             faults: VecDeque::new(),
             fault_sequence: 0,
+            lazy: false,
         };
         Ok(Self {
             listener: UnixListener::bind(directory.join("supervisor.sock"))?,
@@ -487,6 +661,11 @@ impl Control {
             events,
             state: Arc::new(Mutex::new(state)),
         })
+    }
+
+    pub(crate) fn with_lazy(self, lazy: bool) -> Self {
+        self.state.try_lock().expect("uncontended supervisor").lazy = lazy;
+        self
     }
 
     pub(crate) fn token(&self) -> &str {
@@ -605,11 +784,12 @@ impl Control {
             .chain(pending.into_iter().map(|p| p.generation))
         {
             generation.retired.cancel();
-            for worker in generation.workers.values() {
-                worker.retired.cancel();
-                workers
-                    .entry(worker.pid())
-                    .or_insert_with(|| worker.clone());
+            for slot in generation.workers.values() {
+                slot.retired.cancel();
+                if let Some(worker) = slot.running() {
+                    worker.retired.cancel();
+                    workers.entry(worker.pid()).or_insert(worker);
+                }
             }
         }
         // Give every owned group the same drain window, even if a request
@@ -710,7 +890,12 @@ mod tests {
             },
             workers: workers
                 .iter()
-                .map(|(name, worker)| ((*name).to_owned(), (*worker).clone()))
+                .map(|(name, worker)| {
+                    (
+                        (*name).to_owned(),
+                        Arc::new(WorkerSlot::warm(PathBuf::new(), (*worker).clone())),
+                    )
+                })
                 .collect(),
             retired: CancellationToken::new(),
         }
@@ -841,6 +1026,7 @@ mod tests {
             )]),
             faults: VecDeque::new(),
             fault_sequence: 0,
+            lazy: false,
         };
 
         supervisor.maintain();
@@ -863,6 +1049,86 @@ mod tests {
 
         orders.stop_process();
         rebuilt.stop_process();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn lazy_mode_keeps_workers_cold_until_needed_and_recovers_after_failed_spawn() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::Builder::new()
+            .prefix("lazy-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir_in("/tmp")?;
+        let bad_bin = directory.path().join("fail-worker");
+        std::fs::write(&bad_bin, "#!/bin/sh\nexit 1\n")?;
+        std::fs::set_permissions(&bad_bin, std::fs::Permissions::from_mode(0o700))?;
+
+        let expected = BTreeMap::from([(
+            "orders".to_owned(),
+            ("orders/service/orders".to_owned(), "go".to_owned()),
+        )]);
+        let control = Control::bind(
+            directory.path(),
+            "contract".into(),
+            None,
+            expected,
+            None,
+        )?
+        .with_lazy(true);
+        let program = Program {
+            process: "orders".into(),
+            service: "orders/service/orders".into(),
+            runtime: "go".into(),
+            binary: bad_bin.clone(),
+            digest: "sha256:v1".into(),
+            identity: BuildIdentity {
+                contract_revision: "contract".into(),
+                implementation_revision: "sha256:v1".into(),
+                build_input_digest: "sha256:v1".into(),
+                go_target: "worker".into(),
+            },
+            environment: Vec::new(),
+            startup: None,
+            artifact: None,
+        };
+        control
+            .publish_initial(LaunchPlan {
+                contract_revision: "contract".into(),
+                programs: vec![program.clone()],
+            })
+            .await?;
+
+        // Initial publication in lazy mode spawns nothing and reports lazy: true, pid: 0.
+        let status = control.state.lock().await.status();
+        let worker_status = status.processes.get("orders").expect("orders status");
+        assert_eq!(worker_status.pid, 0);
+        assert!(worker_status.lazy);
+
+        // Hot reload of a cold worker keeps it cold with the new digest.
+        let mut updated = program.clone();
+        updated.digest = "sha256:v2".into();
+        let publisher = control.publisher(control.publication().await);
+        let gen2 = publisher
+            .replace(
+                LaunchPlan {
+                    contract_revision: "contract".into(),
+                    programs: vec![updated],
+                },
+                || async { Ok(true) },
+            )
+            .await?;
+        assert_eq!(gen2, Some(2));
+        let status2 = control.state.lock().await.status();
+        let worker_status2 = status2.processes.get("orders").expect("orders status gen2");
+        assert_eq!(worker_status2.pid, 0);
+        assert!(worker_status2.lazy);
+        assert_eq!(worker_status2.digest, "sha256:v2");
+
+        // Triggering ensure() on a failing binary returns Err and resets slot to Cold.
+        let active = control.publication().await.borrow().clone().expect("active gen");
+        let slot = active.workers.get("orders").expect("orders slot").clone();
+        assert!(slot.ensure().await.is_err());
+        assert!(!slot.is_started(), "failed spawn must reset slot to Cold for retry");
         Ok(())
     }
 }

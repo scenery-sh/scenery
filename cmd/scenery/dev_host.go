@@ -541,6 +541,9 @@ func (s *devSupervisor) hostEnvironment(contract *compiler.Result, environment *
 	for _, key := range []string{"SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN"} {
 		env = append(env, key+"="+envpolicy.Get(key))
 	}
+	if value := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_EAGER_WORKERS")); value != "" {
+		env = append(env, "SCENERY_DEV_EAGER_WORKERS="+value)
+	}
 	env = append(env, environment.managed...)
 	env = append(env, environment.storage...)
 	env = append(env, s.observabilityEnvironment()...)

@@ -693,11 +693,25 @@ impl Host {
         if call.cancel.is_cancelled() || Instant::now() >= call.deadline {
             return Err(Fault::deadline());
         }
-        let worker = call
+        let slot = call
             .generation
             .workers
             .get(&service.process)
             .ok_or_else(|| Fault::unavailable(Delivery::NotSent))?;
+        let worker = tokio::select! {
+            () = abi::cancelled(call.cancel.clone(), call.deadline) => {
+                return Err(Fault::deadline());
+            }
+            () = call.generation.retired.cancelled() => {
+                return Err(Fault::unavailable(Delivery::NotSent));
+            }
+            () = slot.retired.cancelled() => {
+                return Err(Fault::unavailable(Delivery::NotSent));
+            }
+            result = slot.ensure() => {
+                result.map_err(|_| Fault::unavailable(Delivery::NotSent))?
+            }
+        };
         if !matches!(worker.exited(), Ok(None)) {
             return Err(Fault::unavailable(Delivery::NotSent));
         }

@@ -244,7 +244,8 @@ async fn run(mut input: Input) -> Result<()> {
         input.token,
         expected,
         events,
-    )?;
+    )?
+    .with_lazy(development && !eager_dev_workers());
     let mut publication = control.publication().await;
     let revision = input.bundle.contract_revision.clone();
     let publisher = control.publisher(publication.clone());
@@ -774,9 +775,32 @@ async fn serve_public(
     Ok(())
 }
 
+fn eager_dev_workers() -> bool {
+    is_truthy_env(std::env::var("SCENERY_DEV_EAGER_WORKERS").ok().as_deref())
+}
+
+fn is_truthy_env(value: Option<&str>) -> bool {
+    value.is_some_and(|raw| {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eager_dev_workers_flag_parses_truthy_values() {
+        for truthy in ["1", "true", "TRUE", " yes ", "On"] {
+            assert!(is_truthy_env(Some(truthy)), "expected truthy for {truthy:?}");
+        }
+        for falsy in [None, Some(""), Some("0"), Some("false"), Some("no")] {
+            assert!(!is_truthy_env(falsy), "expected falsy for {falsy:?}");
+        }
+    }
 
     #[tokio::test]
     async fn unix_listener_replaces_stale_socket_and_refuses_regular_file() -> Result<()> {

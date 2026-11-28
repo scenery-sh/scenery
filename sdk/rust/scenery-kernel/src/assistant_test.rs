@@ -111,7 +111,14 @@ async fn exercise() -> anyhow::Result<()> {
     let generation = Arc::new(Generation {
         number: 1,
         identity: worker.program.identity.clone(),
-        workers: [(worker.program.process.clone(), worker)].into(),
+        workers: [(
+            worker.program.process.clone(),
+            Arc::new(crate::supervisor::WorkerSlot::warm(
+                std::path::PathBuf::new(),
+                worker,
+            )),
+        )]
+        .into(),
         retired: CancellationToken::new(),
     });
     let (_publication, rx) = tokio::sync::watch::channel(Some(generation));
