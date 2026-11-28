@@ -252,6 +252,9 @@ func discoverUnrecordedDockerOrphans(ctx context.Context, docker worktreePostgre
 	currentUIDStr := strconv.Itoa(currentUID)
 	var discovered []localagent.OrphanedWorktree
 	for _, c := range containers {
+		if c.Running {
+			continue
+		}
 		instanceID := c.Labels["scenery.resource.instance"]
 		appRoot := c.Labels["scenery.worktree.root"]
 		appID := c.Labels["scenery.worktree.app"]
@@ -271,12 +274,18 @@ func discoverUnrecordedDockerOrphans(ctx context.Context, docker worktreePostgre
 			continue
 		}
 		knownInstances[instanceID] = true
+		updatedAt := c.UpdatedAt
+		if updatedAt.IsZero() {
+			// Fail closed on missing timestamps so unparseable containers never bypass --older-than.
+			updatedAt = time.Now().UTC()
+		}
 		sum := sha256.Sum256([]byte(daemonID + "\x00" + instanceID + "\x00" + appRoot))
 		discovered = append(discovered, localagent.OrphanedWorktree{
 			Key:          "docker:" + instanceID,
 			AppRoot:      appRoot,
 			AppID:        appID,
 			UserID:       currentUID,
+			UpdatedAt:    updatedAt,
 			RecordDigest: "sha256:" + hex.EncodeToString(sum[:]),
 			Postgres: &localagent.OrphanedWorktreePostgres{
 				InstanceID:     instanceID,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -21,6 +22,7 @@ type worktreePostgresContainer struct {
 	Running, Writable                                bool
 	Port                                             int
 	HostIP                                           string
+	UpdatedAt                                        time.Time
 	Labels                                           map[string]string
 }
 
