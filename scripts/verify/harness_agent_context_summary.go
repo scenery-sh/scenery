@@ -41,7 +41,7 @@ func buildHarnessAgentContextSummary(resp harnessSelfResponse, contextPack harne
 	fullTests, fullVet := false, false
 	for _, step := range resp.Steps {
 		fullTests = fullTests || (step.OK && harnessStepRunsFullGoSuite(step))
-		fullVet = fullVet || (step.OK && step.Name == "go vet" && strings.Join(step.Command, " ") == "go vet ./...")
+		fullVet = fullVet || (step.OK && harnessStepCoversGoVet(step))
 	}
 	summary := harnessAgentContextSummary{
 		cliPayloadIdentity: newCLIPayloadIdentity(harnessAgentContextSummaryKind),
@@ -138,4 +138,10 @@ func harnessAgentStepCoversCommand(step harnessStep, command string) bool {
 func harnessStepRunsFullGoSuite(step harnessStep) bool {
 	command := strings.Join(step.Command, " ")
 	return step.Name == "go tests" && (command == strings.Join(harnessSelfGoTestCommand(), " ") || command == strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "))
+}
+
+func harnessStepCoversGoVet(step harnessStep) bool {
+	command := strings.Join(step.Command, " ")
+	return (step.Name == "golangci-lint" && command == "golangci-lint run ./...") ||
+		(step.Name == "go vet" && command == "go vet ./...")
 }

@@ -508,3 +508,45 @@ async fn mime_structured_suffix_and_encoding_negotiation_match_contract_rules() 
     assert_eq!(reply.headers()["content-encoding"], "gzip");
     Ok(())
 }
+
+#[test]
+fn runtime_parity_v1_http_negotiation() {
+    let raw = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../internal/contract/testdata/runtime-parity-v1.json"),
+    )
+    .expect("read runtime-parity-v1.json");
+    let doc: Value = serde_json::from_str(&raw).expect("parse runtime-parity-v1.json");
+    let cases = doc["http_negotiation"]
+        .as_array()
+        .expect("http_negotiation array");
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let mut headers = HeaderMap::new();
+        for line in case["accept"].as_array().unwrap() {
+            headers.append(
+                "accept",
+                HeaderValue::from_str(line.as_str().unwrap()).unwrap(),
+            );
+        }
+        let offered: Vec<String> = case["offered"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let reject = case["reject"].as_bool().unwrap_or(false);
+        let result = negotiate_media(&headers, &offered);
+        if reject {
+            assert!(
+                result.is_none(),
+                "parity case {name}: expected rejection, got {:?}",
+                result
+            );
+        } else {
+            let want = case["want_media"].as_str().unwrap();
+            let got = result.unwrap_or_else(|| panic!("parity case {name}: expected {want}, got None"));
+            assert_eq!(got, want, "parity case {name}");
+        }
+    }
+}

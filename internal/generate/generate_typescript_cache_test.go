@@ -92,6 +92,7 @@ func TestExplicitTypeScriptGenerationOwnsItsCacheTarget(t *testing.T) {
 }
 
 func TestMissingCachedTypeScriptClientIsMaterializedOnce(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeMinimalGenerationFixture(t, root)
 	path := filepath.Join(root, testAppFilename)

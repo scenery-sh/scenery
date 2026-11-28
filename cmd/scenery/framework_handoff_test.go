@@ -190,3 +190,54 @@ func TestUpCommandContinuesWithHandedOffFramework(t *testing.T) {
 		t.Fatalf("up continued with %q", args)
 	}
 }
+
+func TestLinkedFrameworkHandoffKeepsActiveBinaryOnCompileFailureAndRecovers(t *testing.T) {
+	originalChanged, originalPrepare := changedAppFrameworkFunc, prepareFrameworkHandoffFunc
+	t.Cleanup(func() { changedAppFrameworkFunc, prepareFrameworkHandoffFunc = originalChanged, originalPrepare })
+
+	broken1 := build.DesiredFramework{Linked: true, Root: "/src/scenery", SourceDigest: "sha256:" + strings.Repeat("11", 32)}
+	broken2 := build.DesiredFramework{Linked: true, Root: "/src/scenery", SourceDigest: "sha256:" + strings.Repeat("22", 32)}
+	fixed := build.DesiredFramework{Linked: true, Root: "/src/scenery", SourceDigest: "sha256:" + strings.Repeat("33", 32)}
+	selected := broken1
+	changedAppFrameworkFunc = func(string) (build.DesiredFramework, bool) { return selected, true }
+
+	prepared := 0
+	prepareErr := errors.New("compile failed: syntax error in cmd/scenery/main.go")
+	prepareFrameworkHandoffFunc = func(context.Context, string) (*frameworkHandoff, error) {
+		prepared++
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		return &frameworkHandoff{Executable: "/app/.scenery/framework/bin/fixed/scenery", Version: "dev", SourceDigest: fixed.SourceDigest}, nil
+	}
+
+	var out bytes.Buffer
+	supervisor := &devSupervisor{root: t.TempDir(), console: newRunConsole(&out, &bytes.Buffer{}, false, true, "demo", "/app")}
+	var failed build.DesiredFramework
+
+	// First broken WIP edit keeps active binary and emits a structured warning once.
+	for range 2 {
+		if handoff := supervisor.frameworkHandoffBeforeBuild(context.Background(), &failed); handoff != nil {
+			t.Fatalf("broken linked checkout handed off: %+v", handoff)
+		}
+	}
+	if prepared != 1 || strings.Count(out.String(), `"framework.handoff_failed"`) != 1 || !strings.Contains(out.String(), `"kept_active":true`) {
+		t.Fatalf("expected 1 prepare and 1 framework.handoff_failed warning, got prepared=%d:\n%s", prepared, out.String())
+	}
+
+	// A second broken edit (new SourceDigest) retries once and still keeps active binary.
+	selected = broken2
+	if handoff := supervisor.frameworkHandoffBeforeBuild(context.Background(), &failed); handoff != nil {
+		t.Fatalf("second broken edit handed off: %+v", handoff)
+	}
+	if prepared != 2 || strings.Count(out.String(), `"framework.handoff_failed"`) != 2 {
+		t.Fatalf("expected retry on new digest, got prepared=%d:\n%s", prepared, out.String())
+	}
+
+	// Once fixed, the next edit compiles and hands off cleanly.
+	selected, prepareErr = fixed, nil
+	handoff := supervisor.frameworkHandoffBeforeBuild(context.Background(), &failed)
+	if handoff == nil || handoff.SourceDigest != fixed.SourceDigest || prepared != 3 {
+		t.Fatalf("fixed linked checkout handoff = %+v after %d preparations", handoff, prepared)
+	}
+}

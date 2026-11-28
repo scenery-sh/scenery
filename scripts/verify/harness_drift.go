@@ -34,7 +34,10 @@ var (
 		{name: "go", scope: "required", required: true, args: []string{"version"}},
 		{name: "git", scope: "required", required: true, args: []string{"version"}},
 		{name: "scenery", scope: "required", required: true, args: []string{"version", "-o", "json"}},
+		{name: "cargo", scope: "required-for-rust", args: []string{"--version"}},
+		{name: "golangci-lint", scope: "recommended-for-go", args: []string{"--version"}},
 		{name: "bun", scope: "required-for-ui", args: []string{"--version"}},
+		{name: "uv", scope: "optional-for-python", args: []string{"--version"}},
 		{name: "docker", scope: "optional", args: []string{"--version"}},
 	}
 	harnessProbeTool = probeHarnessTool
@@ -714,7 +717,7 @@ func harnessStepEffects(step harnessStep) []string {
 	set := map[string]bool{}
 	for _, arg := range step.Command {
 		switch arg {
-		case "go", "bun", "git":
+		case "go", "gofmt", "golangci-lint", "bun", "git":
 			set["external-binary"] = true
 		}
 	}
@@ -848,8 +851,15 @@ func harnessStepEffects(step harnessStep) []string {
 		set["external-binary"] = true
 	case "scenery binary fresh":
 		set["path-binary"] = true
-	case "toolchain preflight":
+	case "toolchain preflight", "golangci-lint":
 		set["external-binary"] = true
+	case "gofmt":
+		set["external-binary"] = true
+		set["filesystem-read"] = true
+	case "scn doc format":
+		set["external-binary"] = true
+		set["filesystem-read"] = true
+		set["tempdir"] = true
 	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "architecture checks":
 		set["filesystem-read"] = true
 	}

@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -131,5 +132,78 @@ func TestStrictRecordsAndOwnedCandidatePaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(pathsFromGit(" leading.go\x00line\nname.go\x00"), []string{" leading.go", "line\nname.go"}) {
 		t.Fatal("Git paths changed bytes")
+	}
+}
+
+func TestLandFailsFastOnOverlappingDirtyMainBeforePolicyGates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmp := t.TempDir()
+	origin := filepath.Join(tmp, "origin.git")
+	mainRoot := filepath.Join(tmp, "main")
+	gateRanPath := filepath.Join(tmp, "gate-ran.txt")
+
+	mustGit := func(dir string, args ...string) {
+		t.Helper()
+		if _, err := git(ctx, dir, args...); err != nil {
+			t.Fatalf("git %v in %s: %v", args, dir, err)
+		}
+	}
+	mustGit(tmp, "init", "--bare", origin)
+	mustGit(tmp, "init", "-b", "main", mainRoot)
+	mustGit(mainRoot, "config", "user.name", "Test")
+	mustGit(mainRoot, "config", "user.email", "test@example.com")
+
+	policy := Policy{
+		Version:    1,
+		ProbeLimit: 1,
+		Landing: []Check{{
+			ID:      "sentinel",
+			Command: "sh",
+			Args:    []string{"-c", `echo ran > "$1"`, "--", gateRanPath},
+		}},
+	}
+	if err := writeJSON(filepath.Join(mainRoot, PolicyFile), policy, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainRoot, "shared.txt"), []byte("base\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(mainRoot, "add", PolicyFile, "shared.txt")
+	mustGit(mainRoot, "commit", "--no-gpg-sign", "-m", "initial")
+	mustGit(mainRoot, "remote", "add", "origin", origin)
+	mustGit(mainRoot, "push", "-u", "origin", "main")
+
+	manager, err := Open(ctx, mainRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(ctx, "alpha", "test overlapping main", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Path, "shared.txt"), []byte("feature\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(record.Path, "add", "shared.txt")
+	mustGit(record.Path, "commit", "--no-gpg-sign", "-m", "edit shared")
+
+	candidate, err := manager.Prepare(ctx, []string{"alpha"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dirty the overlapping file on main before landing.
+	if err := os.WriteFile(filepath.Join(mainRoot, "shared.txt"), []byte("dirty main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := manager.Land(ctx, candidate.ID, candidate.Revision)
+	if err == nil || !strings.Contains(err.Error(), "main has overlapping outstanding work: shared.txt") {
+		t.Fatalf("Land error = %v, want overlapping outstanding work on shared.txt", err)
+	}
+	if _, statErr := os.Stat(gateRanPath); !os.IsNotExist(statErr) {
+		t.Fatalf("policy gate executed before main cleanliness precheck (sentinel %s exists)", gateRanPath)
+	}
+	if len(got.Receipts) != 0 {
+		t.Fatalf("unexpected receipts recorded before fail-fast rejection: %+v", got.Receipts)
 	}
 }

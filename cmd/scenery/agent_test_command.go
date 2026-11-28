@@ -213,6 +213,7 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	for _, record := range results {
 		success = success && record.OK
 	}
+	wroteOutput := false
 	if jsonOutput {
 		data := map[string]any{
 			"ok": success, "app_root": root, "modules": results, "duration_ms": time.Since(started).Milliseconds(),
@@ -227,6 +228,7 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 		if err := writeCLIJSON(out, payload); err != nil {
 			return err
 		}
+		wroteOutput = true
 	} else {
 		for _, result := range results {
 			state := "passed"
@@ -241,10 +243,14 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 			if result.Output != "" {
 				_, _ = fmt.Fprintln(out, result.Output)
 			}
+			wroteOutput = true
 		}
 	}
 	if !success {
-		return &silentCLIError{err: fmt.Errorf("module tests failed"), code: 3}
+		if wroteOutput {
+			return &silentCLIError{err: fmt.Errorf("module tests failed"), code: 3}
+		}
+		return &codedCLIError{err: fmt.Errorf("module tests failed"), code: 3}
 	}
 	return nil
 }

@@ -492,3 +492,32 @@ func TestUpCommandDelegatesValidationToWatchLoop(t *testing.T) {
 		t.Fatal("up did not delegate validation to the watch loop")
 	}
 }
+
+type failingCLIWriter struct{ err error }
+
+func (w failingCLIWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestCLIEncodeFailureNeverExitsSilently(t *testing.T) {
+	t.Parallel()
+	for _, format := range []string{"json", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			var stderr strings.Builder
+			code := executeCLIWith([]string{"compile", "-o", format}, failingCLIWriter{err: errors.New("broken pipe")}, &stderr, time.Now(), func([]string, *cliTelemetryInvocation) error {
+				return errors.New("failed_precondition: stale plan")
+			}, func(cliTelemetryRecord) {})
+			if code != 10 {
+				t.Fatalf("exit code = %d, want 10", code)
+			}
+			if !strings.Contains(stderr.String(), "broken pipe") {
+				t.Fatalf("expected stderr explanation when stdout encode fails, got %q", stderr.String())
+			}
+		})
+	}
+	var stdout, stderr strings.Builder
+	code := executeCLIWith([]string{"compile"}, &stdout, &stderr, time.Now(), func([]string, *cliTelemetryInvocation) error {
+		return errors.New("")
+	}, func(cliTelemetryRecord) {})
+	if code == 0 || strings.TrimSpace(stderr.String()) == "" {
+		t.Fatalf("empty error exited silently: code=%d stderr=%q", code, stderr.String())
+	}
+}

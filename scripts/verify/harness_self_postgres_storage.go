@@ -23,7 +23,11 @@ func runPostgresStorageCaptureExclusion(ctx context.Context, repo, root, databas
 	defer func() { returnErr = errors.Join(returnErr, db.Close()) }()
 	var output bytes.Buffer
 	shell := commandTreeContext(ctx, harnessLocalSceneryBinaryPath(repo), "db", "shell", "--app-root", root, "reports", "-c", "SELECT pg_sleep(3) /* scenery_storage_capture_probe */")
-	shell.Env = envpolicy.Environ()
+	var shellOverrides []string
+	if home := envpolicy.Get("SCENERY_AGENT_HOME"); home != "" {
+		shellOverrides = append(shellOverrides, "SCENERY_AGENT_HOME="+home)
+	}
+	shell.Env = scrubSceneryProbeEnv(envpolicy.Environ(), shellOverrides...)
 	shell.Stdout, shell.Stderr = &output, &output
 	if err := shell.Start(); err != nil {
 		return err
@@ -76,7 +80,11 @@ func runPostgresStorageCaptureExclusion(ctx context.Context, repo, root, databas
 // publication, then after publication but before recovery-marker removal.
 // Rejected SQL-only mutation and exact resume use the normal product binary.
 func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseURL, archive string, evidence map[string]any) error {
-	p := &worktreeRuntimeProbe{ctx: ctx, repo: repo, root: filepath.Join(filepath.Dir(root), "storage-recovery"), binary: harnessLocalSceneryBinaryPath(repo), env: envpolicy.Environ()}
+	var recoveryOverrides []string
+	if home := envpolicy.Get("SCENERY_AGENT_HOME"); home != "" {
+		recoveryOverrides = append(recoveryOverrides, "SCENERY_AGENT_HOME="+home)
+	}
+	p := &worktreeRuntimeProbe{ctx: ctx, repo: repo, root: filepath.Join(filepath.Dir(root), "storage-recovery"), binary: harnessLocalSceneryBinaryPath(repo), env: scrubSceneryProbeEnv(envpolicy.Environ(), recoveryOverrides...)}
 	variant, control, ack, provenance, err := p.buildCheckpointVariant()
 	if err != nil {
 		return err

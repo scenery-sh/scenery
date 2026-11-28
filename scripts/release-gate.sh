@@ -131,6 +131,13 @@ lint_go() {
   run golangci-lint run ./...
 }
 
+test_rust() {
+  cd "$ROOT"
+  need cargo
+  run cargo test --locked --manifest-path sdk/rust/scenery-kernel/Cargo.toml
+  run cargo test --locked --manifest-path sdk/rust/scenery-sdk/Cargo.toml
+}
+
 repository_verification() {
   cd "$ROOT"
   run go run ./scripts/verify --release --summary --write || return $?
@@ -248,6 +255,7 @@ main() {
   printf 'scenery release gate\nroot: %s\nlogs: %s\n' "$ROOT" "$LOG_DIR"
 
   step "go lint" lint_go
+  step "rust tests" test_rust
   step "repository verification" repository_verification
   step "source snapshot build" source_snapshot_build
   step "fixture smoke" fixture_smoke

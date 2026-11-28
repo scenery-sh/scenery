@@ -34,6 +34,9 @@ const (
 	commandTimeout   = 2 * time.Second
 	minGoMajor       = 1
 	minGoMinor       = 27
+	minCargoMajor    = 1
+	minCargoMinor    = 99
+	minCargoPatch    = 1
 	diskWarnBytes    = 5 * 1024 * 1024 * 1024
 	diskErrorBytes   = 1 * 1024 * 1024 * 1024
 	sizeWalkTimeout  = 2 * time.Second

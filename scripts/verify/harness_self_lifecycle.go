@@ -89,7 +89,7 @@ export "item" { value = record.item }
 	}
 	for _, args := range [][]string{{"generate"}, {"generate", "--check"}} {
 		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), append(args, "--app-root", root, "-o", "json")...)
-		cmd.Env = append(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_HOME"), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
+		cmd.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {

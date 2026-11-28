@@ -49,7 +49,7 @@ func runHarnessStorageProbeCommand(ctx context.Context, repoRoot, agentHome stri
 // live foreign agents, that contention killed the machine's real agent, and
 // now it would correctly fail the probe agent closed instead.
 func harnessStorageProbeEnv(agentHome string) []string {
-	return envWithOverrides(envpolicy.Environ(),
+	return scrubSceneryProbeEnv(envpolicy.Environ(),
 		"SCENERY_AGENT_HOME="+agentHome,
 		"SCENERY_AGENT_ROUTER_ADDR=127.0.0.1:0",
 	)

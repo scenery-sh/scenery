@@ -91,12 +91,20 @@ func harnessPackageForFile(repoRoot, relPath string, packages []PackageInfo) (Pa
 
 func classifyHarnessChangedFile(path string) string {
 	switch {
-	case path == "AGENTS.md" || strings.HasSuffix(path, "/AGENTS.md"):
+	case path == "AGENTS.md" || strings.HasSuffix(path, "/AGENTS.md") || path == "CLAUDE.md" || strings.HasSuffix(path, "/CLAUDE.md"):
 		return "docs"
 	case strings.HasPrefix(path, "cmd/scenery/"):
 		return "cli"
 	case strings.HasPrefix(path, "internal/"):
 		return "internal"
+	case strings.HasPrefix(path, "sdk/rust/scenery-kernel/"):
+		return "rust-kernel"
+	case strings.HasPrefix(path, "sdk/rust/scenery-sdk/"):
+		return "rust-sdk"
+	case strings.HasPrefix(path, "sdk/js/"):
+		return "js-sdk"
+	case strings.HasPrefix(path, "sdk/python/"):
+		return "python-sdk"
 	case harnessPublicRuntimePath(path):
 		return "runtime"
 	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "tools/typescript/"):
@@ -119,15 +127,9 @@ func classifyHarnessChangedFile(path string) string {
 func harnessPublicRuntimePath(path string) bool {
 	for _, prefix := range []string{
 		"auth/",
-		"cron/",
 		"datasource/",
 		"db/",
-		"library/",
-		"middleware/",
-		"model/",
 		"object/",
-		"page/",
-		"rlog/",
 		"runtime/",
 		"storage/",
 	} {
@@ -173,6 +175,23 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 	case "runtime":
 		docs["ARCHITECTURE.md"] = true
 		risks["runtime-contract"] = true
+	case "rust-kernel":
+		docs["ARCHITECTURE.md"] = true
+		docs["docs/spec/WORKER-ABI.md"] = true
+		risks["rust-kernel-contract"] = true
+		commands["cargo test --locked --manifest-path sdk/rust/scenery-kernel/Cargo.toml"] = true
+	case "rust-sdk":
+		docs["docs/spec/WORKER-ABI.md"] = true
+		risks["rust-sdk-contract"] = true
+		commands["cargo test --locked --manifest-path sdk/rust/scenery-sdk/Cargo.toml"] = true
+	case "js-sdk":
+		docs["docs/spec/WORKER-ABI.md"] = true
+		risks["js-sdk-contract"] = true
+		commands["go run ./scripts/verify --probe polyglot-tests --summary --write"] = true
+	case "python-sdk":
+		docs["docs/spec/WORKER-ABI.md"] = true
+		risks["python-sdk-contract"] = true
+		commands["python3 -B sdk/python/tests/test_worker_wire.py"] = true
 	case "internal":
 		if harnessOptionalUIPath(path) {
 			docs["ARCHITECTURE.md"] = true

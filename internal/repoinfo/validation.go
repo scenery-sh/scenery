@@ -124,7 +124,11 @@ func harnessCLIJSONContractPath(path, category string) bool {
 }
 
 func harnessReleaseSensitivePath(path, category string) bool {
-	if category == "runtime" || category == "dependency" || category == "script" || harnessConnectionPath(path) {
+	switch category {
+	case "runtime", "dependency", "script", "rust-kernel", "rust-sdk", "js-sdk", "python-sdk":
+		return true
+	}
+	if harnessConnectionPath(path) {
 		return true
 	}
 	for _, prefix := range []string{

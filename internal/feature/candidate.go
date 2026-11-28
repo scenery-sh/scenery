@@ -370,6 +370,9 @@ func (m *Manager) Land(ctx context.Context, id, expected string) (Candidate, err
 	if main != c.Tip && !ancestor(ctx, m.MainRoot, main, c.Base) {
 		return c, errors.New("local main diverged; publication cannot discard its work")
 	}
+	if err := m.checkMainReadyForFastForward(ctx, main, c.Tip); err != nil {
+		return c, err
+	}
 	c, err = m.validateCandidate(ctx, c)
 	if err != nil {
 		return c, err
@@ -386,20 +389,8 @@ func (m *Manager) Land(ctx context.Context, id, expected string) (Candidate, err
 		return c, err
 	}
 	if main != c.Tip {
-		branch, err := git(ctx, m.MainRoot, "symbolic-ref", "HEAD")
-		if err != nil || branch != "refs/heads/main" {
-			return c, errors.New("the integration checkout no longer owns main")
-		}
-		changed, err := changedPaths(ctx, m.MainRoot, main, c.Tip)
-		if err != nil {
+		if err := m.checkMainReadyForFastForward(ctx, main, c.Tip); err != nil {
 			return c, err
-		}
-		dirty, err := dirtyPaths(ctx, m.MainRoot)
-		if err != nil {
-			return c, err
-		}
-		if paths := intersection(changed, dirty); len(paths) > 0 {
-			return c, fmt.Errorf("main has overlapping outstanding work: %s", strings.Join(paths, ", "))
 		}
 		if _, err := git(ctx, m.MainRoot, "merge", "--ff-only", c.Tip); err != nil {
 			return c, err
@@ -423,6 +414,28 @@ func (m *Manager) Land(ctx context.Context, id, expected string) (Candidate, err
 		return c, err
 	}
 	return m.completeLanding(ctx, c)
+}
+
+func (m *Manager) checkMainReadyForFastForward(ctx context.Context, main, tip string) error {
+	if main == tip {
+		return nil
+	}
+	branch, err := git(ctx, m.MainRoot, "symbolic-ref", "HEAD")
+	if err != nil || branch != "refs/heads/main" {
+		return errors.New("the integration checkout no longer owns main")
+	}
+	changed, err := changedPaths(ctx, m.MainRoot, main, tip)
+	if err != nil {
+		return err
+	}
+	dirty, err := dirtyPaths(ctx, m.MainRoot)
+	if err != nil {
+		return err
+	}
+	if paths := intersection(changed, dirty); len(paths) > 0 {
+		return fmt.Errorf("main has overlapping outstanding work: %s", strings.Join(paths, ", "))
+	}
+	return nil
 }
 
 func (m *Manager) completeLanding(ctx context.Context, c Candidate) (Candidate, error) {

@@ -78,7 +78,7 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 		return summary, err.Error()
 	}
 	p := &worktreeRuntimeProbe{ctx: ctx, repo: repoRoot, root: root, home: filepath.Join(root, "state"), binary: harnessLocalSceneryBinaryPath(repoRoot), binaries: map[string]string{}}
-	p.env = envWithOverrides(envWithoutKeys(envpolicy.Environ(), "DATABASE_URL", "SCENERY_APP_ROOT", "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "SCENERY_DEV_DASHBOARD_ADDR", "GOWORK", "GOFLAGS", detachedDevChildEnv), "SCENERY_AGENT_HOME="+p.home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
+	p.env = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+p.home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
 	// In-process observation and verified resource cleanup select the same
 	// authority as the child CLIs. No user DSN is inherited by this probe.
 	restore := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(p.home), "DATABASE_URL": nil})

@@ -35,7 +35,7 @@ func copyHarnessBasicFixture(repoRoot, appRoot string) error {
 }
 
 func harnessAppEnv(home string) []string {
-	return envWithOverrides(envWithoutKeys(envpolicy.Environ(), "DATABASE_URL", "SCENERY_APP_ROOT", "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "SCENERY_DEV_DASHBOARD_ADDR", "SCENERY_DEV_CACHE_DIR", "GOWORK", "GOFLAGS", detachedDevChildEnv),
+	return scrubSceneryProbeEnv(envpolicy.Environ(),
 		"SCENERY_AGENT_HOME="+home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0", "GOWORK=off")
 }
 

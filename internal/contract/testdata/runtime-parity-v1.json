@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "http_negotiation": [
+    {
+      "name": "exact_match_default_q",
+      "accept": ["application/json"],
+      "offered": ["application/json", "text/plain"],
+      "want_media": "application/json"
+    },
+    {
+      "name": "higher_q_wins",
+      "accept": ["text/plain;q=0.5, application/json;q=0.9"],
+      "offered": ["text/plain", "application/json"],
+      "want_media": "application/json"
+    },
+    {
+      "name": "uppercase_Q_parameter",
+      "accept": ["text/plain; Q=0.2, application/json; Q=0.8"],
+      "offered": ["text/plain", "application/json"],
+      "want_media": "application/json"
+    },
+    {
+      "name": "empty_header_lines_ignored",
+      "accept": ["", "   ", "application/json"],
+      "offered": ["application/json"],
+      "want_media": "application/json"
+    },
+    {
+      "name": "reject_q_zero",
+      "accept": ["application/json;q=0"],
+      "offered": ["application/json"],
+      "reject": true
+    },
+    {
+      "name": "reject_q_above_one",
+      "accept": ["application/json;q=1.5"],
+      "offered": ["application/json"],
+      "reject": true
+    },
+    {
+      "name": "reject_q_nan",
+      "accept": ["application/json;q=NaN"],
+      "offered": ["application/json"],
+      "reject": true
+    },
+    {
+      "name": "reject_q_non_numeric",
+      "accept": ["application/json;q=abc"],
+      "offered": ["application/json"],
+      "reject": true
+    },
+    {
+      "name": "reject_unacceptable_media",
+      "accept": ["application/problem+xml"],
+      "offered": ["application/problem+json"],
+      "reject": true
+    }
+  ],
+  "transport_errors": [
+    {
+      "name": "http_400_invalid_argument_not_sent",
+      "status": 400,
+      "body": "{\"code\":\"invalid_argument\",\"message\":\"bad payload\"}",
+      "want_code": "invalid_argument",
+      "want_delivery": "not_sent"
+    },
+    {
+      "name": "http_403_permission_denied_not_sent",
+      "status": 403,
+      "body": "{\"code\":\"permission_denied\",\"message\":\"denied\"}",
+      "want_code": "permission_denied",
+      "want_delivery": "not_sent"
+    },
+    {
+      "name": "http_404_not_found_not_sent",
+      "status": 404,
+      "body": "{\"code\":\"not_found\",\"message\":\"missing\"}",
+      "want_code": "not_found",
+      "want_delivery": "not_sent"
+    },
+    {
+      "name": "http_400_system_internal_normalizes_to_unavailable_not_sent",
+      "status": 400,
+      "body": "{\"code\":\"system.internal\",\"message\":\"internal\"}",
+      "want_code": "unavailable",
+      "want_delivery": "not_sent"
+    },
+    {
+      "name": "http_500_system_internal_normalizes_to_unavailable_unknown",
+      "status": 500,
+      "body": "{\"code\":\"system.internal\",\"message\":\"contract implementation failure\"}",
+      "want_code": "unavailable",
+      "want_delivery": "unknown"
+    },
+    {
+      "name": "http_502_plain_text_unavailable_unknown",
+      "status": 502,
+      "body": "bad gateway",
+      "want_code": "unavailable",
+      "want_delivery": "unknown"
+    },
+    {
+      "name": "http_503_unavailable_unknown",
+      "status": 503,
+      "body": "{\"code\":\"unavailable\",\"message\":\"overloaded\"}",
+      "want_code": "unavailable",
+      "want_delivery": "unknown"
+    },
+    {
+      "name": "http_504_deadline_exceeded_unknown",
+      "status": 504,
+      "body": "{\"code\":\"deadline_exceeded\",\"message\":\"timed out\"}",
+      "want_code": "deadline_exceeded",
+      "want_delivery": "unknown"
+    }
+  ]
+}

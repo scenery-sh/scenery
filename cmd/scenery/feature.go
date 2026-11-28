@@ -211,7 +211,7 @@ func watchFeatures(ctx context.Context, stdout io.Writer, manager *feature.Manag
 				data["diagnostic"] = cliErrorDiagnostic(returnErr)
 			}
 			if err := events.write("summary", true, data); err != nil {
-				returnErr = &silentCLIError{err: fmt.Errorf("encode feature summary: %w", err), code: 10}
+				returnErr = &codedCLIError{err: fmt.Errorf("encode feature summary: %w", err), code: 10}
 			} else if returnErr != nil {
 				returnErr = &silentCLIError{err: returnErr, code: cliExitCode(returnErr)}
 			}

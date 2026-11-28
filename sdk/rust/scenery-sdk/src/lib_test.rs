@@ -258,3 +258,34 @@ fn event_emit_failure_attaches_delivery_and_normalizes_server_errors() {
         Some("unknown")
     );
 }
+
+#[test]
+fn runtime_parity_v1_transport_errors() {
+    let raw = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../internal/contract/testdata/runtime-parity-v1.json"),
+    )
+    .expect("read runtime-parity-v1.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse runtime-parity-v1.json");
+    let cases = doc["transport_errors"]
+        .as_array()
+        .expect("transport_errors array");
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let status = StatusCode::from_u16(case["status"].as_u64().unwrap() as u16).unwrap();
+        let body = case["body"].as_str().unwrap().as_bytes();
+        let want_code = case["want_code"].as_str().unwrap();
+        let want_delivery = case["want_delivery"].as_str().unwrap();
+        let failure = event_emit_failure(status, body);
+        assert_eq!(
+            failure.code.as_deref(),
+            Some(want_code),
+            "parity case {name}: code mismatch"
+        );
+        assert_eq!(
+            failure.meta.as_ref().and_then(|m| m["delivery"].as_str()),
+            Some(want_delivery),
+            "parity case {name}: delivery mismatch"
+        );
+    }
+}

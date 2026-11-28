@@ -113,7 +113,7 @@ func proveHarnessSupervisorTiming(parent context.Context, repo string) (map[stri
 	}
 	command := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repo), "telemetry", "report", "--since", "24h", "-o", "json")
 	command.Dir = root
-	command.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_AGENT_HOME="+home)
+	command.Env = scrubSceneryProbeEnv(envpolicy.Environ(), "SCENERY_AGENT_HOME="+home)
 	command.WaitDelay = 2 * time.Second
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
