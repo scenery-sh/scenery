@@ -153,3 +153,55 @@ func TestPruneOrphanedRejectsScopedAndHalfConfirmedRequests(t *testing.T) {
 		}
 	}
 }
+
+type fakeOrphanedDockerWithList struct {
+	*fakeWorktreePostgresDocker
+	listed []worktreePostgresContainer
+}
+
+func (f *fakeOrphanedDockerWithList) ListManagedContainers(context.Context) ([]worktreePostgresContainer, error) {
+	return f.listed, nil
+}
+
+func TestPruneOrphanedDiscoversUnrecordedDockerContainers(t *testing.T) {
+	home := localagent.PathsForHome(filepath.Join(t.TempDir(), ".scenery"))
+	commandAgentPathsOverride = &home
+	t.Cleanup(func() { commandAgentPathsOverride = nil })
+
+	missingRoot := filepath.Join(t.TempDir(), "deleted-worktree")
+	existingRoot := t.TempDir()
+	missingRec := localagent.WorktreeRecord{AppRoot: missingRoot, AppID: "factoryapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: orphanedTestInstance}}
+	existingRec := localagent.WorktreeRecord{AppRoot: existingRoot, AppID: "liveapp", UserID: os.Getuid(), Postgres: &localagent.WorktreePostgres{InstanceID: "fedcba9876543210fedcba9876543210"}}
+
+	base := &fakeWorktreePostgresDocker{
+		id:        "owned-daemon",
+		volume:    &worktreePostgresVolume{Name: "scenery-pg-data-" + orphanedTestInstance, Labels: worktreePostgresLabels(missingRec)},
+		container: &worktreePostgresContainer{ID: "orphan-c", Name: "scenery-pg-" + orphanedTestInstance, Volume: "scenery-pg-data-" + orphanedTestInstance, Running: false, Labels: worktreePostgresLabels(missingRec)},
+	}
+	docker := &fakeOrphanedDockerWithList{
+		fakeWorktreePostgresDocker: base,
+		listed: []worktreePostgresContainer{
+			*base.container,
+			{ID: "live-c", Name: "scenery-pg-fedcba9876543210fedcba9876543210", Volume: "scenery-pg-data-fedcba9876543210fedcba9876543210", Running: true, Labels: worktreePostgresLabels(existingRec)},
+		},
+	}
+	newOrphanedWorktreeDocker = func(context.Context) (worktreePostgresDocker, error) { return docker, nil }
+	t.Cleanup(func() {
+		newOrphanedWorktreeDocker = func(ctx context.Context) (worktreePostgresDocker, error) { return newWorktreeDockerClient(ctx) }
+	})
+
+	preview, err := runPruneOrphanedForTest(t, "--older-than", "1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Records) != 1 || !preview.Records[0].Selected || preview.Records[0].Key != "docker:"+orphanedTestInstance {
+		t.Fatalf("preview = %+v", preview)
+	}
+	applied, err := runPruneOrphanedForTest(t, "--older-than", "1h", "--yes", "--expect-revision", preview.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Removed != 1 || applied.Failed != 0 || base.container != nil || base.volume != nil {
+		t.Fatalf("applied = %+v, container=%v volume=%v", applied, base.container, base.volume)
+	}
+}

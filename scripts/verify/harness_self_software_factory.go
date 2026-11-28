@@ -74,7 +74,10 @@ func verifySoftwareFactory(parent context.Context, repo string) (summary map[str
 		defer cleanupCancel()
 		_, _ = runHarnessAppCLI(cleanupCtx, repo, appRoot, home, "down", "-o", "json")
 		for _, wt := range extraWorktrees {
-			_ = cleanupHarnessWorktreePostgres(cleanupCtx, wt, "factoryapp")
+			_, _ = runHarnessAppCLI(cleanupCtx, repo, wt, home, "down", "-o", "json")
+			if pgErr := cleanupHarnessWorktreePostgres(cleanupCtx, wt, "factoryapp"); pgErr != nil {
+				err = errors.Join(err, pgErr)
+			}
 			_, _ = runHarnessAppCLI(cleanupCtx, repo, appRoot, home, "worktree", "remove", "branch-wt", "--force", "-o", "json")
 		}
 		if pgErr := cleanupHarnessWorktreePostgres(cleanupCtx, appRoot, "factoryapp"); pgErr != nil {
