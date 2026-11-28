@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
+	"time"
 
 	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devprocess"
@@ -100,7 +102,50 @@ func Host(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return executable, os.Rename(staged.Name(), executable)
+	if err := os.Rename(staged.Name(), executable); err != nil {
+		return "", err
+	}
+	pruneOldHostDigests(cache, digest, 3)
+	return executable, nil
+}
+
+// pruneOldHostDigests keeps the newest keepCount worker-host digest directories
+// (always retaining activeDigest and the shared cargo target directory) so
+// repeated edits to scenery-kernel do not accumulate unbounded host snapshots.
+func pruneOldHostDigests(cache, activeDigest string, keepCount int) {
+	entries, err := os.ReadDir(cache)
+	if err != nil {
+		return
+	}
+	type digestDir struct {
+		name    string
+		modTime time.Time
+	}
+	var candidates []digestDir
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == "target" || name == activeDigest || len(name) != 64 {
+			continue
+		}
+		info, statErr := entry.Info()
+		if statErr != nil {
+			continue
+		}
+		candidates = append(candidates, digestDir{name: name, modTime: info.ModTime()})
+	}
+	keepOthers := max(keepCount-1, 0)
+	if len(candidates) <= keepOthers {
+		return
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
+	for _, old := range candidates[keepOthers:] {
+		_ = os.RemoveAll(filepath.Join(cache, old.name))
+	}
 }
 
 // ExportHostSources writes the Host's Cargo sources beneath root:

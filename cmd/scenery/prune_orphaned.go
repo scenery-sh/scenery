@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +55,10 @@ var newOrphanedWorktreeDocker = func(ctx context.Context) (worktreePostgresDocke
 	return newWorktreeDockerClient(ctx)
 }
 
+type orphanedDockerLister interface {
+	ListManagedContainers(context.Context) ([]worktreePostgresContainer, error)
+}
+
 // orphanedWorktreeSelection is one orphan with the verdict a preview and its
 // application must agree on.
 type orphanedWorktreeSelection struct {
@@ -76,7 +82,8 @@ func runPruneOrphaned(ctx context.Context, stdout io.Writer, opts pruneOptions) 
 	if err != nil {
 		return err
 	}
-	docker, dockerErr := orphanedWorktreeDocker(ctx, orphans)
+	docker, dockerErr := newOrphanedWorktreeDocker(ctx)
+	orphans = append(orphans, discoverUnrecordedDockerOrphans(ctx, docker, dockerErr, orphans)...)
 	selection := make([]orphanedWorktreeSelection, 0, len(orphans))
 	for _, orphan := range orphans {
 		item := orphanedWorktreeSelection{orphan: orphan}
@@ -182,15 +189,6 @@ func orphanedSelectionRevision(selection []orphanedWorktreeSelection) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func orphanedWorktreeDocker(ctx context.Context, orphans []localagent.OrphanedWorktree) (worktreePostgresDocker, error) {
-	for _, orphan := range orphans {
-		if orphan.Postgres != nil {
-			return newOrphanedWorktreeDocker(ctx)
-		}
-	}
-	return nil, nil
-}
-
 // inspectOrphanedDatabase verifies the database resources an orphaned record
 // claims and returns why they may not be removed, or "". A record that cannot
 // be decoded strictly still names its resources, so every binding the current
@@ -228,7 +226,77 @@ func inspectOrphanedDatabase(ctx context.Context, docker worktreePostgresDocker,
 	return record, container, ""
 }
 
+func discoverUnrecordedDockerOrphans(ctx context.Context, docker worktreePostgresDocker, dockerErr error, existing []localagent.OrphanedWorktree) []localagent.OrphanedWorktree {
+	if dockerErr != nil || docker == nil {
+		return nil
+	}
+	lister, ok := docker.(orphanedDockerLister)
+	if !ok {
+		return nil
+	}
+	daemonID, daemonEndpoint, err := docker.Identity(ctx)
+	if err != nil {
+		return nil
+	}
+	containers, err := lister.ListManagedContainers(ctx)
+	if err != nil {
+		return nil
+	}
+	knownInstances := map[string]bool{}
+	for _, orphan := range existing {
+		if orphan.Postgres != nil && orphan.Postgres.InstanceID != "" {
+			knownInstances[orphan.Postgres.InstanceID] = true
+		}
+	}
+	currentUID := os.Getuid()
+	currentUIDStr := strconv.Itoa(currentUID)
+	var discovered []localagent.OrphanedWorktree
+	for _, c := range containers {
+		instanceID := c.Labels["scenery.resource.instance"]
+		appRoot := c.Labels["scenery.worktree.root"]
+		appID := c.Labels["scenery.worktree.app"]
+		if instanceID == "" || appRoot == "" || appID == "" || knownInstances[instanceID] {
+			continue
+		}
+		if c.Labels["scenery.worktree.user"] != currentUIDStr {
+			continue
+		}
+		if len(instanceID) != 32 || strings.Trim(instanceID, "0123456789abcdef") != "" {
+			continue
+		}
+		if c.Name != "scenery-pg-"+instanceID || c.Volume != "scenery-pg-data-"+instanceID {
+			continue
+		}
+		if _, statErr := os.Stat(appRoot); !os.IsNotExist(statErr) {
+			continue
+		}
+		knownInstances[instanceID] = true
+		sum := sha256.Sum256([]byte(daemonID + "\x00" + instanceID + "\x00" + appRoot))
+		discovered = append(discovered, localagent.OrphanedWorktree{
+			Key:          "docker:" + instanceID,
+			AppRoot:      appRoot,
+			AppID:        appID,
+			UserID:       currentUID,
+			RecordDigest: "sha256:" + hex.EncodeToString(sum[:]),
+			Postgres: &localagent.OrphanedWorktreePostgres{
+				InstanceID:     instanceID,
+				DaemonID:       daemonID,
+				DaemonEndpoint: daemonEndpoint,
+				Container:      c.Name,
+				Volume:         c.Volume,
+			},
+		})
+	}
+	return discovered
+}
+
 func removeOrphanedWorktree(ctx context.Context, home string, docker worktreePostgresDocker, dockerErr error, orphan localagent.OrphanedWorktree) error {
+	if orphan.Directory == "" {
+		if orphan.Postgres == nil {
+			return nil
+		}
+		return removeOrphanedDatabase(ctx, docker, dockerErr, orphan)
+	}
 	paths, err := localagent.PathsForWorktree(home, orphan.AppRoot)
 	if err != nil {
 		return err

@@ -81,6 +81,33 @@ func (d *worktreeDockerClient) HasRetainedResources(ctx context.Context, root st
 	return false, nil
 }
 
+// ListManagedContainers returns all local Docker containers carrying the
+// Scenery managed worktree root label, for orphaned resource discovery when
+// a checkout's local state record was deleted or belonged to a temp home.
+func (d *worktreeDockerClient) ListManagedContainers(ctx context.Context) ([]worktreePostgresContainer, error) {
+	out, err := d.run(ctx, "container", "ls", "--all", "--quiet", "--filter", "label=scenery.worktree.root")
+	if err != nil {
+		return nil, err
+	}
+	ids := strings.Fields(out)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var result []worktreePostgresContainer
+	for _, id := range ids {
+		inspected, err := d.run(ctx, "container", "inspect", id)
+		if err != nil {
+			continue
+		}
+		c, err := decodeWorktreePostgresContainer(inspected)
+		if err != nil || c == nil {
+			continue
+		}
+		result = append(result, *c)
+	}
+	return result, nil
+}
+
 func (d *worktreeDockerClient) mutate(ctx context.Context, record localagent.WorktreeRecord, args ...string) error {
 	id, endpoint, err := d.Identity(ctx)
 	if err != nil {
