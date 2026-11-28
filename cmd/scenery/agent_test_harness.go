@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,6 +45,7 @@ type testHostSummary struct {
 }
 
 type testDatabaseHarness struct {
+	cloneMu         sync.Mutex
 	admin           *sql.DB
 	adminURL        string
 	templateName    string
@@ -153,7 +155,9 @@ func (h *testDatabaseHarness) branchForModule(ctx context.Context, moduleName st
 		slug = strings.TrimRight(slug[:32], "_")
 	}
 	cloneName := fmt.Sprintf("scenery_test_%s_%s", slug, hex.EncodeToString(randBytes[:]))
+	h.cloneMu.Lock()
 	_, cloneDur, err := postgresdb.CloneDatabaseFromTemplate(ctx, h.admin, cloneName, h.templateName, true)
+	h.cloneMu.Unlock()
 	if err != nil {
 		return nil, nil, nil, err
 	}
