@@ -572,8 +572,14 @@ var helpCommands = []helpCommandEntry{
 	},
 	{
 		Command: "test", Group: "Build and checks", Summary: "Refresh application contracts and run native module tests.",
-		Usage:              []string{"scenery test [<module|directory>...] [--with-host] [--branch-db] [--app-root <path>] [-o human|json]"},
-		Flags:              []string{"--with-host", "--branch-db", "--app-root <path>", "-o human|json"},
+		Usage: []string{
+			"scenery test [<module|directory>...] [--with-host] [--branch-db] [--app-root <path>] [-o human|json]",
+			"scenery test --changed [--changed-base <ref>] [--with-host] [--branch-db] [--app-root <path>] [-o human|json]",
+		},
+		Flags: []string{"--changed", "--changed-base <ref>", "--with-host", "--branch-db", "--app-root <path>", "-o human|json"},
+		RequiredCombinations: []helpRequiredCombination{
+			{When: "--changed-base", Requires: []string{"--changed"}},
+		},
 		AppRootRequirement: "required", SideEffectClass: "local_artifacts",
 		OutputSchemas: []helpOutputSchema{{Mode: "tests", Kind: "scenery.test.result"}}, JSON: true, Stability: "beta",
 	},

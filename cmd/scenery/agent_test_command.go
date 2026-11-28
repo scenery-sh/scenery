@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,9 +20,11 @@ import (
 	"golang.org/x/mod/modfile"
 
 	appcfg "scenery.sh/internal/app"
+	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
+	"scenery.sh/internal/graph"
 	"scenery.sh/internal/pythonbuild"
 )
 
@@ -36,15 +39,29 @@ type moduleTestResult struct {
 
 func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	flags := newCLIFlagSet("test")
-	var root string
-	var jsonOutput, withHost, branchDB bool
+	var root, changedBase string
+	var jsonOutput, withHost, branchDB, changed bool
 	flags.StringVar(&root, "app-root", "", "")
 	flags.BoolVar(&withHost, "with-host", false, "")
 	flags.BoolVar(&branchDB, "branch-db", false, "")
+	flags.BoolVar(&changed, "changed", false, "")
+	flags.StringVar(&changedBase, "changed-base", "", "")
 	registerJSONOutput(flags, &jsonOutput)
 	targets, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return usageErrorf("%v", err)
+	}
+	if cliFlagSet(flags, "changed-base") {
+		if !changed {
+			return usageErrorf("--changed-base requires --changed")
+		}
+		changedBase = strings.TrimSpace(changedBase)
+		if changedBase == "" {
+			return usageErrorf("--changed-base must not be empty")
+		}
+	}
+	if changed && len(targets) > 0 {
+		return usageErrorf("--changed cannot be combined with explicit module targets")
 	}
 	root, err = findContractRoot(root)
 	if err != nil {
@@ -66,12 +83,37 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	modules, err = selectTestModules(modules, targets)
-	if err != nil {
-		return err
-	}
-	if len(modules) == 0 {
-		return fmt.Errorf("failed_precondition: no application modules to test")
+	var changedSelection *changedTestSelection
+	if changed {
+		changedFiles, gitErr := gitChangedFiles(ctx, root, changedBase)
+		if gitErr != nil {
+			return gitErr
+		}
+		var sel changedTestSelection
+		modules, sel = selectChangedTestModules(g, modules, changedFiles, changedBase)
+		changedSelection = &sel
+		if len(modules) == 0 {
+			if jsonOutput {
+				data := map[string]any{
+					"ok":          true,
+					"app_root":    root,
+					"modules":     []moduleTestResult{},
+					"duration_ms": int64(0),
+					"changed":     changedSelection,
+				}
+				return writeCLIJSON(out, withCLIPayloadIdentity("scenery.test.result", data))
+			}
+			_, _ = fmt.Fprintln(out, "no changed modules to test")
+			return nil
+		}
+	} else {
+		modules, err = selectTestModules(modules, targets)
+		if err != nil {
+			return err
+		}
+		if len(modules) == 0 {
+			return fmt.Errorf("failed_precondition: no application modules to test")
+		}
 	}
 	started := time.Now()
 	// Publish all module contracts in the existing atomic transaction. Tests
@@ -218,6 +260,9 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 		data := map[string]any{
 			"ok": success, "app_root": root, "modules": results, "duration_ms": time.Since(started).Milliseconds(),
 		}
+		if changedSelection != nil {
+			data["changed"] = changedSelection
+		}
 		if dbHarness != nil && dbHarness.summary != nil {
 			data["database_template"] = dbHarness.summary
 		}
@@ -283,6 +328,333 @@ func selectTestModules(modules []agentModule, targets []string) ([]agentModule, 
 		}
 	}
 	return result, nil
+}
+
+type changedTestSelection struct {
+	Base            string   `json:"base,omitempty"`
+	Files           []string `json:"files"`
+	DirectModules   []string `json:"direct_modules"`
+	AffectedModules []string `json:"affected_modules"`
+	FallbackAll     bool     `json:"fallback_all,omitempty"`
+	FallbackFiles   []string `json:"fallback_files,omitempty"`
+}
+
+var globalSharedTestFiles = map[string]bool{
+	"app.scn":        true,
+	"go.mod":         true,
+	"go.sum":         true,
+	"go.work":        true,
+	"go.work.sum":    true,
+	"scenery.lock":   true,
+	".scenery.json":  true,
+	"package.json":   true,
+	"bun.lock":       true,
+	"bun.lockb":      true,
+	"Cargo.toml":     true,
+	"Cargo.lock":     true,
+	"pyproject.toml": true,
+	"uv.lock":        true,
+}
+
+func gitChangedFiles(ctx context.Context, appRoot, base string) ([]string, error) {
+	topOut, err := runGitOutput(ctx, appRoot, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, fmt.Errorf("failed_precondition: --changed requires a git repository: %w", err)
+	}
+	gitRoot := strings.TrimSpace(string(topOut))
+	if canonical, evalErr := filepath.EvalSymlinks(gitRoot); evalErr == nil {
+		gitRoot = canonical
+	}
+	canonicalAppRoot := appRoot
+	if canonical, evalErr := filepath.EvalSymlinks(appRoot); evalErr == nil {
+		canonicalAppRoot = canonical
+	}
+
+	var rawPaths []string
+	if base == "" {
+		statusOut, statusErr := runGitOutput(ctx, canonicalAppRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+		if statusErr != nil {
+			return nil, fmt.Errorf("failed_precondition: inspect git working tree: %w", statusErr)
+		}
+		rawPaths = parseGitStatusPorcelainZ(statusOut)
+	} else {
+		if _, verifyErr := runGitOutput(ctx, canonicalAppRoot, "rev-parse", "--verify", "--quiet", base+"^{commit}"); verifyErr != nil {
+			return nil, fmt.Errorf("failed_precondition: invalid --changed-base ref %q: %w", base, verifyErr)
+		}
+		diffBase := base
+		if mbOut, mbErr := runGitOutput(ctx, canonicalAppRoot, "merge-base", base, "HEAD"); mbErr == nil {
+			if mb := strings.TrimSpace(string(mbOut)); mb != "" {
+				diffBase = mb
+			}
+		}
+		diffOut, diffErr := runGitOutput(ctx, canonicalAppRoot, "diff", "--no-renames", "--name-only", "-z", diffBase)
+		if diffErr != nil {
+			return nil, fmt.Errorf("failed_precondition: diff against %q: %w", base, diffErr)
+		}
+		rawPaths = append(rawPaths, parseGitNulPaths(diffOut)...)
+
+		untrackedOut, untrackedErr := runGitOutput(ctx, canonicalAppRoot, "ls-files", "--others", "--exclude-standard", "-z")
+		if untrackedErr != nil {
+			return nil, fmt.Errorf("failed_precondition: list untracked files: %w", untrackedErr)
+		}
+		rawPaths = append(rawPaths, parseGitNulPaths(untrackedOut)...)
+	}
+
+	seen := map[string]bool{}
+	result := make([]string, 0, len(rawPaths))
+	for _, gitRel := range rawPaths {
+		absPath := filepath.Join(gitRoot, filepath.FromSlash(gitRel))
+		appRel, relErr := filepath.Rel(canonicalAppRoot, absPath)
+		if relErr != nil || appRel == ".." || strings.HasPrefix(appRel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		slashRel := filepath.ToSlash(filepath.Clean(appRel))
+		if slashRel == "." || seen[slashRel] {
+			continue
+		}
+		seen[slashRel] = true
+		result = append(result, slashRel)
+	}
+	slices.Sort(result)
+	return result, nil
+}
+
+func runGitOutput(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = envpolicy.Environ()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s", msg)
+	}
+	return stdout.Bytes(), nil
+}
+
+func parseGitStatusPorcelainZ(data []byte) []string {
+	var paths []string
+	for len(data) > 0 {
+		idx := bytes.IndexByte(data, 0)
+		var entry []byte
+		if idx < 0 {
+			entry, data = data, nil
+		} else {
+			entry, data = data[:idx], data[idx+1:]
+		}
+		if len(entry) < 4 {
+			continue
+		}
+		x, y := entry[0], entry[1]
+		path := string(entry[3:])
+		if path != "" {
+			paths = append(paths, path)
+		}
+		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+			if nextIdx := bytes.IndexByte(data, 0); nextIdx >= 0 {
+				orig := string(data[:nextIdx])
+				data = data[nextIdx+1:]
+				if orig != "" {
+					paths = append(paths, orig)
+				}
+			} else if len(data) > 0 {
+				paths = append(paths, string(data))
+				data = nil
+			}
+		}
+	}
+	return paths
+}
+
+func parseGitNulPaths(data []byte) []string {
+	var paths []string
+	for _, entry := range bytes.Split(data, []byte{0}) {
+		if len(entry) > 0 {
+			paths = append(paths, string(entry))
+		}
+	}
+	return paths
+}
+
+func changedPathUnder(dir, relPath string) bool {
+	dir = filepath.ToSlash(filepath.Clean(dir))
+	relPath = filepath.ToSlash(filepath.Clean(relPath))
+	if dir == "." {
+		return relPath != ".." && !strings.HasPrefix(relPath, "../")
+	}
+	return relPath == dir || strings.HasPrefix(relPath, dir+"/")
+}
+
+// selectChangedTestModules maps changed app-relative paths to affected modules,
+// expands through the reverse dependency graph, and falls back to all modules
+// when shared or unowned files change.
+func selectChangedTestModules(g agentGraph, modules []agentModule, changedFiles []string, base string) ([]agentModule, changedTestSelection) {
+	selection := changedTestSelection{
+		Base:            base,
+		Files:           []string{},
+		DirectModules:   []string{},
+		AffectedModules: []string{},
+	}
+	if len(changedFiles) == 0 {
+		return nil, selection
+	}
+	selection.Files = append([]string(nil), changedFiles...)
+
+	moduleDirs := map[string]string{}
+	if g.Result != nil && g.Manifest != nil {
+		for _, resource := range g.Manifest.Resources {
+			if resource.Kind != "scenery.module" {
+				continue
+			}
+			dir := firstNonEmpty(inspectString(resource.Spec["workspace_package_root"]), inspectString(resource.Spec["source"]))
+			if dir != "" {
+				moduleDirs[cp.ModuleInstancePath(resource)] = filepath.ToSlash(filepath.Clean(dir))
+			}
+		}
+	}
+	for _, module := range modules {
+		moduleDirs[module.Name] = filepath.ToSlash(filepath.Clean(module.Directory))
+	}
+
+	directSet := map[string]bool{}
+	var fallbackFiles []string
+	for _, file := range changedFiles {
+		cleanFile := filepath.ToSlash(filepath.Clean(file))
+		if globalSharedTestFiles[cleanFile] {
+			fallbackFiles = append(fallbackFiles, cleanFile)
+			continue
+		}
+		bestLen := -1
+		var matched []string
+		for name, dir := range moduleDirs {
+			if dir == "." || !changedPathUnder(dir, cleanFile) {
+				continue
+			}
+			if len(dir) > bestLen {
+				bestLen = len(dir)
+				matched = []string{name}
+			} else if len(dir) == bestLen {
+				matched = append(matched, name)
+			}
+		}
+		if len(matched) == 0 {
+			fallbackFiles = append(fallbackFiles, cleanFile)
+			continue
+		}
+		for _, name := range matched {
+			directSet[name] = true
+		}
+	}
+
+	for name := range directSet {
+		selection.DirectModules = append(selection.DirectModules, name)
+	}
+	slices.Sort(selection.DirectModules)
+
+	if len(fallbackFiles) > 0 {
+		selection.FallbackAll = true
+		selection.FallbackFiles = fallbackFiles
+		for _, module := range modules {
+			selection.AffectedModules = append(selection.AffectedModules, module.Name)
+		}
+		return modules, selection
+	}
+
+	reverseDeps := moduleReverseDependencies(g)
+	affected := map[string]bool{}
+	queue := make([]string, 0, len(directSet))
+	for name := range directSet {
+		affected[name] = true
+		queue = append(queue, name)
+	}
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		for _, dep := range reverseDeps[curr] {
+			if !affected[dep] {
+				affected[dep] = true
+				queue = append(queue, dep)
+			}
+		}
+	}
+
+	selected := make([]agentModule, 0, len(affected))
+	for _, module := range modules {
+		if affected[module.Name] {
+			selected = append(selected, module)
+			selection.AffectedModules = append(selection.AffectedModules, module.Name)
+		}
+	}
+	return selected, selection
+}
+
+// moduleReverseDependencies returns a map from module name to the sorted list
+// of modules that directly depend on it through manifest resource references.
+func moduleReverseDependencies(g agentGraph) map[string][]string {
+	if g.Result == nil || g.Manifest == nil {
+		return nil
+	}
+	byAddress := make(map[string]graph.Resource, len(g.Manifest.Resources))
+	for _, resource := range g.Manifest.Resources {
+		byAddress[resource.Address] = resource
+	}
+	deps := map[string]map[string]bool{}
+	for _, resource := range g.Manifest.Resources {
+		owner := resource.Module
+		if resource.Kind == "scenery.module" {
+			owner = cp.ModuleInstancePath(resource)
+		}
+		if owner == "" || owner == "app" {
+			continue
+		}
+		graph.WalkReferences(resource.Spec, "/spec", func(_, reference string) {
+			target, ok := resolveAgentGraphReference(byAddress, resource, reference)
+			if !ok {
+				return
+			}
+			targetModule := target.Module
+			if target.Kind == "scenery.module" {
+				targetModule = cp.ModuleInstancePath(target)
+			}
+			if targetModule == "" || targetModule == "app" || targetModule == owner {
+				return
+			}
+			if deps[targetModule] == nil {
+				deps[targetModule] = map[string]bool{}
+			}
+			deps[targetModule][owner] = true
+		})
+	}
+	reverse := make(map[string][]string, len(deps))
+	for mod, dependents := range deps {
+		list := make([]string, 0, len(dependents))
+		for dep := range dependents {
+			list = append(list, dep)
+		}
+		slices.Sort(list)
+		reverse[mod] = list
+	}
+	return reverse
+}
+
+func resolveAgentGraphReference(byAddress map[string]graph.Resource, resource graph.Resource, reference string) (graph.Resource, bool) {
+	if strings.Contains(reference, "/") {
+		target, ok := byAddress[reference]
+		return target, ok
+	}
+	blockType, name, ok := strings.Cut(reference, ".")
+	if !ok || strings.Contains(name, ".") {
+		return graph.Resource{}, false
+	}
+	if target, found := byAddress[graph.ResourceAddress(resource.Module, blockType, name)]; found {
+		return target, true
+	}
+	target, found := byAddress[graph.ResourceAddress("app", blockType, name)]
+	return target, found
 }
 
 func (g agentGraph) testCommand(module agentModule) (string, []string, error) {
