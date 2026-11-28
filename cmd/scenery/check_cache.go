@@ -107,7 +107,7 @@ func checkCacheProducerDigest(root, pinned string) (string, bool) {
 }
 
 func checkCacheEligible(result *compiler.Result) bool {
-	if result == nil || !result.Valid() || result.Manifest == nil || len(result.Sources) == 0 {
+	if result == nil || !result.Valid() || len(result.Diagnostics) > 0 || result.Manifest == nil || len(result.Sources) == 0 {
 		return false
 	}
 	if result.WorkspaceRevision == "" || result.Manifest.ContractRevision == "" {

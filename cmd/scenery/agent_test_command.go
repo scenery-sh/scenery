@@ -397,7 +397,7 @@ func gitChangedFiles(ctx context.Context, appRoot, base string) ([]string, error
 		}
 		rawPaths = append(rawPaths, parseGitNulPaths(diffOut)...)
 
-		untrackedOut, untrackedErr := runGitOutput(ctx, canonicalAppRoot, "ls-files", "--others", "--exclude-standard", "-z")
+		untrackedOut, untrackedErr := runGitOutput(ctx, canonicalAppRoot, "ls-files", "--full-name", "--others", "--exclude-standard", "-z")
 		if untrackedErr != nil {
 			return nil, fmt.Errorf("failed_precondition: list untracked files: %w", untrackedErr)
 		}
@@ -612,8 +612,8 @@ func moduleReverseDependencies(g agentGraph) map[string][]string {
 		if resource.Kind == "scenery.module" {
 			owner = cp.ModuleInstancePath(resource)
 		}
-		if owner == "" || owner == "app" {
-			continue
+		if owner == "" {
+			owner = "app"
 		}
 		graph.WalkReferences(resource.Spec, "/spec", func(_, reference string) {
 			target, ok := resolveAgentGraphReference(byAddress, resource, reference)
@@ -624,7 +624,10 @@ func moduleReverseDependencies(g agentGraph) map[string][]string {
 			if target.Kind == "scenery.module" {
 				targetModule = cp.ModuleInstancePath(target)
 			}
-			if targetModule == "" || targetModule == "app" || targetModule == owner {
+			if targetModule == "" {
+				targetModule = "app"
+			}
+			if targetModule == owner {
 				return
 			}
 			if deps[targetModule] == nil {

@@ -29,6 +29,7 @@ type goVerifyCacheState struct {
 
 type goVerifyTargetRecord struct {
 	Producer        string                           `json:"producer"`
+	AppName         string                           `json:"app_name"`
 	Role            string                           `json:"role"`
 	Identity        string                           `json:"identity"`
 	ModulePath      string                           `json:"module_path"`
@@ -108,7 +109,7 @@ func verifySingleGoTargetIncremental(
 ) (*goVerifyTargetRecord, []Diagnostic) {
 	identity, dirs, stampErr := parse.CaptureTargetAnalysisStamp(target.Context)
 	overlayDirs := overlayDirDigests(target.Context.ModuleRoot, overlay)
-	if stampErr == nil && cached.Producer == producer && cached.Role == target.Role && cached.Identity == identity && len(cached.Packages) > 0 {
+	if stampErr == nil && cached.Producer == producer && cached.AppName == result.Manifest.Application.Name && cached.Role == target.Role && cached.Identity == identity && len(cached.Packages) > 0 {
 		if changedDirs, ok := planIncrementalGoVerifyDirs(result, target.Context.ModuleRoot, dirs, overlayDirs, moduleContracts, cached); ok {
 			if len(changedDirs) == 0 {
 				next := cached
@@ -148,6 +149,7 @@ func verifySingleGoTargetIncremental(
 	}
 	return &goVerifyTargetRecord{
 		Producer:        producer,
+		AppName:         result.Manifest.Application.Name,
 		Role:            target.Role,
 		Identity:        identity,
 		ModulePath:      modulePath,
@@ -297,6 +299,7 @@ func runIncrementalGoVerify(
 	}
 	return &goVerifyTargetRecord{
 		Producer:        cached.Producer,
+		AppName:         cached.AppName,
 		Role:            cached.Role,
 		Identity:        cached.Identity,
 		ModulePath:      cached.ModulePath,
@@ -376,6 +379,7 @@ func overlayDirDigests(moduleRoot string, overlay map[string][]byte) map[string]
 		}
 		rel, err := filepath.Rel(physModuleRoot, clean)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			byDir["__external__"] = append(byDir["__external__"], entry{name: filepath.ToSlash(clean), data: data})
 			continue
 		}
 		dir := filepath.ToSlash(filepath.Dir(rel))
@@ -400,13 +404,14 @@ func overlayDirDigests(moduleRoot string, overlay map[string][]byte) map[string]
 func goVerifyModuleContractDigests(resources []Resource) map[string]string {
 	byMod := map[string][]Resource{}
 	for _, r := range resources {
-		if r.Origin.Kind != "authored" {
-			continue
+		mod := r.Module
+		if r.Kind == "scenery.module" {
+			mod = moduleInstancePath(r)
 		}
-		switch r.Kind {
-		case "scenery.service", "scenery.operation", "scenery.binding":
-			byMod[r.Module] = append(byMod[r.Module], r)
+		if mod == "" {
+			mod = "app"
 		}
+		byMod[mod] = append(byMod[mod], r)
 	}
 	out := make(map[string]string, len(byMod))
 	for mod, list := range byMod {

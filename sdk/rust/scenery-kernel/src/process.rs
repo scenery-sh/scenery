@@ -327,17 +327,6 @@ impl Worker {
         let _ = fs::remove_file(&self.config);
         let _ = fs::remove_file(&self.launch.worker_socket);
     }
-
-    pub(crate) fn still_matches(&self, program: &Program) -> bool {
-        self.program.digest == program.digest
-            && self.program.identity == program.identity
-            && self.program.service == program.service
-            && self.program.runtime == program.runtime
-            && self.program.environment == program.environment
-            && self.program.startup.as_ref().map(|config| config.get())
-                == program.startup.as_ref().map(|config| config.get())
-            && matches!(self.exited(), Ok(None))
-    }
 }
 
 impl Drop for Worker {

@@ -70,6 +70,13 @@ impl WorkerSlot {
         }
     }
 
+    pub(crate) fn starting(&self) -> Option<watch::Receiver<Option<std::result::Result<Arc<Worker>, String>>>> {
+        match &*self.state.lock().expect("worker slot") {
+            SlotState::Starting(rx) => Some(rx.clone()),
+            SlotState::Cold | SlotState::Ready(_) => None,
+        }
+    }
+
     pub(crate) fn is_started(&self) -> bool {
         !matches!(*self.state.lock().expect("worker slot"), SlotState::Cold)
     }
@@ -116,14 +123,20 @@ impl WorkerSlot {
                         match outcome {
                             Ok(worker) => {
                                 let worker = Arc::new(worker);
-                                {
+                                let retired = {
                                     let mut guard = slot.state.lock().expect("worker slot");
-                                    *guard = SlotState::Ready(worker.clone());
-                                }
-                                if slot.retired.is_cancelled() {
+                                    if slot.retired.is_cancelled() {
+                                        *guard = SlotState::Cold;
+                                        true
+                                    } else {
+                                        *guard = SlotState::Ready(worker.clone());
+                                        false
+                                    }
+                                };
+                                if retired {
                                     worker.retired.cancel();
                                     let stopped = worker.clone();
-                                    tokio::task::spawn_blocking(move || stopped.stop_process());
+                                    let _ = tokio::task::spawn_blocking(move || stopped.stop_process()).await;
                                     let _ = tx.send(Some(Err("worker generation retired".into())));
                                 } else {
                                     let _ = tx.send(Some(Ok(worker)));
@@ -778,6 +791,7 @@ impl Control {
         let pending = state.pending.take();
         drop(state);
         let mut workers = BTreeMap::new();
+        let mut starting = Vec::new();
         for generation in active
             .into_iter()
             .chain(retired.into_values().map(|r| r.generation))
@@ -789,8 +803,13 @@ impl Control {
                 if let Some(worker) = slot.running() {
                     worker.retired.cancel();
                     workers.entry(worker.pid()).or_insert(worker);
+                } else if let Some(rx) = slot.starting() {
+                    starting.push(rx);
                 }
             }
+        }
+        for mut rx in starting {
+            let _ = tokio::time::timeout(DRAIN_TIMEOUT, rx.wait_for(Option::is_some)).await;
         }
         // Give every owned group the same drain window, even if a request
         // still holds its generation or several workers have slow shutdowns.

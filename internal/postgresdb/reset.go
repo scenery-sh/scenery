@@ -87,7 +87,9 @@ func FastResetDatabase(ctx context.Context, db *sql.DB, expected *ResettableData
 		return fmt.Errorf("begin fast reset transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	_, _ = tx.ExecContext(ctx, `SET LOCAL synchronous_commit = off`)
+	if _, err := tx.ExecContext(ctx, `SET LOCAL synchronous_commit = off`); err != nil {
+		return fmt.Errorf("configure fast reset commit mode: %w", err)
+	}
 	if len(expected.Tables) > 0 {
 		if _, err := tx.ExecContext(ctx, `TRUNCATE TABLE `+strings.Join(expected.Tables, ", ")+` RESTART IDENTITY CASCADE`); err != nil {
 			return fmt.Errorf("truncate test tables: %w", err)
